@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Training Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0a0a; --card: #141414; --card2: #1c1c1c; --border: #222; --border2: #2a2a2a;
+  --accent: #f97316; --accent2: #fb923c; --blue: #38bdf8; --green: #4ade80;
+  --red: #f87171; --purple: #a78bfa; --text: #f1f1f1; --muted: #777; --subtle: #3a3a3a;
+}
+body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; min-height: 100vh; }
+
+.header { background: var(--card); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.header-left { display: flex; align-items: center; gap: 10px; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; }
+.avatar-ph { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+.name { font-weight: 600; font-size: 14px; }
+.sub { font-size: 11px; color: var(--muted); }
+.header-right { display: flex; gap: 8px; }
+
+.tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 12px; overflow-x: auto; background: var(--card); }
+.tab { padding: 11px 13px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; font-size: 13px; white-space: nowrap; font-family: inherit; transition: all 0.15s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+.content { padding: 14px; max-width: 820px; margin: 0 auto; }
+.section { display: flex; flex-direction: column; gap: 12px; }
+.hidden { display: none !important; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.card-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 10px; }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stats-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px; text-align: center; }
+.stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; }
+.stat-val { font-size: 19px; font-weight: 800; margin-bottom: 2px; }
+.stat-sub { font-size: 10px; color: var(--muted); }
+
+/* Colors */
+.c-orange { color: var(--accent); } .c-blue { color: var(--blue); } .c-green { color: var(--green); }
+.c-red { color: var(--red); } .c-purple { color: var(--purple); } .c-muted { color: var(--muted); }
+
+/* Activity rows */
+.act-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.act-row:last-child { border-bottom: none; }
+.act-icon { font-size: 17px; width: 22px; text-align: center; flex-shrink: 0; }
+.act-info { flex: 1; min-width: 0; }
+.act-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-date { font-size: 11px; color: var(--muted); }
+.act-right { text-align: right; flex-shrink: 0; }
+.act-dist { font-weight: 600; font-size: 13px; }
+.act-time { font-size: 11px; color: var(--muted); }
+.act-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; padding-left: 32px; font-size: 11px; color: var(--muted); }
+.act-watt { color: var(--accent); font-weight: 600; }
+
+/* Forms */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fg { display: flex; flex-direction: column; gap: 3px; }
+.fg.full { grid-column: 1 / -1; }
+label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+input, select, textarea {
+  background: var(--card2); border: 1px solid var(--border2); border-radius: 8px;
+  padding: 8px 11px; color: var(--text); font-size: 13px; font-family: inherit;
+  width: 100%; outline: none; transition: border-color 0.15s;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+textarea { resize: vertical; min-height: 65px; }
+select option { background: #1c1c1c; }
+
+/* Buttons */
+.btn { padding: 9px 18px; border-radius: 9px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent2); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-secondary { background: transparent; border: 1px solid var(--border2); color: var(--muted); }
+.btn-secondary:hover { color: var(--text); border-color: var(--subtle); }
+.btn-full { width: 100%; padding: 13px; font-size: 14px; }
+.btn-sm { padding: 5px 11px; font-size: 12px; border-radius: 7px; }
+.btn-ghost { background: transparent; border: 1px solid var(--accent)44; color: var(--accent); }
+.btn-ghost:hover { background: var(--accent)11; }
+.btn-success { background: #14532d; color: var(--green); }
+.btn-danger { background: transparent; border: none; color: var(--subtle); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 3px; }
+.btn-danger:hover { color: var(--red); }
+
+/* Alerts */
+.alert { padding: 9px 12px; border-radius: 8px; font-size: 12px; margin-top: 8px; }
+.alert-error { background: #450a0a; border: 1px solid var(--red)44; color: var(--red); }
+.alert-success { background: #052e16; border: 1px solid var(--green)44; color: var(--green); }
+.alert-info { background: #0c1a2e; border: 1px solid var(--blue)44; color: var(--blue); }
+.alert-warn { background: #1c1000; border: 1px solid #f59e0b44; color: #fbbf24; }
+
+/* Empty */
+.empty { text-align: center; padding: 36px 20px; color: var(--muted); }
+.empty-icon { font-size: 28px; margin-bottom: 8px; }
+.empty-text { font-size: 13px; line-height: 1.6; }
+
+/* Nutrition history */
+.nutr-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.nutr-row:last-child { border-bottom: none; }
+.nutr-date { color: var(--muted); width: 95px; flex-shrink: 0; }
+.nutr-vals { display: flex; gap: 10px; flex: 1; flex-wrap: wrap; }
+
+/* Upload */
+.upload-zone { border: 2px dashed var(--border2); border-radius: 10px; padding: 22px; text-align: center; cursor: pointer; transition: all 0.15s; }
+.upload-zone:hover, .upload-zone.over { border-color: var(--accent); background: var(--accent)08; }
+
+/* Parsed preview */
+.parsed-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+.parsed-val { background: var(--card2); border-radius: 8px; padding: 9px; text-align: center; }
+.parsed-num { font-size: 17px; font-weight: 800; }
+.parsed-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+
+/* Patterns */
+.pattern-item { display: flex; align-items: center; gap: 8px; background: var(--card2); border-radius: 8px; padding: 9px 11px; margin-bottom: 5px; }
+.pattern-info { flex: 1; }
+.pattern-type { font-weight: 500; font-size: 13px; }
+.pattern-desc { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.day-lbl { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin: 10px 0 5px; }
+.day-lbl:first-child { margin-top: 0; }
+
+/* ═══ WEEK PLANNING ═══ */
+.week-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.week-title { font-weight: 600; font-size: 14px; }
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+@media (max-width: 600px) { .week-grid { grid-template-columns: 1fr; } }
+
+.day-card { background: var(--card2); border: 1px solid var(--border2); border-radius: 10px; padding: 10px; min-height: 120px; }
+.day-card.today { border-color: var(--accent)66; }
+.day-card-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+.day-card-head.today-lbl { color: var(--accent); }
+.day-num { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
+
+.planned-session { display: flex; align-items: center; gap: 5px; background: var(--card); border-radius: 6px; padding: 5px 7px; margin-bottom: 4px; font-size: 12px; }
+.ps-icon { font-size: 14px; }
+.ps-info { flex: 1; min-width: 0; }
+.ps-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-sub { font-size: 10px; color: var(--muted); }
+.ps-remove { background: none; border: none; color: var(--subtle); cursor: pointer; font-size: 15px; line-height: 1; flex-shrink: 0; }
+.ps-remove:hover { color: var(--red); }
+
+.add-session-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.add-btn { background: var(--card); border: 1px solid var(--border2); border-radius: 6px; padding: 4px 7px; font-size: 11px; cursor: pointer; color: var(--muted); transition: all 0.15s; font-family: inherit; }
+.add-btn:hover { border-color: var(--accent)66; color: var(--text); }
+
+/* Session form modal */
+.modal-overlay { position: fixed; inset: 0; background: #000a; display: flex; align-items: center; justify-content: center; z-index: 200; padding: 16px; }
+.modal { background: var(--card); border: 1px solid var(--border2); border-radius: 14px; padding: 20px; width: 100%; max-width: 400px; }
+.modal-title { font-weight: 700; font-size: 15px; margin-bottom: 14px; }
+
+/* Analysis */
+.analysis-text { font-size: 14px; line-height: 1.8; color: var(--text); white-space: pre-wrap; }
+
+/* TSB indicator */
+.tsb-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.tsb-tired { background: var(--red)22; color: var(--red); }
+.tsb-optimal { background: var(--green)22; color: var(--green); }
+.tsb-fresh { background: var(--blue)22; color: var(--blue); }
+
+/* History chart placeholder */
+.sync-banner { background: var(--card2); border: 1px solid var(--border2); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
+.sync-info { font-size: 12px; color: var(--muted); }
+
+.monthly-row { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.monthly-row:last-child { border-bottom: none; }
+.monthly-date { color: var(--muted); width: 55px; flex-shrink: 0; }
+.monthly-bar-wrap { flex: 1; height: 6px; background: var(--card2); border-radius: 3px; overflow: hidden; }
+.monthly-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+.monthly-stats { display: flex; gap: 10px; color: var(--muted); min-width: 160px; justify-content: flex-end; }
+
+.gap-2 { gap: 8px; } .flex { display: flex; } .items-center { align-items: center; } .mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div id="avatarWrap"><div class="avatar-ph" id="avatarInit">P</div></div>
+    <div><div class="name" id="athName">Laden...</div><div class="sub" id="athSub">Training Dashboard</div></div>
+  </div>
+  <div class="header-right">
+    <button class="btn btn-secondary btn-sm" onclick="syncAll()">↻ Sync</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="showTab('overview',this)">Overzicht</button>
+  <button class="tab" onclick="showTab('activities',this)">Activiteiten</button>
+  <button class="tab" onclick="showTab('hevy',this)">Gym</button>
+  <button class="tab" onclick="showTab('nutrition',this)">Voeding</button>
+  <button class="tab" onclick="showTab('week',this)">Weekplanning</button>
+  <button class="tab" onclick="showTab('voortgang',this)">Voortgang</button>
+  <button class="tab" onclick="showTab('literatuur',this)">Literatuur</button>
+  <button class="tab" onclick="showTab('planning',this)">Doelen</button>
+  <button class="tab" onclick="showTab('analyse',this)">AI-analyse</button>
+</div>
+
+<div class="content">
+
+  <!-- OVERZICHT -->
+  <div id="tab-overview" class="section">
+
+    <!-- Readiness card -->
+    <div class="card" style="background:linear-gradient(135deg, var(--card) 0%, #1a1a1a 100%)">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="position:relative;width:90px;height:90px;flex-shrink:0">
+          <svg width="90" height="90" viewBox="0 0 90 90">
+            <circle cx="45" cy="45" r="40" fill="none" stroke="var(--border2)" stroke-width="6"/>
+            <circle cx="45" cy="45" r="40" fill="none" stroke-width="6" stroke-linecap="round"
+              id="readinessRing" transform="rotate(-90 45 45)" stroke-dasharray="251.2" stroke-dashoffset="251.2"/>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+            <div style="font-size:24px;font-weight:800" id="readinessVal">–</div>
+            <div style="font-size:10px;color:var(--muted)">/ 100</div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Readiness</div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:4px" id="readinessInterp">–</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.5" id="readinessBreakdown">Sync je data om de score te berekenen</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div id="alertsContainer"></div>
+
+    <!-- Load metrics -->
+    <div class="stats-grid-5">
+      <div class="stat"><div class="stat-lbl">ATL</div><div class="stat-val c-red" id="sATL">–</div><div class="stat-sub">acuut (7d)</div></div>
+      <div class="stat"><div class="stat-lbl">CTL</div><div class="stat-val c-blue" id="sCTL">–</div><div class="stat-sub">chronisch (42d)</div></div>
+      <div class="stat"><div class="stat-lbl">TSB</div><div class="stat-val" id="sTSB">–</div><div class="stat-sub" id="sTSBSub">form</div></div>
+      <div class="stat"><div class="stat-lbl">ACWR</div><div class="stat-val" id="sACWR">–</div><div class="stat-sub" id="sACWRSub">acute:chronic</div></div>
+      <div class="stat"><div class="stat-lbl">Monotony</div><div class="stat-val c-purple" id="sMono">–</div><div class="stat-sub" id="sMonoSub">eentonigheid</div></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat"><div class="stat-lbl">Trainingsmodel</div><div class="stat-val" id="sModel" style="font-size:14px;line-height:1.3">–</div><div class="stat-sub" id="sModelSub">deze week</div></div>
+      <div class="stat"><div class="stat-lbl">Rolling FTP</div><div class="stat-val c-orange" id="sFTP">–</div><div class="stat-sub">60d window</div></div>
+      <div class="stat"><div class="stat-lbl">Gewicht</div><div class="stat-val c-green" id="sWeight">–</div><div class="stat-sub" id="sWeightSub">doel: 90-92kg</div></div>
+    </div>
+
+    <div id="syncBanner" class="sync-banner">
+      <div class="sync-info" id="syncInfo">Volledige history nog niet gesynchroniseerd</div>
+      <button class="btn btn-ghost btn-sm" id="btnSyncAll" onclick="syncFullHistory()">Sync alle activiteiten</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Recente activiteiten</div>
+      <div id="recentActs"><div style="color:var(--muted);font-size:13px;padding:16px 0">Laden...</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Vandaag loggen</div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="fg" style="flex:0 0 130px">
+          <label>Gewicht (kg)</label>
+          <input type="number" step="0.1" id="qWeight" placeholder="99.5">
+        </div>
+        <div class="fg" style="flex:1;min-width:200px">
+          <label>Notitie (voor analyse)</label>
+          <input type="text" id="qNote" placeholder="Bijv. 'Sla legs over — knie doet pijn'">
+        </div>
+        <button class="btn btn-primary" id="btnQSave" onclick="saveQuick()" style="flex-shrink:0">Opslaan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACTIVITEITEN -->
+  <div id="tab-activities" class="section hidden">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-label" style="margin:0">Activiteiten · 21 dagen</div>
+      </div>
+      <div id="allActs"><div style="color:var(--muted);font-size:13px;padding:16px 0">Laden...</div></div>
+    </div>
+  </div>
+
+  <!-- GYM / HEVY -->
+  <div id="tab-hevy" class="section hidden">
+    <div class="card">
+      <div class="card-label">Recente gym workouts (Hevy)</div>
+      <div id="hevyList"><div class="alert alert-info">Hevy API key toevoegen aan .env om workouts te laden</div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Hevy koppelen</div>
+      <p style="color:var(--muted);font-size:13px;line-height:1.7">Open Hevy → Profiel → Instellingen → API → kopieer je API key en voeg toe aan <code style="color:var(--accent)">.env</code> als <code style="color:var(--accent)">HEVY_API_KEY=...</code> en herstart de server.</p>
+    </div>
+  </div>
+
+  <!-- VOEDING -->
+  <div id="tab-nutrition" class="section hidden">
+    <div class="card">
+      <div class="card-label">Yazio screenshot importeren</div>
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileIn').click()">
+        <div style="font-size:26px;margin-bottom:6px">📸</div>
+        <div style="color:var(--muted);font-size:13px">Klik of sleep screenshot hierheen<br><span style="color:var(--accent)">Selecteer afbeelding</span></div>
+      </div>
+      <input type="file" id="fileIn" accept="image/*" style="display:none" onchange="handleFile(this.files[0])">
+      <div id="parseMsg" class="hidden"></div>
+      <div id="parsedPreview" class="hidden">
+        <div class="parsed-grid" id="parsedVals"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-primary btn-sm" onclick="confirmNutr()">Opslaan voor vandaag</button>
+          <button class="btn btn-secondary btn-sm" onclick="cancelNutr()">Annuleren</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Handmatig invoeren</div>
+      <div class="form-grid">
+        <div class="fg"><label>Calorieën (kcal)</label><input type="number" id="mKcal" placeholder="2400"></div>
+        <div class="fg"><label>Eiwit (g)</label><input type="number" id="mProt" placeholder="180"></div>
+        <div class="fg"><label>Koolhydraten (g)</label><input type="number" id="mCarb" placeholder="250"></div>
+        <div class="fg"><label>Vet (g)</label><input type="number" id="mFat" placeholder="70"></div>
+      </div>
+      <button class="btn btn-primary mt-3" onclick="saveManualNutr()" id="btnManualNutr">Opslaan voor vandaag</button>
+    </div>
+    <div class="card">
+      <div class="card-label">Afgelopen 14 dagen</div>
+      <div id="nutrHistory"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
+    </div>
+  </div>
+
+  <!-- WEEKPLANNING -->
+  <div id="tab-week" class="section hidden">
+    <div class="card">
+      <div class="week-nav">
+        <button class="btn btn-secondary btn-sm" onclick="changeWeek(-1)">← Vorige</button>
+        <span class="week-title" id="weekTitle"></span>
+        <button class="btn btn-secondary btn-sm" onclick="changeWeek(1)">Volgende →</button>
+      </div>
+      <div class="week-grid" id="weekGrid"></div>
+    </div>
+    <div class="card" id="weekSummary" style="display:none">
+      <div class="card-label">Weekoverzicht</div>
+      <div id="weekSummaryContent"></div>
+    </div>
+  </div>
+
+  <!-- VOORTGANG -->
+  <div id="tab-voortgang" class="section hidden">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-label" style="margin:0">Grafieken</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="chartPeriod" onchange="loadCharts()" style="width:auto;padding:5px 10px;font-size:12px">
+            <option value="90">3 maanden</option>
+            <option value="180">6 maanden</option>
+            <option value="365" selected>1 jaar</option>
+            <option value="9999">Alles</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="loadCharts()">↻ Laden</button>
+        </div>
+      </div>
+      <div id="chartsMsg" class="alert alert-info" style="font-size:12px">Klik op "Laden" om grafieken te genereren.</div>
+    </div>
+
+    <div id="chartsContainer" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+
+      <div class="card">
+        <div class="card-label">Gewicht over tijd (kg)</div>
+        <canvas id="chartWeight" height="80"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Trainingsbelasting — ATL / CTL / TSB (120 dagen)</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">ATL = acuut (7d gem.) · CTL = chronisch (42d gem.) · TSB = form (CTL−ATL)</div>
+        <canvas id="chartLoad" height="90"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Wekelijks trainingsvolume (uren)</div>
+        <canvas id="chartVolume" height="80"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Voeding — calorieën & eiwit per dag</div>
+        <canvas id="chartNutr" height="80"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Gemiddeld vermogen per maand (W) — onbetrouwbare periode uitgesloten</div>
+        <canvas id="chartPower" height="80"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LITERATUUR -->
+  <div id="tab-literatuur" class="section hidden">
+
+    <div class="card">
+      <div class="card-label">Wat is dit?</div>
+      <p style="color:var(--muted);font-size:13px;line-height:1.7">
+        Voeg hier studies, richtlijnen of samenvattingen toe die de AI gebruikt als context bij elke analyse. Upload een PDF (wordt automatisch samengevat), een tekstbestand, of plak een samenvatting direct in. Goede bronnen: papers over concurrent training, ACSM-richtlijnen, voedingsstudies.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-label">PDF of tekstbestand uploaden</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="fg">
+          <label>Titel / referentie</label>
+          <input type="text" id="litUploadTitle" placeholder="Bijv. Wilson et al. 2012 — Concurrent training meta-analyse">
+        </div>
+        <div class="upload-zone" id="litUploadZone" onclick="document.getElementById('litFileIn').click()" style="padding:16px">
+          <div style="font-size:22px;margin-bottom:5px">📄</div>
+          <div style="color:var(--muted);font-size:13px">Klik of sleep PDF of .txt hierheen<br><span style="color:var(--accent)">PDF wordt automatisch samengevat via AI</span></div>
+        </div>
+        <input type="file" id="litFileIn" accept=".pdf,.txt" style="display:none" onchange="handleLitUpload(this.files[0])">
+        <div id="litUploadMsg" class="hidden"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Tekst direct invoeren</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="fg">
+          <label>Titel / referentie</label>
+          <input type="text" id="litPasteTitle" placeholder="Bijv. Murach & Bagley 2016 — Interference effect">
+        </div>
+        <div class="fg">
+          <label>Inhoud (samenvatting, abstract, aantekeningen)</label>
+          <textarea id="litPasteContent" rows="6" placeholder="Plak hier de samenvatting, het abstract, of jouw eigen aantekeningen bij de studie..."></textarea>
+        </div>
+        <button class="btn btn-primary btn-sm" style="align-self:flex-start" onclick="saveLitPaste()" id="btnLitPaste">Toevoegen</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-label" style="margin:0">Opgeslagen literatuur</div>
+        <span id="litCount" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div id="litList"><div style="color:var(--muted);font-size:13px;padding:12px 0">Geen literatuur toegevoegd.</div></div>
+    </div>
+
+  </div>
+
+  <!-- PLANNING / DOELEN -->
+  <div id="tab-planning" class="section hidden">
+    <div class="card">
+      <div class="card-label">Doelen</div>
+      <div class="form-grid">
+        <div class="fg full"><label>Primair doel</label><input type="text" id="gPrimary" placeholder="Lichaamscompositie verbeteren, cut naar 90kg"></div>
+        <div class="fg"><label>Doelgewicht (kg)</label><input type="text" id="gWeight" placeholder="90-92"></div>
+        <div class="fg"><label>Tijdlijn</label><input type="text" id="gTimeline" placeholder="Voor september"></div>
+        <div class="fg full"><label>Extra context</label><textarea id="gNotes" placeholder="Events, blessures, beperkingen..."></textarea></div>
+      </div>
+      <button class="btn btn-primary mt-3" onclick="saveGoals()" id="btnGoals">Doelen opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Historisch gewicht importeren</div>
+      <p style="color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:12px">
+        Exporteer je gewichtsgeschiedenis uit Garmin Connect: <strong style="color:var(--text)">Gezondheid → Gewicht → Exporteren (CSV)</strong>. Upload het bestand hieronder. Bestaande handmatige invoer wordt niet overschreven. Pounds worden automatisch omgezet naar kg.
+      </p>
+      <div class="upload-zone" id="weightUploadZone" onclick="document.getElementById('weightFileIn').click()" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:5px">⚖️</div>
+        <div style="color:var(--muted);font-size:13px">Klik of sleep Garmin CSV hierheen<br><span style="color:var(--accent)">Selecteer bestand</span></div>
+      </div>
+      <input type="file" id="weightFileIn" accept=".csv,.txt" style="display:none" onchange="handleWeightUpload(this.files[0])">
+      <div id="weightUploadMsg" class="hidden"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Instellingen powermeter</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Vermogensdata in deze periode wordt gemarkeerd als onbetrouwbaar in de analyse en wordt niet gebruikt voor FTP-schatting of prestatielijsten.</p>
+      <div class="form-grid">
+        <div class="fg"><label>Onbetrouwbaar van</label><input type="date" id="sPwrStart" value="2020-01-01"></div>
+        <div class="fg"><label>Onbetrouwbaar tot</label><input type="date" id="sPwrEnd" value="2020-12-31"></div>
+        <div class="fg"><label>Huidige FTP (watt, schatting)</label><input type="number" id="sFtp" placeholder="280"></div>
+      </div>
+      <button class="btn btn-primary mt-3" onclick="saveSettings()" id="btnSettings">Instellingen opslaan</button>
+    </div>
+
+
+    <div class="card">
+      <div class="card-label">Historisch gewicht importeren</div>
+      <p style="color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:12px">
+        Exporteer je gewichtsdata uit Garmin Connect: Gezondheid → Gewicht → rechtsboven het export-icoon → CSV. Upload het bestand hieronder. Bestaande handmatige metingen worden nooit overschreven.
+      </p>
+      <div class="upload-zone" id="weightUploadZone" onclick="document.getElementById('weightFileIn').click()">
+        <div style="font-size:24px;margin-bottom:6px">⚖️</div>
+        <div style="color:var(--muted);font-size:13px">Klik of sleep Garmin CSV hierheen<br><span style="color:var(--accent)">Selecteer bestand</span></div>
+      </div>
+      <input type="file" id="weightFileIn" accept=".csv,text/csv" style="display:none" onchange="handleWeightImport(this.files[0])">
+      <div id="weightImportMsg" class="hidden"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-label" style="margin:0">Vaste wekelijkse patronen</div>
+        <button class="btn btn-ghost btn-sm" onclick="togglePatternForm()">+ Toevoegen</button>
+      </div>
+      <div id="patternForm" class="hidden" style="background:var(--card2);border-radius:10px;padding:12px;margin-bottom:12px">
+        <div class="form-grid">
+          <div class="fg"><label>Dag</label>
+            <select id="npDay"><option>Maandag</option><option>Dinsdag</option><option>Woensdag</option><option>Donderdag</option><option>Vrijdag</option><option>Zaterdag</option><option>Zondag</option></select>
+          </div>
+          <div class="fg"><label>Type</label>
+            <select id="npType"><option>Wielrennen (buiten)</option><option>Wielrennen (trainer)</option><option>Hardlopen</option><option>Krachttraining (Push)</option><option>Krachttraining (Pull)</option><option>Krachttraining (Legs)</option><option>Zwemmen</option><option>Overig</option></select>
+          </div>
+          <div class="fg full"><label>Beschrijving</label><input type="text" id="npDesc" placeholder="Bijv. maximale blokken, PPL Pull dag"></div>
+          <div class="fg"><label>Duur (min)</label><input type="number" id="npDur" value="60"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-primary btn-sm" onclick="addPattern()">Toevoegen</button>
+          <button class="btn btn-secondary btn-sm" onclick="togglePatternForm()">Annuleren</button>
+        </div>
+      </div>
+      <div id="patternsList"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Geschiedenis</div>
+      <div id="histSummary"><div style="color:var(--muted);font-size:13px">Sync eerst je volledige history via de Overzicht-tab.</div></div>
+    </div>
+  </div>
+
+  <!-- ANALYSE -->
+  <div id="tab-analyse" class="section hidden">
+    <div class="card">
+      <div class="card-label">Notitie voor de analyse</div>
+      <textarea id="analyseNote" placeholder="Afwijking of aanvulling? Bijv. 'Sla legs over', 'Ga morgen 4u fietsen', 'Rechterknie doet pijn'" style="margin-bottom:12px"></textarea>
+      <button class="btn btn-primary btn-full" onclick="runAnalysis()" id="btnAnalyse">⚡ Genereer analyse</button>
+      <div class="alert alert-info mt-2" style="font-size:11px">Vereist Anthropic API key en volledige history sync voor beste resultaat.</div>
+    </div>
+    <div id="analysisResult" class="hidden">
+      <div class="card">
+        <div class="card-label">Analyse</div>
+        <div class="analysis-text" id="analysisText"></div>
+      </div>
+    </div>
+    <div class="card" id="analyseEmpty">
+      <div class="empty"><div class="empty-icon">🤖</div><div class="empty-text">Klik op "Genereer analyse" voor diepgaand gepersonaliseerd advies op basis van je volledige trainingsgeschiedenis, voeding, gewicht, doelen en weekplanning.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- SESSION MODAL -->
+<div id="modalOverlay" class="modal-overlay hidden" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title" id="modalTitle">Sessie toevoegen</div>
+    <div id="modalBody"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-primary" onclick="confirmSession()">Toevoegen</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Annuleren</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let S = {
+  athlete: null, recentActs: [], hevyWorkouts: [],
+  data: { goals:{}, patterns:[], nutrition:{}, weight:{}, weekPlan:{}, settings:{} },
+  parsedNutr: null, currentWeekOffset: 0,
+  pendingSession: null, histSummary: null,
+};
+
+const DAYS_NL = ['Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag','Zondag'];
+const TYPES = ['Wielrennen (buiten)','Wielrennen (trainer)','Hardlopen','Krachttraining (Push)','Krachttraining (Pull)','Krachttraining (Legs)','Zwemmen','Overig'];
+
+function today() { return new Date().toISOString().split('T')[0]; }
+function fmtT(sec) { if(!sec) return '–'; const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60); return h>0?`${h}u${String(m).padStart(2,'0')}`:`${m}m`; }
+function fmtD(iso,long=false) {
+  if(!iso) return '';
+  return new Date(iso).toLocaleDateString('nl-NL', long ? {weekday:'long',day:'numeric',month:'long'} : {weekday:'short',day:'numeric',month:'short'});
+}
+function sEmoji(t) { return {Ride:'🚴',VirtualRide:'🖥️',Run:'🏃',WeightTraining:'🏋️',Swim:'🏊',Walk:'🚶',Hike:'🥾',Gym:'🏋️',Cycling:'🚴',Running:'🏃'}[t]||'⚡'; }
+
+async function api(path, opts={}) {
+  const r = await fetch(path, opts);
+  if(!r.ok) { const e = await r.json().catch(()=>({error:r.statusText})); throw new Error(e.error||r.statusText); }
+  return r.json();
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+async function syncAll() {
+  document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Laden...');
+  await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature()]);
+  await loadFullState();
+  document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Sync');
+}
+
+async function loadAthlete() {
+  try {
+    S.athlete = await api('/api/strava/athlete');
+    const a = S.athlete;
+    document.getElementById('athName').textContent = `${a.firstname} ${a.lastname}`;
+    document.getElementById('athSub').textContent = `${a.city||'Strava'} · ${a.country||''}`;
+    document.getElementById('avatarInit').textContent = a.firstname?.[0]||'P';
+    if (a.profile_medium) document.getElementById('avatarWrap').innerHTML = `<img class="avatar" src="${a.profile_medium}" alt="">`;
+  } catch { document.getElementById('athName').textContent = 'Strava niet verbonden'; }
+}
+
+async function loadRecentActs() {
+  try {
+    S.recentActs = await api('/api/strava/activities');
+    renderRecentActs(); renderStats();
+  } catch(e) {
+    document.getElementById('recentActs').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+  }
+}
+
+async function loadHevy() {
+  try {
+    S.hevyWorkouts = await api('/api/hevy/workouts');
+    renderHevy();
+  } catch { document.getElementById('hevyList').innerHTML = '<div class="alert alert-info">Hevy niet verbonden</div>'; }
+}
+
+async function loadUserData() {
+  try {
+    S.data = await api('/api/data');
+    renderNutrHistory(); renderPatterns(); renderWeekGrid(); renderStats();
+    // Fill forms
+    const g = S.data.goals||{};
+    document.getElementById('gPrimary').value = g.primary||'';
+    document.getElementById('gWeight').value = g.weightTarget||'90-92';
+    document.getElementById('gTimeline').value = g.timeline||'';
+    document.getElementById('gNotes').value = g.notes||'';
+    const cfg = S.data.settings||{};
+    document.getElementById('sPwrStart').value = cfg.unreliablePowerStart||'2020-01-01';
+    document.getElementById('sPwrEnd').value = cfg.unreliablePowerEnd||'2020-12-31';
+    document.getElementById('sFtp').value = cfg.ftp||280;
+    if (S.data.weight?.[today()]) document.getElementById('qWeight').value = S.data.weight[today()];
+    if (g.weightTarget) document.getElementById('sWeightSub').textContent = `doel: ${g.weightTarget}kg`;
+  } catch {}
+}
+
+async function loadHistSummary() {
+  try {
+    const h = await api('/api/strava/history-summary');
+    S.histSummary = h;
+    updateSyncBanner(h);
+    updateMetrics(h.metrics);
+    renderHistSummary(h);
+  } catch {}
+}
+
+async function syncFullHistory() {
+  const btn = document.getElementById('btnSyncAll');
+  btn.textContent = 'Bezig...'; btn.disabled = true;
+  document.getElementById('syncInfo').textContent = 'Alle activiteiten ophalen, even geduld...';
+  try {
+    const r = await api('/api/strava/sync-all', { method: 'POST' });
+    document.getElementById('syncInfo').textContent = `✓ ${r.total} activiteiten gesynchroniseerd (${r.new} nieuw)`;
+    await loadHistSummary();
+  } catch(e) {
+    document.getElementById('syncInfo').textContent = 'Sync mislukt: ' + e.message;
+  }
+  btn.textContent = 'Sync alle activiteiten'; btn.disabled = false;
+}
+
+function updateSyncBanner(h) {
+  if (h.total > 0) {
+    const d = h.lastSync ? new Date(h.lastSync).toLocaleDateString('nl-NL') : '–';
+    document.getElementById('syncInfo').textContent = `${h.total} activiteiten gesynchroniseerd · Laatste sync: ${d}`;
+    document.getElementById('btnSyncAll').textContent = '↻ Sync nieuw';
+  }
+}
+
+function updateMetrics(m) {
+  if (!m) return;
+  document.getElementById('sATL').textContent = m.atl;
+  document.getElementById('sCTL').textContent = m.ctl;
+  const tsb = m.tsb;
+  const tsbEl = document.getElementById('sTSB');
+  tsbEl.textContent = tsb > 0 ? `+${tsb}` : tsb;
+  tsbEl.className = 'stat-val ' + (tsb < -20 ? 'c-red' : tsb > 10 ? 'c-blue' : 'c-green');
+  document.getElementById('sTSBSub').textContent = tsb < -20 ? 'vermoeid' : tsb > 10 ? 'uitgerust' : 'optimaal';
+
+  // ACWR
+  if (m.acwr !== undefined) {
+    const acwrEl = document.getElementById('sACWR');
+    if (acwrEl) {
+      acwrEl.textContent = m.acwr;
+      acwrEl.className = 'stat-val ' + (m.acwr > 1.5 ? 'c-red' : m.acwr > 1.3 ? 'c-orange' : m.acwr < 0.8 ? 'c-blue' : 'c-green');
+      document.getElementById('sACWRSub').textContent = m.acwr > 1.5 ? '⚠️ spike-zone' : m.acwr > 1.3 ? 'verhoogd' : m.acwr < 0.8 ? 'detraining' : 'optimaal';
+    }
+  }
+
+  // Monotony
+  if (m.monotony !== undefined) {
+    const mEl = document.getElementById('sMono');
+    if (mEl) {
+      mEl.textContent = m.monotony;
+      mEl.className = 'stat-val ' + (m.monotony > 2.5 ? 'c-red' : m.monotony > 2.0 ? 'c-orange' : 'c-purple');
+      document.getElementById('sMonoSub').textContent = m.monotony > 2.5 ? 'te eentonig' : m.monotony > 2.0 ? 'verhoogd' : 'normaal';
+    }
+  }
+}
+
+async function loadFullState() {
+  try {
+    const s = await api('/api/state/full');
+    S.fullState = s;
+
+    // Readiness
+    const r = s.readiness;
+    document.getElementById('readinessVal').textContent = r.total;
+    document.getElementById('readinessInterp').textContent = r.interpretation.charAt(0).toUpperCase() + r.interpretation.slice(1);
+    const ring = document.getElementById('readinessRing');
+    const offset = 251.2 - (r.total / 100) * 251.2;
+    ring.setAttribute('stroke-dashoffset', offset);
+    const ringColor = r.total >= 80 ? '#4ade80' : r.total >= 65 ? '#a3e635' : r.total >= 50 ? '#facc15' : r.total >= 35 ? '#fb923c' : '#f87171';
+    ring.setAttribute('stroke', ringColor);
+    document.getElementById('readinessBreakdown').innerHTML =
+      `TSB ${r.breakdown.tsb}/40 · ACWR ${r.breakdown.acwr}/25 · Monotony ${r.breakdown.monotony}/15<br>` +
+      `Load slope ${r.breakdown.loadSlope}/10 · Voeding ${r.breakdown.nutrition}/10`;
+
+    // Update all metrics
+    updateMetrics(s.metrics);
+
+    // FTP
+    if (s.ftpInfo) {
+      document.getElementById('sFTP').textContent = s.ftpInfo.ftp + 'W';
+    } else {
+      document.getElementById('sFTP').textContent = '–';
+    }
+
+    // Training model
+    const model = s.currentZoneModel;
+    if (model) {
+      document.getElementById('sModel').textContent = model.model;
+      document.getElementById('sModelSub').textContent = `${model.lowPct}/${model.midPct}/${model.highPct}%`;
+    }
+
+    // Alerts
+    renderAlerts(s);
+  } catch(e) {
+    console.warn('loadFullState failed', e);
+  }
+}
+
+function renderAlerts(s) {
+  const container = document.getElementById('alertsContainer');
+  const alerts = [];
+
+  if (s.overreaching.level === 'severe') {
+    alerts.push({ type: 'error', icon: '🚨', title: 'Zwaar overreached',
+      content: 'Meerdere overbelastingsindicatoren samen. Hersteldagen inplannen, geen zware sessies. Flags: ' + s.overreaching.flags.join(', ') });
+  } else if (s.overreaching.level === 'moderate') {
+    alerts.push({ type: 'warn', icon: '⚠️', title: 'Matig overreached',
+      content: 'Meerdere risicofactoren actief. Volume verlagen, focus op herstel. ' + s.overreaching.flags.join(', ') });
+  } else if (s.overreaching.level === 'mild') {
+    alerts.push({ type: 'warn', icon: '⚠️', title: 'Lichte overbelasting',
+      content: s.overreaching.flags.join(', ') });
+  }
+
+  if (s.plateaus && s.plateaus.length) {
+    s.plateaus.slice(0, 3).forEach(p => {
+      alerts.push({ type: 'info', icon: '📊', title: `Plateau gedetecteerd: ${p.domain}${p.exercise ? ' (' + p.exercise + ')' : ''}`, content: p.detail });
+    });
+  }
+
+  if (s.metrics.acwr > 1.5) {
+    alerts.push({ type: 'error', icon: '⚡', title: 'ACWR spike',
+      content: `Acute belasting ${s.metrics.acwr}× chronische — hoog blessurerisico volgens Gabbett (BJSM 2016). Verlaag volume.` });
+  }
+
+  if (alerts.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = alerts.map(a => {
+    const cls = a.type === 'error' ? 'alert-error' : a.type === 'warn' ? 'alert-warn' : 'alert-info';
+    return `<div class="alert ${cls}" style="margin:0;display:flex;gap:10px;align-items:flex-start">
+      <span style="font-size:18px;flex-shrink:0">${a.icon}</span>
+      <div style="flex:1"><div style="font-weight:600;margin-bottom:3px">${a.title}</div><div style="font-size:11px;opacity:0.85;line-height:1.5">${a.content}</div></div>
+    </div>`;
+  }).join('');
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderStats() {
+  const now = new Date();
+  const dow = (now.getDay()+6)%7;
+  const wStart = new Date(now); wStart.setDate(now.getDate()-dow); wStart.setHours(0,0,0,0);
+  const thisW = S.recentActs.filter(a => new Date(a.start_date) >= wStart);
+  document.getElementById('sWeek').textContent = `${thisW.length}`;
+  document.getElementById('sWeekSub').textContent = thisW.length === 1 ? 'sessie' : 'sessies';
+  const w = S.data.weight?.[today()];
+  if (w) { document.getElementById('sWeight').textContent = `${w}kg`; }
+}
+
+function actRow(a, detail=false) {
+  const dist = a.distance > 0 ? `<div class="act-dist">${(a.distance/1000).toFixed(1)}km</div>` : '';
+  const t = fmtT(a.moving_time);
+  const watt = a.average_watts ? `<span class="act-watt">⚡${Math.round(a.average_watts)}W</span>` : '';
+  const hr = a.average_heartrate ? `<span>♥ ${Math.round(a.average_heartrate)}bpm</span>` : '';
+  const elev = a.total_elevation_gain > 0 ? `<span>⛰ ${a.total_elevation_gain}m</span>` : '';
+  const suf = a.suffer_score ? `<span class="c-red">🔥 ${a.suffer_score}</span>` : '';
+  return `<div class="act-row">
+    <div class="act-icon">${sEmoji(a.type)}</div>
+    <div class="act-info"><div class="act-name">${a.name}</div><div class="act-date">${detail ? fmtD(a.start_date,true) : fmtD(a.start_date)}</div></div>
+    <div class="act-right">${dist}<div class="act-time">${t}</div></div>
+    ${watt}
+  </div>${detail?`<div class="act-meta">${dist?`<span>📍 ${(a.distance/1000).toFixed(1)}km</span>`:''}<span>⏱ ${t}</span>${elev}${watt}${hr}${suf}</div>`:''}`;
+}
+
+function renderRecentActs() {
+  document.getElementById('recentActs').innerHTML = S.recentActs.length
+    ? S.recentActs.slice(0,6).map(a=>actRow(a,false)).join('')
+    : '<div class="empty"><div class="empty-icon">🏃</div><div class="empty-text">Geen recente activiteiten</div></div>';
+  document.getElementById('allActs').innerHTML = S.recentActs.length
+    ? S.recentActs.map(a=>actRow(a,true)).join('')
+    : '<div class="empty"><div class="empty-text">Geen activiteiten gevonden</div></div>';
+}
+
+function renderHevy() {
+  const el = document.getElementById('hevyList');
+  if (!S.hevyWorkouts.length) { el.innerHTML = '<div class="alert alert-info">Geen Hevy workouts gevonden. API key ingesteld?</div>'; return; }
+  el.innerHTML = S.hevyWorkouts.map(w => {
+    const exs = (w.exercises||[]).map(e => `<span style="background:var(--card2);border:1px solid var(--border2);border-radius:5px;padding:2px 7px;font-size:11px;color:var(--muted)">${e.title}</span>`).join('');
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="font-weight:600">${w.name||'Workout'}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${fmtD(w.start_time,true)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${exs}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderNutrHistory() {
+  const days = Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-i);return d.toISOString().split('T')[0];});
+  document.getElementById('nutrHistory').innerHTML = days.map(k => {
+    const n=S.data.nutrition?.[k], w=S.data.weight?.[k];
+    const d=new Date(k+'T12:00:00');
+    const lbl=d.toLocaleDateString('nl-NL',{weekday:'short',day:'numeric',month:'short'});
+    const vals = n?.kcal
+      ? `<div class="nutr-vals"><span class="c-orange">${n.kcal}kcal</span><span>${n.protein||'–'}g eiwit</span><span class="c-muted">${n.carbs||'–'}kh · ${n.fat||'–'}vet</span></div>`
+      : `<div class="nutr-vals" style="color:var(--subtle)">–</div>`;
+    return `<div class="nutr-row"><span class="nutr-date">${lbl}</span>${vals}${w?`<span class="c-blue">${w}kg</span>`:''}`;
+  }).join('');
+}
+
+function renderPatterns() {
+  const p = S.data.patterns||[];
+  if (!p.length) { document.getElementById('patternsList').innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:16px">Geen patronen</div>'; return; }
+  let html='';
+  DAYS_NL.forEach(day => {
+    const dp = p.filter(x=>x.day===day);
+    if (!dp.length) return;
+    html += `<div class="day-lbl">${day}</div>`;
+    dp.forEach(x => {
+      const idx=p.indexOf(x);
+      html += `<div class="pattern-item"><div class="pattern-info"><div class="pattern-type">${x.type}</div>${x.description?`<div class="pattern-desc">${x.description}</div>`:''}</div><span style="color:var(--blue);font-size:12px">${x.duration}m</span><button class="btn-danger" onclick="removePattern(${idx})">×</button></div>`;
+    });
+  });
+  document.getElementById('patternsList').innerHTML = html;
+}
+
+function renderHistSummary(h) {
+  if (!h?.summary?.maandelijks?.length) return;
+  const max = Math.max(...h.summary.maandelijks.map(m=>m.totaal_uur));
+  const rows = h.summary.maandelijks.slice(-12).reverse().map(m => {
+    const pct = max > 0 ? Math.round(m.totaal_uur/max*100) : 0;
+    return `<div class="monthly-row">
+      <span class="monthly-date">${m.month}</span>
+      <div class="monthly-bar-wrap"><div class="monthly-bar" style="width:${pct}%"></div></div>
+      <div class="monthly-stats"><span>${m.activiteiten}x</span><span>${m.totaal_uur}u</span><span>${m.totaal_km}km</span>${m.gem_watt?`<span class="c-orange">${m.gem_watt}W</span>`:''}</div>
+    </div>`;
+  });
+  document.getElementById('histSummary').innerHTML = rows.join('');
+}
+
+// ── Week Planning ─────────────────────────────────────────────────────────────
+function getWeekDates(offset=0) {
+  const now = new Date();
+  const dow = (now.getDay()+6)%7;
+  const mon = new Date(now); mon.setDate(now.getDate()-dow+offset*7);
+  return Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d.toISOString().split('T')[0];});
+}
+
+function renderWeekGrid() {
+  const dates = getWeekDates(S.currentWeekOffset);
+  const t = today();
+  const start = new Date(dates[0]);
+  const end = new Date(dates[6]);
+  document.getElementById('weekTitle').textContent = `${start.toLocaleDateString('nl-NL',{day:'numeric',month:'short'})} – ${end.toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'})}`;
+
+  const grid = document.getElementById('weekGrid');
+  const dayNames = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
+  grid.innerHTML = dates.map((date,i) => {
+    const isToday = date===t;
+    const sessions = (S.data.weekPlan?.[date]||[]);
+    const dayNum = new Date(date+'T12:00:00').getDate();
+    const sessHtml = sessions.map((s,si) => `
+      <div class="planned-session">
+        <span class="ps-icon">${sEmoji(s.type)}</span>
+        <div class="ps-info">
+          <div class="ps-name">${s.split ? s.type+' ('+s.split+')' : (s.description||s.type)}</div>
+          <div class="ps-sub">${s.duration}min</div>
+        </div>
+        <button class="ps-remove" onclick="removeSession('${date}',${si})">×</button>
+      </div>`).join('');
+    return `<div class="day-card ${isToday?'today':''}">
+      <div class="day-card-head ${isToday?'today-lbl':''}">${dayNames[i]}</div>
+      <div class="day-num">${dayNum}</div>
+      ${sessHtml}
+      <div class="add-session-btns">
+        <button class="add-btn" onclick="openAddSession('${date}','gym')">🏋️</button>
+        <button class="add-btn" onclick="openAddSession('${date}','cycling')">🚴</button>
+        <button class="add-btn" onclick="openAddSession('${date}','running')">🏃</button>
+        <button class="add-btn" onclick="openAddSession('${date}','custom')">✏️</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Show week summary if sessions planned
+  const totalSessions = dates.reduce((sum,d)=>sum+(S.data.weekPlan?.[d]?.length||0),0);
+  const ws = document.getElementById('weekSummary');
+  if (totalSessions > 0) {
+    ws.style.display='block';
+    const lines = dates.flatMap(d => (S.data.weekPlan?.[d]||[]).map(s=>`<span style="margin-right:6px">${sEmoji(s.type)} ${s.split?s.split+' - ':''}${s.duration}min ${s.description?'('+s.description+')':''} <span style="color:var(--muted)">${new Date(d+'T12:00:00').toLocaleDateString('nl-NL',{weekday:'short',day:'numeric'})}</span></span>`));
+    document.getElementById('weekSummaryContent').innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px">${lines.join('')}</div>`;
+  } else { ws.style.display='none'; }
+}
+
+function changeWeek(dir) {
+  S.currentWeekOffset += dir;
+  renderWeekGrid();
+}
+
+function openAddSession(date, type) {
+  S.pendingSession = { date, type };
+  const modal = document.getElementById('modalOverlay');
+  const title = document.getElementById('modalTitle');
+  const body = document.getElementById('modalBody');
+
+  const typeLabels = { gym:'🏋️ Gym toevoegen', cycling:'🚴 Wielrennen toevoegen', running:'🏃 Hardlopen toevoegen', custom:'✏️ Overig toevoegen' };
+  title.textContent = typeLabels[type]||'Sessie toevoegen';
+
+  let html = '';
+  if (type === 'gym') {
+    html = `<div class="fg" style="margin-bottom:10px">
+      <label>Spiergroep (PPL split)</label>
+      <select id="mSplit"><option value="Push">Push (borst, schouders, triceps)</option><option value="Pull">Pull (rug, biceps)</option><option value="Legs">Legs (benen, billen)</option><option value="Full Body">Full Body</option></select>
+    </div>`;
+  } else if (type === 'custom') {
+    html = `<div class="fg" style="margin-bottom:10px"><label>Omschrijving</label><input type="text" id="mDesc" placeholder="Bijv. Zwemmen, Yoga, Roeien..."></div>`;
+  }
+  html += `<div class="fg"><label>Beschikbare tijd (minuten)</label><input type="number" id="mDur" value="${type==='cycling'?90:type==='running'?45:60}" min="10" max="360"></div>`;
+  body.innerHTML = html;
+  modal.classList.remove('hidden');
+}
+
+async function confirmSession() {
+  if (!S.pendingSession) return;
+  const { date, type } = S.pendingSession;
+  const dur = parseInt(document.getElementById('mDur').value)||60;
+  const session = { type, duration: dur };
+
+  if (type === 'gym') session.split = document.getElementById('mSplit')?.value||'Push';
+  if (type === 'custom') session.description = document.getElementById('mDesc')?.value||'';
+
+  const weekPlan = { ...(S.data.weekPlan||{}) };
+  weekPlan[date] = [...(weekPlan[date]||[]), session];
+  await saveDataPartial({ weekPlan });
+  S.data.weekPlan = weekPlan;
+  renderWeekGrid();
+  closeModal();
+}
+
+async function removeSession(date, idx) {
+  const weekPlan = { ...(S.data.weekPlan||{}) };
+  weekPlan[date] = (weekPlan[date]||[]).filter((_,i)=>i!==idx);
+  if (!weekPlan[date].length) delete weekPlan[date];
+  await saveDataPartial({ weekPlan });
+  S.data.weekPlan = weekPlan;
+  renderWeekGrid();
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modalOverlay')) return;
+  document.getElementById('modalOverlay').classList.add('hidden');
+  S.pendingSession = null;
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+async function saveDataPartial(partial) {
+  await api('/api/data', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(partial) });
+  S.data = { ...S.data, ...partial };
+}
+
+async function saveQuick() {
+  const w = document.getElementById('qWeight').value;
+  const note = document.getElementById('qNote').value;
+  const updates = {};
+  if (w) {
+    updates.weight = { ...(S.data.weight||{}), [today()]: w };
+    document.getElementById('sWeight').textContent = `${w}kg`;
+  }
+  if (Object.keys(updates).length) await saveDataPartial(updates);
+  if (note) document.getElementById('analyseNote').value = note;
+  const b = document.getElementById('btnQSave');
+  b.textContent='✓ Opgeslagen'; b.className='btn btn-success';
+  setTimeout(()=>{b.textContent='Opslaan';b.className='btn btn-primary';},2000);
+}
+
+async function saveManualNutr() {
+  const nutr = { kcal:document.getElementById('mKcal').value, protein:document.getElementById('mProt').value, carbs:document.getElementById('mCarb').value, fat:document.getElementById('mFat').value };
+  const updated = { ...(S.data.nutrition||{}), [today()]: nutr };
+  await saveDataPartial({ nutrition: updated });
+  const b = document.getElementById('btnManualNutr');
+  b.textContent='✓ Opgeslagen'; b.className='btn btn-success mt-3';
+  setTimeout(()=>{b.textContent='Opslaan voor vandaag';b.className='btn btn-primary mt-3';},2000);
+  renderNutrHistory();
+}
+
+async function saveGoals() {
+  const goals = { primary:document.getElementById('gPrimary').value, weightTarget:document.getElementById('gWeight').value, timeline:document.getElementById('gTimeline').value, notes:document.getElementById('gNotes').value };
+  await saveDataPartial({ goals });
+  if (goals.weightTarget) document.getElementById('sWeightSub').textContent = `doel: ${goals.weightTarget}kg`;
+  const b = document.getElementById('btnGoals');
+  b.textContent='✓ Opgeslagen'; b.className='btn btn-success mt-3';
+  setTimeout(()=>{b.textContent='Doelen opslaan';b.className='btn btn-primary mt-3';},2000);
+}
+
+async function saveSettings() {
+  const settings = { unreliablePowerStart:document.getElementById('sPwrStart').value, unreliablePowerEnd:document.getElementById('sPwrEnd').value, ftp:parseInt(document.getElementById('sFtp').value)||280 };
+  await saveDataPartial({ settings });
+  const b = document.getElementById('btnSettings');
+  b.textContent='✓ Opgeslagen'; b.className='btn btn-success mt-3';
+  setTimeout(()=>{b.textContent='Instellingen opslaan';b.className='btn btn-primary mt-3';},2000);
+}
+
+function togglePatternForm() { document.getElementById('patternForm').classList.toggle('hidden'); }
+
+async function addPattern() {
+  const p = { day:document.getElementById('npDay').value, type:document.getElementById('npType').value, description:document.getElementById('npDesc').value, duration:parseInt(document.getElementById('npDur').value)||60 };
+  const patterns = [...(S.data.patterns||[]), p];
+  await saveDataPartial({ patterns });
+  document.getElementById('patternForm').classList.add('hidden');
+  document.getElementById('npDesc').value = '';
+  renderPatterns();
+}
+
+async function removePattern(idx) {
+  const patterns = (S.data.patterns||[]).filter((_,i)=>i!==idx);
+  await saveDataPartial({ patterns });
+  renderPatterns();
+}
+
+// ── Yazio upload ──────────────────────────────────────────────────────────────
+const uz = document.getElementById('uploadZone');
+uz.addEventListener('dragover', e=>{e.preventDefault();uz.classList.add('over');});
+uz.addEventListener('dragleave', ()=>uz.classList.remove('over'));
+uz.addEventListener('drop', e=>{e.preventDefault();uz.classList.remove('over');handleFile(e.dataTransfer.files[0]);});
+
+async function handleFile(file) {
+  if(!file) return;
+  const msg = document.getElementById('parseMsg');
+  msg.className='alert alert-info mt-2'; msg.textContent='📸 Verwerken...';
+  document.getElementById('parsedPreview').classList.add('hidden');
+  const fd = new FormData(); fd.append('screenshot',file);
+  try {
+    const nutr = await fetch('/api/nutrition/parse-screenshot',{method:'POST',body:fd}).then(r=>r.json());
+    if(nutr.error) throw new Error(nutr.error);
+    S.parsedNutr = nutr;
+    msg.className='alert alert-success mt-2'; msg.textContent='✓ Macros herkend — controleer en sla op';
+    document.getElementById('parsedVals').innerHTML = [
+      {num:nutr.kcal,lbl:'kcal',c:'var(--accent)'},{num:nutr.protein,lbl:'eiwit (g)',c:'var(--text)'},
+      {num:nutr.carbs,lbl:'kh (g)',c:'var(--text)'},{num:nutr.fat,lbl:'vet (g)',c:'var(--text)'}
+    ].map(v=>`<div class="parsed-val"><div class="parsed-num" style="color:${v.c}">${v.num}</div><div class="parsed-lbl">${v.lbl}</div></div>`).join('');
+    document.getElementById('parsedPreview').classList.remove('hidden');
+  } catch(e) { msg.className='alert alert-error mt-2'; msg.textContent='✗ Mislukt: '+e.message; }
+}
+
+async function confirmNutr() {
+  if(!S.parsedNutr) return;
+  const updated = {...(S.data.nutrition||{}),[today()]:S.parsedNutr};
+  await saveDataPartial({nutrition:updated});
+  document.getElementById('parsedPreview').classList.add('hidden');
+  document.getElementById('parseMsg').className='alert alert-success mt-2';
+  document.getElementById('parseMsg').textContent='✓ Opgeslagen voor vandaag';
+  S.parsedNutr=null; renderNutrHistory();
+  document.getElementById('mKcal').value=updated[today()].kcal||'';
+  document.getElementById('mProt').value=updated[today()].protein||'';
+  document.getElementById('mCarb').value=updated[today()].carbs||'';
+  document.getElementById('mFat').value=updated[today()].fat||'';
+}
+
+function cancelNutr() { S.parsedNutr=null; document.getElementById('parsedPreview').classList.add('hidden'); }
+
+// ── Analysis ──────────────────────────────────────────────────────────────────
+async function runAnalysis() {
+  const btn = document.getElementById('btnAnalyse');
+  btn.textContent='Analyse genereren...'; btn.disabled=true;
+  document.getElementById('analysisResult').classList.add('hidden');
+  document.getElementById('analyseEmpty').classList.remove('hidden');
+  try {
+    const r = await api('/api/analyse', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        hevyWorkouts: S.hevyWorkouts,
+        goals: S.data.goals, patterns: S.data.patterns,
+        nutrition: S.data.nutrition, weight: S.data.weight,
+        weekPlan: S.data.weekPlan,
+        todayNote: document.getElementById('analyseNote').value || document.getElementById('qNote').value,
+        athlete: S.athlete,
+        settings: S.data.settings,
+      })
+    });
+    document.getElementById('analysisText').textContent = r.analysis;
+    document.getElementById('analysisResult').classList.remove('hidden');
+    document.getElementById('analyseEmpty').classList.add('hidden');
+  } catch(e) {
+    document.getElementById('analyseEmpty').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+  }
+  btn.textContent='⚡ Genereer analyse'; btn.disabled=false;
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function showTab(name, btn) {
+  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
+  document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.remove('hidden');
+  btn.classList.add('active');
+}
+
+
+// ── Gewicht CSV import ────────────────────────────────────────────────────────
+wuz = document.getElementById('weightUploadZone');
+wuz.addEventListener('dragover', e=>{e.preventDefault();wuz.classList.add('over');});
+wuz.addEventListener('dragleave', ()=>wuz.classList.remove('over'));
+wuz.addEventListener('drop', e=>{e.preventDefault();wuz.classList.remove('over');handleWeightImport(e.dataTransfer.files[0]);});
+
+async function handleWeightImport(file) {
+  if (!file) return;
+  const msg = document.getElementById('weightImportMsg');
+  msg.className = 'alert alert-info mt-2';
+  msg.textContent = '⚖️ Bestand verwerken...';
+
+  const fd = new FormData();
+  fd.append('csvfile', file);
+  try {
+    const r = await fetch('/api/weight/import', { method: 'POST', body: fd }).then(res => res.json());
+    if (r.error) throw new Error(r.error);
+    msg.className = 'alert alert-success mt-2';
+    msg.innerHTML = `✓ <strong>${r.imported} metingen geïmporteerd</strong> (${r.unit})<br>
+      Periode: ${r.oldest} t/m ${r.newest}<br>
+      Totaal in log: ${r.total} datums${r.skipped > 0 ? ` · ${r.skipped} regels overgeslagen` : ''}`;
+    // Reload data to reflect new weight log
+    await loadUserData();
+  } catch(e) {
+    msg.className = 'alert alert-error mt-2';
+    msg.textContent = '✗ Import mislukt: ' + e.message;
+  }
+}
+
+// ── Literatuur ────────────────────────────────────────────────────────────────
+async function loadLiterature() {
+  try {
+    const lit = await api('/api/literature');
+    renderLiterature(lit);
+  } catch {}
+}
+
+function renderLiterature(lit) {
+  const el = document.getElementById('litList');
+  document.getElementById('litCount').textContent = lit.length ? `${lit.length} bron${lit.length > 1 ? 'nen' : ''}` : '';
+  if (!lit.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">Geen literatuur toegevoegd.</div>'; return; }
+  el.innerHTML = lit.map(l => `
+    <div style="padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px">
+        <div>
+          <div style="font-weight:600;font-size:13px">${l.title}</div>
+          <div style="font-size:11px;color:var(--muted)">${l.addedDate}${l.source ? ' · ' + l.source : ''}</div>
+        </div>
+        <button onclick="deleteLit('${l.id}')" style="background:none;border:none;color:var(--subtle);cursor:pointer;font-size:18px;flex-shrink:0;line-height:1" title="Verwijderen">×</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.6;max-height:80px;overflow:hidden;position:relative" id="litBody-${l.id}">${l.content.substring(0, 300)}${l.content.length > 300 ? '...' : ''}</div>
+      ${l.content.length > 300 ? `<button onclick="toggleLitExpand('${l.id}', ${JSON.stringify(l.content).replace(/'/g,"\\'")})" style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:4px 0;font-family:inherit">Meer tonen</button>` : ''}
+    </div>`).join('');
+}
+
+function toggleLitExpand(id, content) {
+  const el = document.getElementById('litBody-' + id);
+  const btn = el.nextElementSibling;
+  if (el.style.maxHeight === 'none') {
+    el.style.maxHeight = '80px'; el.textContent = content.substring(0, 300) + '...';
+    btn.textContent = 'Meer tonen';
+  } else {
+    el.style.maxHeight = 'none'; el.textContent = content;
+    btn.textContent = 'Minder tonen';
+  }
+}
+
+async function deleteLit(id) {
+  try {
+    await api('/api/literature/' + id, { method: 'DELETE' });
+    await loadLiterature();
+  } catch(e) { alert('Verwijderen mislukt: ' + e.message); }
+}
+
+async function saveLitPaste() {
+  const title = document.getElementById('litPasteTitle').value.trim();
+  const content = document.getElementById('litPasteContent').value.trim();
+  if (!title || !content) { alert('Vul een titel en inhoud in'); return; }
+  const btn = document.getElementById('btnLitPaste');
+  btn.textContent = 'Opslaan...'; btn.disabled = true;
+  try {
+    await api('/api/literature', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, content }) });
+    document.getElementById('litPasteTitle').value = '';
+    document.getElementById('litPasteContent').value = '';
+    await loadLiterature();
+    btn.textContent = '✓ Toegevoegd'; btn.className = 'btn btn-success btn-sm';
+    setTimeout(() => { btn.textContent = 'Toevoegen'; btn.className = 'btn btn-primary btn-sm'; btn.disabled = false; }, 2000);
+  } catch(e) {
+    btn.textContent = 'Toevoegen'; btn.disabled = false;
+    alert('Mislukt: ' + e.message);
+  }
+}
+
+const luz = document.getElementById('litUploadZone');
+luz.addEventListener('dragover', e => { e.preventDefault(); luz.classList.add('over'); });
+luz.addEventListener('dragleave', () => luz.classList.remove('over'));
+luz.addEventListener('drop', e => { e.preventDefault(); luz.classList.remove('over'); handleLitUpload(e.dataTransfer.files[0]); });
+
+async function handleLitUpload(file) {
+  if (!file) return;
+  const title = document.getElementById('litUploadTitle').value.trim();
+  if (!title) { alert('Vul eerst een titel in'); return; }
+  const msg = document.getElementById('litUploadMsg');
+  msg.className = 'alert alert-info mt-2';
+  msg.textContent = file.type === 'application/pdf' ? '📄 PDF verwerken via AI...' : '📄 Bestand inlezen...';
+  const fd = new FormData(); fd.append('file', file); fd.append('title', title);
+  try {
+    await fetch('/api/literature/upload', { method: 'POST', body: fd }).then(r => r.json().then(d => { if (!r.ok) throw new Error(d.error); return d; }));
+    document.getElementById('litUploadTitle').value = '';
+    msg.className = 'alert alert-success mt-2';
+    msg.textContent = '✓ Toegevoegd' + (file.type === 'application/pdf' ? ' (PDF samengevat)' : '');
+    await loadLiterature();
+  } catch(e) { msg.className = 'alert alert-error mt-2'; msg.textContent = '✗ ' + e.message; }
+}
+
+// ── Weight history upload ─────────────────────────────────────────────────────
+wuz = document.getElementById('weightUploadZone');
+wuz.addEventListener('dragover', e=>{e.preventDefault();wuz.classList.add('over');});
+wuz.addEventListener('dragleave', ()=>wuz.classList.remove('over'));
+wuz.addEventListener('drop', e=>{e.preventDefault();wuz.classList.remove('over');handleWeightUpload(e.dataTransfer.files[0]);});
+
+async function handleWeightUpload(file) {
+  if (!file) return;
+  const msg = document.getElementById('weightUploadMsg');
+  msg.className='alert alert-info mt-2'; msg.textContent='⚖️ Bestand verwerken...';
+  const fd = new FormData(); fd.append('csv', file);
+  try {
+    const r = await fetch('/api/weight/upload-history', { method:'POST', body:fd });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error);
+    msg.className='alert alert-success mt-2';
+    msg.innerHTML = `✓ ${d.added} gewichtsinvoeren geïmporteerd (${d.skipped} overgeslagen — bestaande invoer behouden)<br>
+      <span style="color:var(--muted);font-size:11px">Periode: ${d.eerste} t/m ${d.laatste} · Eenheid: ${d.unit}</span>`;
+    await loadUserData(); // refresh weight data
+  } catch(e) {
+    msg.className='alert alert-error mt-2';
+    msg.textContent = '✗ ' + e.message;
+  }
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+let chartInstances = {};
+
+function destroyChart(id) {
+  if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+}
+
+function makeChart(id, config) {
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  chartInstances[id] = new Chart(ctx, config);
+}
+
+function filterByDays(series, days, dateKey = 'date') {
+  if (days >= 9999) return series;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+  return series.filter(d => new Date(d[dateKey] + (d[dateKey].length === 7 ? '-01' : '')) >= cutoff);
+}
+
+async function loadCharts() {
+  const msg = document.getElementById('chartsMsg');
+  msg.className = 'alert alert-info'; msg.textContent = 'Grafieken laden...';
+  document.getElementById('chartsContainer').classList.remove('hidden');
+
+  try {
+    const d = await api('/api/charts/data');
+    const days = parseInt(document.getElementById('chartPeriod').value);
+
+    const gridColor = 'rgba(255,255,255,0.06)';
+    const tickColor = '#666';
+    const baseOpts = {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#aaa', font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
+        y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } } }
+      }
+    };
+
+    // ── Gewicht ───────────────────────────────────────────────────────────────
+    const wData = filterByDays(d.weightSeries.length > 60 ? d.weightMonthly.map(m => ({date: m.month, kg: m.avg})) : d.weightSeries, days);
+    if (wData.length) {
+      makeChart('chartWeight', {
+        type: 'line',
+        data: {
+          labels: wData.map(v => v.date),
+          datasets: [{
+            label: 'Gewicht (kg)', data: wData.map(v => v.kg),
+            borderColor: '#4ade80', backgroundColor: '#4ade8018',
+            borderWidth: 2, pointRadius: wData.length > 60 ? 3 : 4, fill: true, tension: 0.3
+          }]
+        },
+        options: { ...baseOpts, plugins: { ...baseOpts.plugins, annotation: {} } }
+      });
+    }
+
+    // ── ATL/CTL/TSB ───────────────────────────────────────────────────────────
+    const lData = filterByDays(d.loadSeries, Math.min(days, 120));
+    if (lData.length) {
+      makeChart('chartLoad', {
+        type: 'line',
+        data: {
+          labels: lData.map(v => v.date),
+          datasets: [
+            { label: 'CTL (fitness)', data: lData.map(v => v.ctl), borderColor: '#38bdf8', borderWidth: 2, pointRadius: 0, tension: 0.4 },
+            { label: 'ATL (vermoeidheid)', data: lData.map(v => v.atl), borderColor: '#f87171', borderWidth: 2, pointRadius: 0, tension: 0.4 },
+            { label: 'TSB (form)', data: lData.map(v => v.tsb), borderColor: '#a78bfa', borderWidth: 1.5, pointRadius: 0, tension: 0.4, borderDash: [4, 3] },
+          ]
+        },
+        options: {
+          ...baseOpts,
+          scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, grid: { color: (ctx) => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : gridColor } } }
+        }
+      });
+    }
+
+    // ── Wekelijks volume ──────────────────────────────────────────────────────
+    const vData = filterByDays(d.weeklyVolume, days, 'week');
+    if (vData.length) {
+      makeChart('chartVolume', {
+        type: 'bar',
+        data: {
+          labels: vData.map(v => v.week),
+          datasets: [
+            { label: 'Uren', data: vData.map(v => v.hours), backgroundColor: '#f9731666', borderColor: '#f97316', borderWidth: 1, yAxisID: 'y' },
+            { label: 'Sessies', data: vData.map(v => v.sessions), type: 'line', borderColor: '#38bdf8', borderWidth: 2, pointRadius: 2, tension: 0.3, yAxisID: 'y2' },
+          ]
+        },
+        options: {
+          ...baseOpts,
+          scales: {
+            x: baseOpts.scales.x,
+            y: { ...baseOpts.scales.y, title: { display: true, text: 'Uren', color: tickColor, font: { size: 10 } } },
+            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: tickColor, font: { size: 10 } }, title: { display: true, text: 'Sessies', color: tickColor, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    // ── Voeding ───────────────────────────────────────────────────────────────
+    const nData = filterByDays(d.nutritionSeries, Math.min(days, 60));
+    if (nData.length) {
+      makeChart('chartNutr', {
+        type: 'bar',
+        data: {
+          labels: nData.map(v => v.date),
+          datasets: [
+            { label: 'Calorieën (kcal)', data: nData.map(v => v.kcal), backgroundColor: '#f9731644', borderColor: '#f97316', borderWidth: 1, yAxisID: 'y' },
+            { label: 'Eiwit (g)', data: nData.map(v => v.protein), type: 'line', borderColor: '#4ade80', borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: 'y2' },
+          ]
+        },
+        options: {
+          ...baseOpts,
+          scales: {
+            x: baseOpts.scales.x,
+            y: { ...baseOpts.scales.y, title: { display: true, text: 'kcal', color: tickColor, font: { size: 10 } } },
+            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: tickColor, font: { size: 10 } }, title: { display: true, text: 'eiwit (g)', color: tickColor, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    // ── Vermogen ──────────────────────────────────────────────────────────────
+    const pData = filterByDays(d.powerTrend, days, 'month');
+    if (pData.length) {
+      makeChart('chartPower', {
+        type: 'line',
+        data: {
+          labels: pData.map(v => v.month),
+          datasets: [{
+            label: 'Gem. vermogen (W)', data: pData.map(v => v.avgWatt),
+            borderColor: '#f97316', backgroundColor: '#f9731618',
+            borderWidth: 2, pointRadius: 4, fill: true, tension: 0.3
+          }]
+        },
+        options: baseOpts
+      });
+    } else if (!d.powerTrend?.length) {
+      document.getElementById('chartPower').parentElement.innerHTML += '<div class="alert alert-info mt-2" style="font-size:11px">Geen vermogensdata beschikbaar. Sync eerst je volledige history.</div>';
+    }
+
+    msg.className = 'hidden';
+  } catch(e) {
+    msg.className = 'alert alert-error';
+    msg.textContent = 'Laden mislukt: ' + e.message;
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+syncAll();
+</script>
+</body>
+</html>
+
+
+
