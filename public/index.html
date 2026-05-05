@@ -2,7 +2,7 @@
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Training Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -175,6 +175,77 @@ select option { background: #1c1c1c; }
 .monthly-stats { display: flex; gap: 10px; color: var(--muted); min-width: 160px; justify-content: flex-end; }
 
 .gap-2 { gap: 8px; } .flex { display: flex; } .items-center { align-items: center; } .mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; }
+
+/* ═══ MOBILE / IOS FIXES ═══ */
+/* Safe-area insets (notch, home indicator) */
+body {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.header {
+  padding-left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));
+  padding-right: max(16px, calc(env(safe-area-inset-right, 0px) + 16px));
+}
+
+/* Prevent page-level horizontal scroll */
+html { overflow-x: hidden; }
+body { overflow-x: hidden; }
+
+/* iOS Safari: input font-size < 16px triggers auto-zoom — override on mobile */
+@media (max-width: 768px) {
+  input, select, textarea { font-size: 16px; }
+}
+
+/* Touch-friendly tap targets ≥ 44px */
+@media (max-width: 768px) {
+  .btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .btn-full { width: 100%; }
+  .btn-danger { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .tab { min-height: 44px; display: inline-flex; align-items: center; }
+  .add-btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .ps-remove { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+}
+
+/* Prevent 5-col stats from overflowing on narrow phones */
+@media (max-width: 420px) {
+  .stats-grid-5 { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Monthly stats min-width fix */
+@media (max-width: 600px) {
+  .monthly-stats { min-width: auto; gap: 6px; }
+}
+
+/* ═══ NUTRITION HISTORY CARDS ═══ */
+.nutr-history-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.nutr-history-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+@media (max-width: 600px) {
+  .nutr-history-grid {
+    display: flex;
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
+}
+.nutr-day-card {
+  background: var(--card2);
+  border-radius: 8px;
+  padding: 8px 6px;
+  text-align: center;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .nutr-day-card { min-width: 80px; flex-shrink: 0; }
+}
+.nutr-day-date { font-size: 10px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 5px; line-height: 1.4; white-space: nowrap; }
+.nutr-day-kcal { font-size: 13px; font-weight: 800; color: var(--accent); margin-bottom: 3px; white-space: nowrap; }
+.nutr-day-macros { font-size: 9px; color: var(--muted); line-height: 1.6; }
+.nutr-day-weight { font-size: 10px; color: var(--blue); margin-top: 4px; font-weight: 600; }
+.nutr-day-empty { font-size: 16px; color: var(--subtle); margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -833,15 +904,17 @@ function renderHevy() {
 
 function renderNutrHistory() {
   const days = Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-i);return d.toISOString().split('T')[0];});
-  document.getElementById('nutrHistory').innerHTML = days.map(k => {
+  const cards = days.map(k => {
     const n=S.data.nutrition?.[k], w=S.data.weight?.[k];
     const d=new Date(k+'T12:00:00');
-    const lbl=d.toLocaleDateString('nl-NL',{weekday:'short',day:'numeric',month:'short'});
-    const vals = n?.kcal
-      ? `<div class="nutr-vals"><span class="c-orange">${n.kcal}kcal</span><span>${n.protein||'–'}g eiwit</span><span class="c-muted">${n.carbs||'–'}kh · ${n.fat||'–'}vet</span></div>`
-      : `<div class="nutr-vals" style="color:var(--subtle)">–</div>`;
-    return `<div class="nutr-row"><span class="nutr-date">${lbl}</span>${vals}${w?`<span class="c-blue">${w}kg</span>`:''}`;
-  }).join('');
+    const wd=d.toLocaleDateString('nl-NL',{weekday:'short'});
+    const ds=d.toLocaleDateString('nl-NL',{day:'numeric',month:'short'});
+    const inner = n?.kcal
+      ? `<div class="nutr-day-kcal">${n.kcal} kcal</div><div class="nutr-day-macros">${n.protein||'–'}g eiwit<br>${n.carbs||'–'}kh · ${n.fat||'–'}vet</div>`
+      : `<div class="nutr-day-empty">–</div>`;
+    return `<div class="nutr-day-card"><div class="nutr-day-date">${wd}<br>${ds}</div>${inner}${w?`<div class="nutr-day-weight">${w} kg</div>`:''}</div>`;
+  });
+  document.getElementById('nutrHistory').innerHTML = `<div class="nutr-history-scroll"><div class="nutr-history-grid">${cards.join('')}</div></div>`;
 }
 
 function renderPatterns() {
