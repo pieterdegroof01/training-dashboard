@@ -360,8 +360,8 @@ body { overflow-x: hidden; }
       <div id="hevyList"><div class="alert alert-info">Hevy API key toevoegen aan .env om workouts te laden</div></div>
     </div>
     <div class="card">
-      <div class="card-label">Hevy koppelen</div>
-      <p style="color:var(--muted);font-size:13px;line-height:1.7">Open Hevy → Profiel → Instellingen → API → kopieer je API key en voeg toe aan <code style="color:var(--accent)">.env</code> als <code style="color:var(--accent)">HEVY_API_KEY=...</code> en herstart de server.</p>
+      <div class="card-label">Progressie-analyse</div>
+      <div id="hevyProgression"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
     </div>
   </div>
 
@@ -686,6 +686,7 @@ async function loadHevy() {
   try {
     S.hevyWorkouts = await api('/api/hevy/workouts');
     renderHevy();
+    renderHevyProgression();
   } catch { document.getElementById('hevyList').innerHTML = '<div class="alert alert-info">Hevy niet verbonden</div>'; }
 }
 
@@ -898,6 +899,76 @@ function renderHevy() {
       <div style="font-weight:600">${w.name||'Workout'}</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${fmtD(w.start_time,true)}</div>
       <div style="display:flex;flex-wrap:wrap;gap:4px">${exs}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderHevyProgression() {
+  const el = document.getElementById('hevyProgression');
+  if (!S.hevyWorkouts || !S.hevyWorkouts.length) {
+    el.innerHTML = '<div class="alert alert-info">Geen workoutdata voor progressieanalyse.</div>';
+    return;
+  }
+  // Build per-exercise history, sorted oldest→newest
+  const hist = {};
+  const sorted = [...S.hevyWorkouts].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  sorted.forEach(w => {
+    (w.exercises || []).forEach(e => {
+      if (!e.title) return;
+      const validSets = (e.sets || []).filter(s => s.weight_kg > 0 && s.reps > 0);
+      if (!validSets.length) return;
+      // Best Epley 1RM this session: weight × (1 + reps/30)
+      const best1RM = Math.max(...validSets.map(s => s.weight_kg * (1 + s.reps / 30)));
+      const topSet = validSets.reduce((a, b) => a.weight_kg >= b.weight_kg ? a : b);
+      if (!hist[e.title]) hist[e.title] = [];
+      hist[e.title].push({ date: w.start_time, rm1: best1RM, topSet });
+    });
+  });
+  const entries = Object.entries(hist).filter(([, s]) => s.length >= 2);
+  if (!entries.length) {
+    el.innerHTML = '<div class="alert alert-info">Minimaal 2 sessies per oefening nodig voor analyse.</div>';
+    return;
+  }
+  // Sort by most recent session desc
+  entries.sort((a, b) => new Date(b[1].at(-1).date) - new Date(a[1].at(-1).date));
+  el.innerHTML = entries.map(([name, sessions]) => {
+    const last5 = sessions.slice(-5);
+    const firstRM = last5[0].rm1;
+    const lastRM = last5.at(-1).rm1;
+    const diff = lastRM - firstRM;
+    const topSet = last5.at(-1).topSet;
+    const nextKg = (Math.round((topSet.weight_kg + 2.5) * 2) / 2).toFixed(1);
+    // Stagnation: 3+ recent sessions within 1 kg 1RM range
+    const recent3 = last5.slice(-3);
+    const stagnant = recent3.length >= 3 &&
+      (Math.max(...recent3.map(s => s.rm1)) - Math.min(...recent3.map(s => s.rm1))) < 1;
+    let arrow, color, suggestion;
+    if (diff > 1) {
+      arrow = '↑'; color = 'var(--green)'; suggestion = `Probeer ${nextKg} kg`;
+    } else if (diff < -1) {
+      arrow = '↓'; color = 'var(--red)'; suggestion = 'Volume verlagen, focus op herstel';
+    } else {
+      arrow = '—'; color = 'var(--accent)';
+      suggestion = stagnant ? 'Andere rep range of techniekfocus' : `Probeer ${nextKg} kg`;
+    }
+    // Mini sparkline: dots scaled within session range
+    const rms = last5.map(s => s.rm1);
+    const minRM = Math.min(...rms), maxRM = Math.max(...rms), range = maxRM - minRM || 1;
+    const dots = last5.map((s, i) => {
+      const pct = (s.rm1 - minRM) / range; // 0=bottom, 1=top
+      const y = Math.round((1 - pct) * 16); // invert: top=0px
+      return `<div title="${s.rm1.toFixed(1)} kg" style="width:7px;height:7px;border-radius:50%;background:${color};opacity:${0.35 + i * 0.16};margin-top:${y}px;flex-shrink:0"></div>`;
+    }).join('');
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">1RM: ${firstRM.toFixed(1)} → <strong style="color:var(--text)">${lastRM.toFixed(1)} kg</strong></div>
+        <div style="font-size:11px;color:var(--accent);margin-top:4px">💡 ${suggestion}</div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:3px;flex-shrink:0;padding-top:4px">
+        <div style="display:flex;align-items:flex-end;gap:3px;height:28px">${dots}</div>
+        <span style="font-size:20px;color:${color};font-weight:700;line-height:1;margin-left:4px">${arrow}</span>
+      </div>
     </div>`;
   }).join('');
 }
