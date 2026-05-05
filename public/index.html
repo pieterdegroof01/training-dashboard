@@ -685,9 +685,14 @@ async function loadRecentActs() {
 async function loadHevy() {
   try {
     S.hevyWorkouts = await api('/api/hevy/workouts');
-    renderHevy();
-    renderHevyProgression();
-  } catch { document.getElementById('hevyList').innerHTML = '<div class="alert alert-info">Hevy niet verbonden</div>'; }
+  } catch {
+    document.getElementById('hevyList').innerHTML = '<div class="alert alert-info">Hevy niet verbonden</div>';
+    return;
+  }
+  renderHevy();
+  try { renderHevyProgression(); } catch(e) {
+    document.getElementById('hevyProgression').innerHTML = '<div class="alert alert-info">Progressieanalyse niet beschikbaar.</div>';
+  }
 }
 
 async function loadUserData() {
@@ -930,13 +935,13 @@ function renderHevyProgression() {
     return;
   }
   // Sort by most recent session desc
-  entries.sort((a, b) => new Date(b[1].at(-1).date) - new Date(a[1].at(-1).date));
+  entries.sort((a, b) => new Date(b[1][b[1].length-1].date) - new Date(a[1][a[1].length-1].date));
   el.innerHTML = entries.map(([name, sessions]) => {
     const last5 = sessions.slice(-5);
     const firstRM = last5[0].rm1;
-    const lastRM = last5.at(-1).rm1;
+    const lastRM = last5[last5.length-1].rm1;
     const diff = lastRM - firstRM;
-    const topSet = last5.at(-1).topSet;
+    const topSet = last5[last5.length-1].topSet;
     const nextKg = (Math.round((topSet.weight_kg + 2.5) * 2) / 2).toFixed(1);
     // Stagnation: 3+ recent sessions within 1 kg 1RM range
     const recent3 = last5.slice(-3);
