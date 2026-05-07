@@ -390,7 +390,7 @@ app.post('/api/nutrition/parse-screenshot', upload.single('screenshot'), async (
     if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key niet ingesteld' });
     const base64 = req.file.buffer.toString('base64');
     const resp = await axios.post('https://api.anthropic.com/v1/messages', {
-      model: 'claude-sonnet-4-20250514', max_tokens: 200,
+      model: 'claude-sonnet-4-5', max_tokens: 200,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: req.file.mimetype, data: base64 } },
         { type: 'text', text: 'Screenshot van voedingsapp. Extraheer totale dagwaarden. Antwoord ALLEEN met JSON: {"kcal": 2100, "protein": 165, "carbs": 220, "fat": 65}' }
@@ -666,7 +666,7 @@ Sessievolgorde, koolhydraatperiodisering, deload-timing. Concrete waarschuwingen
 Nederlands. Mechanistisch en concreet. Citeer waar passend. Minimaal ~1200 woorden.`;
 
     const resp = await axios.post('https://api.anthropic.com/v1/messages', {
-      model: 'claude-sonnet-4-20250514', max_tokens: 3500,
+      model: 'claude-sonnet-4-5', max_tokens: 3500,
       messages: [{ role: 'user', content: prompt }]
     }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' } });
 
@@ -786,7 +786,7 @@ app.post('/api/literature/upload', upload.single('file'), async (req, res) => {
       if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key vereist voor PDF-verwerking' });
       const base64 = req.file.buffer.toString('base64');
       const resp = await axios.post('https://api.anthropic.com/v1/messages', {
-        model: 'claude-sonnet-4-20250514', max_tokens: 800,
+        model: 'claude-sonnet-4-5', max_tokens: 800,
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
           { type: 'text', text: 'Extraheer de kernbevindingen van dit wetenschappelijk artikel relevant voor sporttraining, krachttraining, duurtraining, concurrent training, voeding of periodisering. Geef een gestructureerde samenvatting van maximaal 400 woorden: studieopzet, belangrijkste bevindingen, praktische implicaties. Schrijf in het Nederlands.' }
