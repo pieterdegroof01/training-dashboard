@@ -76,28 +76,34 @@ async function fetchActivitiesFromStrava(token, afterTimestamp = null) {
   return all;
 }
 
-// ── ATL / CTL / TSB ───────────────────────────────────────────────────────────
+// ── ATL / CTL / TSB (duurtraining only — voor history-summary en charts) ─────
+
+const ENDURANCE_TYPES = engine.ENDURANCE_TYPES;
 
 function estimateLoad(activity, settings) {
+  if (!ENDURANCE_TYPES.has(activity.type)) return 0;
   const durationH = (activity.moving_time || 0) / 3600;
   const date = activity.start_date?.split('T')[0] || '';
   const inUnreliable = date >= (settings?.unreliablePowerStart || '2020-01-01') &&
                        date <= (settings?.unreliablePowerEnd || '2020-12-31');
+  const sufferFactor = settings?.sufferToTSSFactor || 1.0;
+  const ftp = settings?.ftp || 280;
 
-  if (activity.suffer_score > 0) return activity.suffer_score;
-
-  if (activity.average_watts && !inUnreliable) {
-    const IF = activity.average_watts / (settings?.ftp || 280);
-    return Math.min(Math.round(IF * IF * durationH * 100), 400);
+  if (activity.type === 'Ride' || activity.type === 'VirtualRide') {
+    if (activity.average_watts && !inUnreliable) {
+      const IF = activity.average_watts / ftp;
+      return Math.min(Math.round(IF * IF * durationH * 100), 400);
+    }
+    if (activity.suffer_score > 0) return Math.round(activity.suffer_score * sufferFactor);
   }
-
-  const mult = { Ride: 55, VirtualRide: 50, Run: 75, WeightTraining: 45, Swim: 65, Hike: 35, Walk: 20 };
+  if (activity.suffer_score > 0) return activity.suffer_score;
+  const mult = { Ride: 55, VirtualRide: 50, Run: 75, TrailRun: 75, Swim: 65, Hike: 35, Walk: 20 };
   return Math.round(durationH * (mult[activity.type] || 40));
 }
 
 function calcMetrics(activities, settings) {
   const dailyLoad = {};
-  activities.forEach(a => {
+  activities.filter(a => ENDURANCE_TYPES.has(a.type)).forEach(a => {
     const d = a.start_date?.split('T')[0];
     if (d) dailyLoad[d] = (dailyLoad[d] || 0) + estimateLoad(a, settings);
   });
@@ -151,10 +157,7 @@ function buildHistorySummary(activities, settings) {
 
   const topWatt = activities
     .filter(a => a.average_watts && a.moving_time > 1800)
-    .filter(a => {
-      const d = a.start_date?.split('T')[0] || '';
-      return !(d >= settings.unreliablePowerStart && d <= settings.unreliablePowerEnd);
-    })
+    .filter(a => { const d = a.start_date?.split('T')[0] || ''; return !(d >= settings.unreliablePowerStart && d <= settings.unreliablePowerEnd); })
     .sort((a, b) => b.average_watts - a.average_watts)
     .slice(0, 5)
     .map(a => ({ datum: a.start_date?.split('T')[0], naam: a.name, watt: Math.round(a.average_watts), duur_min: Math.round(a.moving_time / 60) }));
@@ -184,7 +187,6 @@ app.get('/api/strava/activities', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Full sync — call once manually, then incremental
 app.post('/api/strava/sync-all', async (req, res) => {
   try {
     const token = await getStravaToken();
@@ -205,8 +207,14 @@ app.post('/api/strava/sync-all', async (req, res) => {
 
     cache.lastSync = new Date().toISOString();
     data.activityCache = cache;
+
+    // Herbereken kalibratiefactor na sync
+    const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
+    data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
+    data.calibration = calibration;
+
     await saveData(data);
-    res.json({ total: cache.activities.length, new: newActs?.length || 0, lastSync: cache.lastSync });
+    res.json({ total: cache.activities.length, new: newActs?.length || 0, lastSync: cache.lastSync, calibration });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -221,21 +229,32 @@ app.get('/api/strava/history-summary', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/calibration', async (req, res) => {
+  try {
+    const data = await loadData();
+    const activities = data.activityCache?.activities || [];
+    const calibration = engine.computeCalibrationFactor(activities, data.settings || {});
+    data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
+    data.calibration = calibration;
+    await saveData(data);
+    res.json(calibration);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/charts/data', async (req, res) => {
   try {
     const data = await loadData();
     const activities = data.activityCache?.activities || [];
     const settings = data.settings || {};
-    const cfg = { ftp: settings.ftp || 280, unreliablePowerStart: settings.unreliablePowerStart || '2020-01-01', unreliablePowerEnd: settings.unreliablePowerEnd || '2020-12-31' };
+    const cfg = { ftp: settings.ftp || 280, unreliablePowerStart: settings.unreliablePowerStart || '2020-01-01', unreliablePowerEnd: settings.unreliablePowerEnd || '2020-12-31', sufferToTSSFactor: settings.sufferToTSSFactor || 1.0 };
 
-    // ── Weight series (all entries, sorted) ───────────────────────────────────
     const weightSeries = Object.entries(data.weight || {})
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, kg]) => ({ date, kg: parseFloat(kg) }));
 
-    // ── ATL/CTL/TSB last 120 days ─────────────────────────────────────────────
+    // ATL/CTL/TSB — alleen duurtraining
     const dailyLoad = {};
-    activities.forEach(a => {
+    activities.filter(a => ENDURANCE_TYPES.has(a.type)).forEach(a => {
       const d = a.start_date?.split('T')[0];
       if (d) dailyLoad[d] = (dailyLoad[d] || 0) + estimateLoad(a, cfg);
     });
@@ -260,7 +279,6 @@ app.get('/api/charts/data', async (req, res) => {
       res.locals.loadSeries = loadSeries;
     }
 
-    // ── Weekly volume last 52 weeks ───────────────────────────────────────────
     const weeklyMap = {};
     activities.forEach(a => {
       const d = new Date(a.start_date);
@@ -279,7 +297,6 @@ app.get('/api/charts/data', async (req, res) => {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([wk, v]) => ({ week: wk, sessions: v.sessions, hours: Math.round(v.hours * 10) / 10, km: Math.round(v.km), gym: v.gym }));
 
-    // ── Nutrition last 60 days ────────────────────────────────────────────────
     const nutrCutoff = new Date(); nutrCutoff.setDate(nutrCutoff.getDate() - 60);
     const nutritionSeries = Object.entries(data.nutrition || {})
       .filter(([d]) => new Date(d) >= nutrCutoff)
@@ -287,7 +304,6 @@ app.get('/api/charts/data', async (req, res) => {
       .map(([date, v]) => ({ date, kcal: parseInt(v.kcal) || 0, protein: parseInt(v.protein) || 0, carbs: parseInt(v.carbs) || 0, fat: parseInt(v.fat) || 0 }))
       .filter(v => v.kcal > 0);
 
-    // ── Monthly power trend (excluding unreliable period) ─────────────────────
     const monthlyPower = {};
     activities
       .filter(a => a.average_watts && a.moving_time > 1800 && (a.type === 'Ride' || a.type === 'VirtualRide'))
@@ -302,7 +318,6 @@ app.get('/api/charts/data', async (req, res) => {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([month, watts]) => ({ month, avgWatt: Math.round(watts.reduce((a, b) => a + b) / watts.length), rides: watts.length }));
 
-    // ── Monthly weight avg (for long-term trend) ──────────────────────────────
     const monthlyWeight = {};
     weightSeries.forEach(({ date, kg }) => {
       const month = date.substring(0, 7);
@@ -314,7 +329,7 @@ app.get('/api/charts/data', async (req, res) => {
       .map(([month, vals]) => ({ month, avg: Math.round(vals.reduce((a, b) => a + b) / vals.length * 10) / 10 }));
 
     res.json({
-      weightSeries: weightSeries.slice(-365),  // max 1 year daily
+      weightSeries: weightSeries.slice(-365),
       weightMonthly,
       loadSeries: res.locals.loadSeries || [],
       weeklyVolume,
@@ -323,7 +338,6 @@ app.get('/api/charts/data', async (req, res) => {
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 
 app.get('/api/hevy/workouts', async (req, res) => {
   try {
@@ -386,8 +400,6 @@ app.post('/api/nutrition/parse-screenshot', upload.single('screenshot'), async (
   } catch (err) { res.status(500).json({ error: 'Verwerking mislukt: ' + err.message }); }
 });
 
-// ── Historisch gewicht importeren (Garmin Connect CSV) ────────────────────────
-
 app.post('/api/weight/import', upload.single('csvfile'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen bestand ontvangen' });
@@ -403,9 +415,8 @@ app.post('/api/weight/import', upload.single('csvfile'), async (req, res) => {
       (h.includes('weight') && !h.includes('body') && !h.includes('bone') && !h.includes('muscle'))
     );
 
-    if (dateIdx === -1 || weightIdx === -1) {
+    if (dateIdx === -1 || weightIdx === -1)
       return res.status(400).json({ error: `Kolommen niet gevonden. Gevonden: ${header.join(', ')}` });
-    }
 
     const samples = lines.slice(1, 20).map(l => parseFloat(l.replace(/"/g,'').split(',')[weightIdx])).filter(n => !isNaN(n));
     const median = samples.sort((a,b)=>a-b)[Math.floor(samples.length/2)];
@@ -442,16 +453,11 @@ app.post('/api/weight/import', upload.single('csvfile'), async (req, res) => {
 
     const data = await loadData();
     const existing = data.weight || {};
-    data.weight = { ...imported, ...existing }; // existing always wins
+    data.weight = { ...imported, ...existing };
     await saveData(data);
 
     const sorted = Object.keys(imported).sort();
-    res.json({
-      imported: count, skipped,
-      total: Object.keys(data.weight).length,
-      oldest: sorted[0], newest: sorted[sorted.length - 1],
-      unit: isLbs ? 'lbs omgezet naar kg' : 'kg',
-    });
+    res.json({ imported: count, skipped, total: Object.keys(data.weight).length, oldest: sorted[0], newest: sorted[sorted.length - 1], unit: isLbs ? 'lbs omgezet naar kg' : 'kg' });
   } catch (err) { res.status(500).json({ error: 'Import mislukt: ' + err.message }); }
 });
 
@@ -463,8 +469,8 @@ app.post('/api/analyse', async (req, res) => {
     const data = await loadData();
     const allActivities = data.activityCache?.activities || [];
     const settings = data.settings || {};
+    const calibration = data.calibration || { factor: 1.0, count: 0, reliable: false };
 
-    // ── DETERMINISTIC LAYER — engine berekent alle metrics ──────────────────
     const state = engine.computeFullState(allActivities, hevyWorkouts || [], weight || {}, nutrition || {}, weekPlan || {}, settings);
 
     const ninetyAgo = new Date(); ninetyAgo.setDate(ninetyAgo.getDate() - 90);
@@ -474,7 +480,8 @@ app.post('/api/analyse', async (req, res) => {
         const date = a.start_date?.split('T')[0] || '';
         const inUnreliable = engine.isUnreliablePower(date, settings);
         const ftp = engine.ftpForDate(allActivities, settings, date);
-        const zone = engine.activityZoneClassification({ ...a, _unreliablePower: inUnreliable }, ftp, 197);
+        const hrMax = settings.hrMax || 197;
+        const zone = engine.activityZoneClassification({ ...a, _unreliablePower: inUnreliable }, ftp, hrMax, settings);
         return {
           datum: date, type: a.type, naam: a.name,
           afstand_km: a.distance ? +(a.distance / 1000).toFixed(1) : null,
@@ -513,46 +520,34 @@ app.post('/api/analyse', async (req, res) => {
     const proteinPerKg = state.currentWeight && avgProtein7 ? (avgProtein7 / state.currentWeight).toFixed(2) : null;
 
     const recentZones = state.zoneBreakdown.slice(-8);
+    const em = state.enduranceMetrics;
+    const sm = state.strengthMetrics;
+    const targetWtLoss = settings.targetWeightLossPerWeek || 0.7;
 
     const literature = data.literature || [];
     const literatureContext = literature.length
       ? literature.map(l => `--- ${l.title} ---\n${l.content}`).join('\n\n')
       : 'Geen literatuur toegevoegd door gebruiker.';
 
-    const prompt = `Je bent een sport- en voedingswetenschappelijk onderlegde coach. Je werkt met een geïntegreerd datasysteem dat alle relevante bronnen combineert: duuractiviteiten, krachttraining, lichaamsgewicht, voeding, planning en historische voortgang. De kracht van jouw analyse zit niet in losse interpretatie van elke bron, maar in het leggen van verbanden tussen bronnen.
+    const prompt = `Je bent een sport- en voedingswetenschappelijk onderlegde coach. Je werkt met een geïntegreerd datasysteem. Een deterministische rekenmodule heeft alle metrics reeds berekend. Schat deze waarden NIET zelf opnieuw — gebruik ze direct als feiten.
 
-Een deterministische rekenmodule heeft ETL, ATL, CTL, TSB, ACWR, monotony, strain, readiness, FTP, zone-verdeling, trainingsmodel-classificatie, plateau-detectie en het persoonlijke responsmodel reeds berekend. Schat deze waarden NIET zelf opnieuw — gebruik ze direct als feiten en redeneer over wat ze betekenen.
-
-Redeneer altijd volgens dit patroon: OBSERVATIE → MECHANISME → IMPACT → ACTIE.
+Redeneer altijd: OBSERVATIE → MECHANISME → IMPACT → ACTIE.
 
 ═══════════════════════════════════════════════════════════
 WETENSCHAPPELIJK KADER
 ═══════════════════════════════════════════════════════════
 
 TRAININGSBELASTING & ADAPTATIE
-Banister-impulsresponsmodel: TSB = CTL − ATL. Optimum −10 tot +10. ACWR optimaal 0,8–1,3 (Gabbett 2016, BJSM); >1,5 verhoogt blessurerisico significant. Monotony >2,0 = onvoldoende variatie (Foster, MSSE 1998); strain = monotony × weekload. Periodisering volgens Issurin (blokmodel) en Seiler (polarized).
+Banister-impulsresponsmodel: TSB = CTL − ATL. Optimum −10 tot +10. ACWR optimaal 0,8–1,3 (Gabbett 2016); >1,5 verhoogt blessurerisico significant. Monotony >2,0 = onvoldoende variatie (Foster, MSSE 1998). Periodisering: Issurin (blokmodel) en Seiler (polarized).
 
 INTENSITEITSVERDELING
-Polarized model (Seiler 2010, IJSPP): ~80% laag (Z1-Z2 onder VT1/LT1), <5% mid (Z3 sweet spot), 15-20% hoog (Z4-Z5). Sweet spot training (Z3) genereert hoge cumulatieve vermoeidheid zonder proportionele adaptatie ("grey zone trap"). Pyramidal: gelijkmatige aflopende verdeling, geschikt voor base-bouw. Threshold-heavy: hoog grey-zone aandeel = stagnatie- en overreaching-risico. Z2 stimuleert mitochondriale biogenese via PGC-1α (AMPK-pad), vetoxidatie, type I vezeladaptatie. Z4-Z5: VO2max, lactaatmetabolisme, slagvolume cardiale hypertrofie.
+Polarized model (Seiler 2010): ~80% laag (Z1-Z2), <5% mid (Z3), 15-20% hoog (Z4-Z5). Z2: mitochondriale biogenese via PGC-1α, vetoxidatie. Z4-Z5: VO2max, lactaatmetabolisme. Grey zone (Z3): hoge vermoeidheid zonder proportionele adaptatie.
 
 CONCURRENT TRAINING
-AMPK (geactiveerd door duur) remt mTORC1 → reduceert MPS. Krachttraining activeert mTOR via PI3K/Akt en mechanotransductie (FAK). Volume duurtraining is sterkere moderator dan intensiteit (Wilson 2012, JSCR meta-analyse). Modererende factoren: kracht vóór duur, ≥6u herstelwindow, fietsen veroorzaakt minder mechanische interferentie dan hardlopen. Voor ex-wielrenners: aerobe base intact, type II rekrutering door gym is complementair niet-competitief.
+AMPK (duur) remt mTORC1 → reduceert MPS. Krachttraining activeert mTOR via mechanotransductie. Volume duurtraining is sterkere moderator dan intensiteit (Wilson 2012, JSCR). Moderatie: kracht vóór duur, ≥6u herstelwindow.
 
 VOEDING TIJDENS CUT
-Helms 2014 (IJSNEM): eiwit 2,3–3,1 g/kg/dag bij cut. Per maaltijd ≥0,3-0,4 g/kg voor leucinedrempel (Witard 2014). Distributie over 4-5 maaltijden > zelfde totaal in minder maaltijden (Moore 2012, J Physiol). Pre-sleep 40g caseïne verhoogt overnacht MPS (Res 2012). Caloriedeficit max 0,5-1% lichaamsgewicht/week voor spierbehoud. Energy availability >30 kcal/kg LBM/dag essentieel (Loucks 2004). Train-low strategie: lage glycogeenreserves bij Z2 versterkt PGC-1α; bij Z4+ altijd carb-loaded.
-
-WIELRENFYSIOLOGIE
-W/kg-ratio = functionele prestatiemaat. CP/W'-model: CP = duurzame ondergrens, W' = anaerobe capaciteit boven CP. FTP ≈ 0,95 × CP. Plasma volume daalt binnen weken bij detraining; herstel via "muscle memory" (myonuclei-persistentie).
-
-═══════════════════════════════════════════════════════════
-GEÏNTEGREERDE DATA-INSIGHTS — GEBRUIK DEZE KRUISVERBANDEN
-═══════════════════════════════════════════════════════════
-
-Het systeem bevat data van zes onderling verbonden domeinen. Elke analyse moet expliciet verbanden leggen:
-• ENERGIE × GEWICHT × PERFORMANCE: Verlies de atleet te snel of te langzaam volgens Helms? Hoe correleert recente caloriebalans met TSB-trend en zone-verdeling? Daalt absoluut vermogen sneller dan op basis van enkel gewichtsverlies te verwachten zou zijn (signaal van LBM-verlies)?
-• TRAININGSVERDELING × VOEDING: Bij hoog Z4-Z5 aandeel — was er adequate koolhydraatinname? Bij hoog Z2-volume — past dit bij actuele energiebeschikbaarheid?
-• KRACHT × DUUR × HERSTEL: Vallen krachtsessies binnen 6u na duurtraining? Komt het concurrent training-volume historisch overeen met perioden van progressie of stagnatie?
-• HISTORISCHE RESPONS: In welke TSB-range presteerde deze atleet historisch het best? Welke load-tolerance is empirisch zichtbaar?
+Helms 2014: eiwit 2,3–3,1 g/kg/dag bij cut. Caloriedeficit max ${targetWtLoss} kg/week (ingesteld doel) voor spierbehoud. Energy availability >30 kcal/kg LBM/dag essentieel.
 
 ═══════════════════════════════════════════════════════════
 DOOR GEBRUIKER AANGELEVERDE LITERATUUR
@@ -563,23 +558,26 @@ ${literatureContext}
 ATLETENPROFIEL
 ═══════════════════════════════════════════════════════════
 ${athlete?.firstname || 'Pieter'} ${athlete?.lastname || ''} | 23 jaar | 188cm | huidig: ${state.currentWeight}kg | doel: ${goals?.weightTarget || '90-92'}kg
-Achtergrond: ex-competitief wielrenner (FTP-piek 373W/70kg = 5,33 W/kg, La Marmotte 7u51, Cinglé du Ventoux 5u51). PPL gym ~1 jaar. PR: bench 110kg, RDL 120kg×10, incline DB 40kg×10. Actieve cut.
-
+Achtergrond: ex-competitief wielrenner (FTP-piek 373W/70kg = 5,33 W/kg). PPL gym ~1 jaar. PR: bench 110kg, RDL 120kg×10, incline DB 40kg×10. Actieve cut.
+Gewichtsverlies doel: ${targetWtLoss} kg/week.
 DOELEN: ${JSON.stringify(goals || {})}
 VASTE PATRONEN: ${JSON.stringify(patterns || [])}
 
 ═══════════════════════════════════════════════════════════
-BEREKENDE METRICS (deterministisch — gebruik direct, niet schatten)
+BEREKENDE METRICS — DUURTRAINING (ATL/CTL/TSB exclusief kracht)
 ═══════════════════════════════════════════════════════════
 
-LOAD STATE
-• ETL afgelopen 7 dagen: ${state.metrics.weeklyLoad}
-• ATL: ${state.metrics.atl} | CTL: ${state.metrics.ctl} | TSB: ${state.metrics.tsb}
-• ACWR: ${state.metrics.acwr} ${state.metrics.acwr > 1.5 ? '⚠️ SPIKE-ZONE' : state.metrics.acwr > 1.3 ? '⚠️ verhoogd' : 'normaal'}
-• Monotony: ${state.metrics.monotony} | Strain: ${state.metrics.strain}
+DUURBELASTING
+• ETL duurtraining afgelopen 7 dagen: ${em.weeklyLoad}
+• ATL (duur): ${em.atl} | CTL (duur): ${em.ctl} | TSB (duur): ${em.tsb}
+• ACWR: ${em.acwr} ${em.acwr > 1.5 ? '⚠️ SPIKE-ZONE' : em.acwr > 1.3 ? '⚠️ verhoogd' : 'normaal'}
+• Monotony: ${em.monotony} | Strain: ${em.strain}
 
 READINESS SCORE: ${state.readiness.total}/100 (${state.readiness.interpretation})
-Verdeling: TSB ${state.readiness.breakdown.tsb}/40 · ACWR ${state.readiness.breakdown.acwr}/25 · Monotony ${state.readiness.breakdown.monotony}/15 · Load slope ${state.readiness.breakdown.loadSlope}/10 · Voeding ${state.readiness.breakdown.nutrition}/10
+Verdeling: TSB ${state.readiness.breakdown.tsb}/35 · ACWR ${state.readiness.breakdown.acwr}/20 · Monotony ${state.readiness.breakdown.monotony}/15 · Load slope ${state.readiness.breakdown.loadSlope}/10 · Voeding ${state.readiness.breakdown.nutrition}/10 · Krachtherstel ${state.readiness.breakdown.strengthFatigue}/10
+
+ETL KALIBRATIE (suffer_score → TSS)
+• Factor: ${calibration.factor} | Gebaseerd op: ${calibration.count} ritten | Betrouwbaarheid: ${calibration.count >= 20 ? 'hoog' : calibration.count >= 5 ? 'matig' : 'laag (<5 ritten)'}
 
 OVERREACHING DETECTIE: ${state.overreaching.level}
 ${state.overreaching.flags.length ? 'Flags: ' + state.overreaching.flags.join(' | ') : 'Geen flags'}
@@ -596,14 +594,31 @@ ${state.personalModel.note ? '• ' + state.personalModel.note : ''}
 
 INTENSITEITSVERDELING (laatste 8 weken — Z1-Z2 / Z3 / Z4-Z5)
 ${recentZones.map(z => `${z.week}: ${z.lowPct}% / ${z.midPct}% / ${z.highPct}% — ${z.totalMin}min — model: ${z.model}`).join('\n') || 'Geen data'}
+HUIDIG MODEL: ${state.currentZoneModel?.model || 'onvoldoende data'}
 
-HUIDIG TRAININGSMODEL: ${state.currentZoneModel?.model || 'onvoldoende data'}
+═══════════════════════════════════════════════════════════
+BEREKENDE METRICS — KRACHTTRAINING (apart beoordeeld)
+═══════════════════════════════════════════════════════════
+${sm ? `
+Volume load deze week: ${sm.weeklyLoad} (4w gemiddeld: ${sm.avgWeeklyLoad4w})
+Dagen sinds laatste sessie: ${sm.daysSinceLastSession}
+
+Per spiergroep (weekload / trend / dagen-herstel):
+${Object.entries(sm.muscleGroups).map(([g, v]) => `  ${g}: ${v.weeklyLoad} load · trend: ${v.trend} · laatste sessie: ${v.daysSinceLastSession === 999 ? 'geen data' : v.daysSinceLastSession + 'd geleden'}`).join('\n')}
+
+e1RM trend (laatste 8 sessies via Epley):
+${sm.e1RMTrends.slice(0, 8).map(e => {
+  const s = e.sessions;
+  const delta = s[s.length-1].e1rm - s[0].e1rm;
+  return `  ${e.exercise}: ${s[0].e1rm} → ${s[s.length-1].e1rm} kg (${delta >= 0 ? '+' : ''}${delta})`;
+}).join('\n') || '  Onvoldoende data'}
+` : 'Geen Hevy data beschikbaar.'}
 
 ═══════════════════════════════════════════════════════════
 DETAIL DATA
 ═══════════════════════════════════════════════════════════
 
-ACTIVITEITEN AFGELOPEN 90 DAGEN (met ETL en zone per sessie)
+ACTIVITEITEN AFGELOPEN 90 DAGEN
 ${JSON.stringify(recent90)}
 
 HEVY WORKOUTS recent
@@ -618,38 +633,36 @@ VOEDING (14 dagen): ${nutrLast14.length ? JSON.stringify(nutrLast14) : 'Geen dat
 Gemiddeld 7d: ${Math.round(avgKcal7)} kcal/dag · ${Math.round(avgProtein7)}g eiwit (${proteinPerKg || '–'} g/kg)
 
 GEWICHT (14 dagen): ${wLast14.length ? JSON.stringify(wLast14) : 'Geen data'}
-Trend over 4 weken: ${weightTrend4w !== null ? weightTrend4w + ' kg/week' : 'onvoldoende data'}
+Trend 4w: ${weightTrend4w !== null ? weightTrend4w + ' kg/week' : 'onvoldoende data'} (doel: ${targetWtLoss} kg/week)
 
-GEPLANDE WEEK (met adaptive suggestions van engine)
-${weekPlanFormatted.length ? JSON.stringify(weekPlanFormatted) : 'Geen week gepland'}
-
+GEPLANDE WEEK: ${weekPlanFormatted.length ? JSON.stringify(weekPlanFormatted) : 'Geen week gepland'}
 DAGNOTITIE: ${todayNote || 'Geen'}
 
 ═══════════════════════════════════════════════════════════
 ANALYSEOPDRACHT
 ═══════════════════════════════════════════════════════════
 
-Schrijf een uitgebreide, mechanistisch onderbouwde analyse. Gebruik de berekende metrics als feiten. Leg expliciet kruisverbanden tussen domeinen (training × voeding × gewicht × intensiteitsverdeling × herstel). Volg het stramien OBSERVATIE → MECHANISME → IMPACT → ACTIE bij elk inzicht.
+Schrijf een uitgebreide, mechanistisch onderbouwde analyse. ATL/CTL/TSB reflecteert ALLEEN duurtraining. Krachttraining wordt apart beoordeeld via volume load en e1RM-trend. Leg expliciete kruisverbanden (training × voeding × gewicht × intensiteitsverdeling × herstel).
 
 **1. GEÏNTEGREERDE TRENDANALYSE**
-Welke verbanden zie je tussen historische trainingsbelasting, intensiteitsverdeling, gewichtsverloop en performance? Wanneer was de progressie het sterkst en welke combinatie van load, zone-verdeling en energiebalans verklaart dat? Welk trainingsmodel domineerde in succesperiodes versus stagnatieperiodes?
+Verbanden tussen duurload, krachtontwikkeling, gewichtsverloop en performance.
 
-**2. HUIDIGE STAAT — GEÏNTEGREERD**
-Beoordeel TSB ${state.metrics.tsb}, ACWR ${state.metrics.acwr}, readiness ${state.readiness.total}/100 en overreaching-niveau "${state.overreaching.level}" in onderlinge samenhang. Is het huidige trainingsmodel "${state.currentZoneModel?.model || 'onbekend'}" passend bij de doelen en de cutfase? Identificeer mismatches tussen trainingsinhoud en doelen — zit er onnodig veel grey zone in? Ontbreken stimuli?
+**2. DUURTRAINING — HUIDIGE STAAT**
+Beoordeel ATL ${em.atl}, CTL ${em.ctl}, TSB ${em.tsb}, ACWR ${em.acwr}, readiness ${state.readiness.total}/100. Is het trainingsmodel passend?
 
-**3. VOEDING × GEWICHT × ADAPTATIE**
-Toets de eiwitinname (${proteinPerKg || '–'} g/kg) aan Helms. Beoordeel kcal-balans (${Math.round(avgKcal7)}/dag) tegen gewichtstrend (${weightTrend4w !== null ? weightTrend4w + ' kg/week' : 'onbekend'}). Past dit deficit bij het huidige trainingsvolume? Risico op LBM-verlies of LEA? Effect op W/kg?
+**3. KRACHTTRAINING — HUIDIGE STAAT**
+Beoordeel volume load trend, e1RM progressie per spiergroep, herstelstatus. Zijn er interferentie-risico's met de duurtraining?
 
-**4. PER GEPLANDE SESSIE — TYPE EN INTENSITEIT**
-Voor elke geplande sessie deze week: specifiek sessietype-advies (geen "train minder", maar bijvoorbeeld "Z2 endurance 90min" of "VO2max 5×4min Z5/3min Z2 herstel" of "threshold 3×10min Z4"). Onderbouw met huidige TSB, trainingsmodel-deficit en cut. Specificeer setaantal/intensiteit/RPE bij gym, gerelateerd aan MEV/MAV gegeven concurrent training en deficit.
+**4. VOEDING × GEWICHT × ADAPTATIE**
+Toets eiwit (${proteinPerKg || '–'} g/kg) aan Helms. Kcal-balans (${Math.round(avgKcal7)}/dag) vs gewichtstrend (${weightTrend4w !== null ? weightTrend4w + ' kg/week' : 'onbekend'}) vs doel (${targetWtLoss} kg/week). Risico LBM-verlies of LEA?
 
-**5. STRUCTURELE OPTIMALISATIES**
-Sessievolgorde, koolhydraatperiodisering rond intensieve sessies, pre-sleep eiwit, deload-timing op basis van CTL-trend, polarized-shift indicaties.
+**5. PER GEPLANDE SESSIE — TYPE EN INTENSITEIT**
+Specifiek sessietype-advies met intensiteit, duur, RPE voor gym. Onderbouw met TSB, trainingsmodel-deficit en cut.
 
-**6. RODE VLAGGEN & WEEKPRIORITEIT**
-Concrete waarschuwingen met fysiologische onderbouwing. Eén absolute prioriteit met uitleg waarom dit het hoogste rendement heeft.
+**6. STRUCTURELE OPTIMALISATIES & RODE VLAGGEN**
+Sessievolgorde, koolhydraatperiodisering, deload-timing. Concrete waarschuwingen met fysiologische onderbouwing. Eén absolute weekprioriteit.
 
-Nederlands. Mechanistisch en concreet — geen platitudes. Citeer waar passend (Helms 2014, Seiler 2010, Wilson 2012, Gabbett 2016). Subkopjes per sectie. Minimaal ~1200 woorden.`;
+Nederlands. Mechanistisch en concreet. Citeer waar passend. Minimaal ~1200 woorden.`;
 
     const resp = await axios.post('https://api.anthropic.com/v1/messages', {
       model: 'claude-sonnet-4-20250514', max_tokens: 3500,
@@ -660,21 +673,24 @@ Nederlands. Mechanistisch en concreet — geen platitudes. Citeer waar passend (
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── State endpoints voor frontend live displays ──────────────────────────────
+// ── State endpoints ───────────────────────────────────────────────────────────
 
 app.get('/api/state/full', async (req, res) => {
   try {
     const data = await loadData();
     const allActivities = data.activityCache?.activities || [];
     const settings = data.settings || {};
-    const hevyResp = process.env.HEVY_API_KEY
-      ? await axios.get('https://api.hevyapp.com/v1/workouts', { headers: { 'api-key': process.env.HEVY_API_KEY }, params: { page: 1, pageSize: 30 } }).catch(() => ({ data: { workouts: [] } }))
-      : { data: { workouts: [] } };
-    const hevyWorkouts = hevyResp.data.workouts || [];
+    const hevyWorkouts = data.hevyWorkouts || [];
     const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings);
-    const { dailyETL, sources, ...rest } = state;
-    rest.metrics = { ...rest.metrics, history: undefined };
-    res.json({ ...rest, hasETLData: Object.keys(dailyETL).length > 0 });
+    const { enduranceDailyETL, strengthDailyETL, dailyETL, sources, ...rest } = state;
+    rest.enduranceMetrics = { ...rest.enduranceMetrics, history: undefined };
+    rest.metrics = rest.enduranceMetrics;
+    res.json({
+      ...rest,
+      hasETLData: Object.keys(dailyETL).length > 0,
+      calibration: data.calibration || { factor: 1.0, count: 0, reliable: false },
+      alertThresholds: settings.alerts || {}
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -683,11 +699,9 @@ app.get('/api/state/load-series', async (req, res) => {
     const data = await loadData();
     const allActivities = data.activityCache?.activities || [];
     const settings = data.settings || {};
-    const hevyResp = process.env.HEVY_API_KEY
-      ? await axios.get('https://api.hevyapp.com/v1/workouts', { headers: { 'api-key': process.env.HEVY_API_KEY }, params: { page: 1, pageSize: 30 } }).catch(() => ({ data: { workouts: [] } }))
-      : { data: { workouts: [] } };
-    const { dailyETL } = engine.buildDailyETLSeries(allActivities, hevyResp.data.workouts || [], settings);
-    const m = engine.computeLoadMetrics(dailyETL);
+    const hevyWorkouts = data.hevyWorkouts || [];
+    const { enduranceDailyETL } = engine.buildDailyETLSeries(allActivities, hevyWorkouts, settings);
+    const m = engine.computeLoadMetrics(enduranceDailyETL);
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 180);
     const series = Object.entries(m.history)
       .filter(([d]) => new Date(d) >= cutoff)
@@ -719,6 +733,10 @@ app.post('/api/data', async (req, res) => {
     const current = await loadData();
     const updates = req.body;
     delete updates.activityCache;
+    // Merge settings diep (niet overschrijven met lege object)
+    if (updates.settings && current.settings) {
+      updates.settings = { ...current.settings, ...updates.settings };
+    }
     await saveData({ ...current, ...updates });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -754,7 +772,6 @@ app.delete('/api/literature/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Upload PDF of tekstbestand — PDF wordt samengevat via Claude
 app.post('/api/literature/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen bestand ontvangen' });
@@ -776,7 +793,6 @@ app.post('/api/literature/upload', upload.single('file'), async (req, res) => {
       }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' } });
       content = resp.data.content.map(b => b.text || '').join('');
     } else {
-      // Plain text file
       content = req.file.buffer.toString('utf8').substring(0, 4000);
     }
 
@@ -790,8 +806,6 @@ app.post('/api/literature/upload', upload.single('file'), async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Upload mislukt: ' + err.message }); }
 });
 
-// ── Weight history CSV upload ─────────────────────────────────────────────────
-
 app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen bestand ontvangen' });
@@ -800,21 +814,14 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) return res.status(400).json({ error: 'Bestand is leeg of ongeldig' });
 
-    // Detect delimiter (comma or semicolon)
     const delim = (lines[0].match(/;/g) || []).length > (lines[0].match(/,/g) || []).length ? ';' : ',';
-
-    // Parse header — find date and weight column indices
     const header = lines[0].split(delim).map(h => h.replace(/"/g, '').trim().toLowerCase());
     const dateIdx = header.findIndex(h => h.includes('date') || h.includes('datum') || h.includes('time') || h.includes('tijd'));
     const weightIdx = header.findIndex(h => h.match(/^weight$|^gewicht$|^weight \(kg\)|^weight \(lbs\)|^gewicht \(kg\)/));
 
-    if (dateIdx === -1 || weightIdx === -1) {
-      return res.status(400).json({
-        error: `Kolommen niet herkend. Gevonden kolommen: ${header.join(', ')}. Verwacht: een datum-kolom en een gewicht-kolom.`
-      });
-    }
+    if (dateIdx === -1 || weightIdx === -1)
+      return res.status(400).json({ error: `Kolommen niet herkend. Gevonden kolommen: ${header.join(', ')}.` });
 
-    // Parse rows
     const entries = [];
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(delim).map(c => c.replace(/"/g, '').trim());
@@ -822,22 +829,12 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
       const rawWeight = cols[weightIdx];
       if (!rawDate || !rawWeight || rawWeight === '') continue;
 
-      // Parse date — support YYYY-MM-DD, DD-MM-YYYY, MM/DD/YYYY, YYYY-MM-DD HH:MM:SS
       let dateKey = null;
-      const cleanDate = rawDate.split(' ')[0].split('T')[0]; // strip time part
-      if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
-        dateKey = cleanDate;
-      } else if (/^\d{2}-\d{2}-\d{4}$/.test(cleanDate)) {
-        const [d, m, y] = cleanDate.split('-');
-        dateKey = `${y}-${m}-${d}`;
-      } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cleanDate)) {
-        const [m, d, y] = cleanDate.split('/');
-        dateKey = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-      } else {
-        // Try generic Date parse
-        const parsed = new Date(rawDate);
-        if (!isNaN(parsed)) dateKey = parsed.toISOString().split('T')[0];
-      }
+      const cleanDate = rawDate.split(' ')[0].split('T')[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) dateKey = cleanDate;
+      else if (/^\d{2}-\d{2}-\d{4}$/.test(cleanDate)) { const [d, m, y] = cleanDate.split('-'); dateKey = `${y}-${m}-${d}`; }
+      else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cleanDate)) { const [m, d, y] = cleanDate.split('/'); dateKey = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }
+      else { const parsed = new Date(rawDate); if (!isNaN(parsed)) dateKey = parsed.toISOString().split('T')[0]; }
       if (!dateKey) continue;
 
       const weight = parseFloat(rawWeight.replace(',', '.'));
@@ -845,9 +842,8 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
       entries.push({ date: dateKey, weight });
     }
 
-    if (!entries.length) return res.status(400).json({ error: 'Geen geldige gewichtsinvoeren gevonden in het bestand' });
+    if (!entries.length) return res.status(400).json({ error: 'Geen geldige gewichtsinvoeren gevonden' });
 
-    // Auto-detect lbs vs kg: if median > 150, assume lbs
     const sorted = [...entries].sort((a, b) => a.weight - b.weight);
     const median = sorted[Math.floor(sorted.length / 2)].weight;
     const isLbs = median > 150;
@@ -856,28 +852,17 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
       weight: isLbs ? Math.round((e.weight * 0.453592) * 10) / 10 : Math.round(e.weight * 10) / 10
     }));
 
-    // Merge with existing — don't overwrite existing manual entries
     const data = await loadData();
     const existing = data.weight || {};
     let added = 0, skipped = 0;
-
     converted.forEach(({ date, weight }) => {
-      if (existing[date]) {
-        skipped++; // keep manual entry
-      } else {
-        existing[date] = String(weight);
-        added++;
-      }
+      if (existing[date]) { skipped++; } else { existing[date] = String(weight); added++; }
     });
-
     data.weight = existing;
     await saveData(data);
 
     res.json({
-      ok: true,
-      total: converted.length,
-      added,
-      skipped,
+      ok: true, total: converted.length, added, skipped,
       unit: isLbs ? 'lbs → omgezet naar kg' : 'kg',
       eerste: converted.sort((a,b)=>a.date.localeCompare(b.date))[0]?.date,
       laatste: converted.sort((a,b)=>b.date.localeCompare(a.date))[0]?.date,

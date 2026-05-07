@@ -269,6 +269,7 @@ body { overflow-x: hidden; }
   <button class="tab" onclick="showTab('voortgang',this)">Voortgang</button>
   <button class="tab" onclick="showTab('literatuur',this)">Literatuur</button>
   <button class="tab" onclick="showTab('planning',this)">Doelen</button>
+  <button class="tab" onclick="showTab('instellingen',this)">Instellingen</button>
   <button class="tab" onclick="showTab('analyse',this)">AI-analyse</button>
 </div>
 
@@ -303,6 +304,7 @@ body { overflow-x: hidden; }
     <div id="alertsContainer"></div>
 
     <!-- Load metrics -->
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;padding:4px 2px 0">Duurtraining</div>
     <div class="stats-grid-5">
       <div class="stat"><div class="stat-lbl">ATL</div><div class="stat-val c-red" id="sATL">–</div><div class="stat-sub">acuut (7d)</div></div>
       <div class="stat"><div class="stat-lbl">CTL</div><div class="stat-val c-blue" id="sCTL">–</div><div class="stat-sub">chronisch (42d)</div></div>
@@ -315,6 +317,11 @@ body { overflow-x: hidden; }
       <div class="stat"><div class="stat-lbl">Trainingsmodel</div><div class="stat-val" id="sModel" style="font-size:14px;line-height:1.3">–</div><div class="stat-sub" id="sModelSub">deze week</div></div>
       <div class="stat"><div class="stat-lbl">Rolling FTP</div><div class="stat-val c-orange" id="sFTP">–</div><div class="stat-sub">60d window</div></div>
       <div class="stat"><div class="stat-lbl">Gewicht</div><div class="stat-val c-green" id="sWeight">–</div><div class="stat-sub" id="sWeightSub">doel: 90-92kg</div></div>
+    </div>
+
+    <div id="strengthOverview" class="card" style="display:none">
+      <div class="card-label">Krachttraining</div>
+      <div id="strengthOverviewContent"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
     </div>
 
     <div id="syncBanner" class="sync-banner">
@@ -529,44 +536,6 @@ body { overflow-x: hidden; }
     </div>
 
     <div class="card">
-      <div class="card-label">Historisch gewicht importeren</div>
-      <p style="color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:12px">
-        Exporteer je gewichtsgeschiedenis uit Garmin Connect: <strong style="color:var(--text)">Gezondheid → Gewicht → Exporteren (CSV)</strong>. Upload het bestand hieronder. Bestaande handmatige invoer wordt niet overschreven. Pounds worden automatisch omgezet naar kg.
-      </p>
-      <div class="upload-zone" id="weightUploadZone" onclick="document.getElementById('weightFileIn').click()" style="padding:16px">
-        <div style="font-size:22px;margin-bottom:5px">⚖️</div>
-        <div style="color:var(--muted);font-size:13px">Klik of sleep Garmin CSV hierheen<br><span style="color:var(--accent)">Selecteer bestand</span></div>
-      </div>
-      <input type="file" id="weightFileIn" accept=".csv,.txt" style="display:none" onchange="handleWeightUpload(this.files[0])">
-      <div id="weightUploadMsg" class="hidden"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-label">Instellingen powermeter</div>
-      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Vermogensdata in deze periode wordt gemarkeerd als onbetrouwbaar in de analyse en wordt niet gebruikt voor FTP-schatting of prestatielijsten.</p>
-      <div class="form-grid">
-        <div class="fg"><label>Onbetrouwbaar van</label><input type="date" id="sPwrStart" value="2020-01-01"></div>
-        <div class="fg"><label>Onbetrouwbaar tot</label><input type="date" id="sPwrEnd" value="2020-12-31"></div>
-        <div class="fg"><label>Huidige FTP (watt, schatting)</label><input type="number" id="sFtp" placeholder="280"></div>
-      </div>
-      <button class="btn btn-primary mt-3" onclick="saveSettings()" id="btnSettings">Instellingen opslaan</button>
-    </div>
-
-
-    <div class="card">
-      <div class="card-label">Historisch gewicht importeren</div>
-      <p style="color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:12px">
-        Exporteer je gewichtsdata uit Garmin Connect: Gezondheid → Gewicht → rechtsboven het export-icoon → CSV. Upload het bestand hieronder. Bestaande handmatige metingen worden nooit overschreven.
-      </p>
-      <div class="upload-zone" id="weightUploadZone" onclick="document.getElementById('weightFileIn').click()">
-        <div style="font-size:24px;margin-bottom:6px">⚖️</div>
-        <div style="color:var(--muted);font-size:13px">Klik of sleep Garmin CSV hierheen<br><span style="color:var(--accent)">Selecteer bestand</span></div>
-      </div>
-      <input type="file" id="weightFileIn" accept=".csv,text/csv" style="display:none" onchange="handleWeightImport(this.files[0])">
-      <div id="weightImportMsg" class="hidden"></div>
-    </div>
-
-    <div class="card">
       <div class="card-header">
         <div class="card-label" style="margin:0">Vaste wekelijkse patronen</div>
         <button class="btn btn-ghost btn-sm" onclick="togglePatternForm()">+ Toevoegen</button>
@@ -594,6 +563,83 @@ body { overflow-x: hidden; }
       <div class="card-label">Geschiedenis</div>
       <div id="histSummary"><div style="color:var(--muted);font-size:13px">Sync eerst je volledige history via de Overzicht-tab.</div></div>
     </div>
+  </div>
+
+  <!-- INSTELLINGEN -->
+  <div id="tab-instellingen" class="section hidden">
+
+    <div class="card">
+      <div class="card-label">Trainingszones (% van FTP)</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Grenzen van je zones als percentage van FTP. Zone 5 = alles boven Z4.</p>
+      <div class="form-grid">
+        <div class="fg"><label>Z1 max (%)</label><input type="number" id="sZ1" placeholder="55"></div>
+        <div class="fg"><label>Z2 max (%)</label><input type="number" id="sZ2" placeholder="75"></div>
+        <div class="fg"><label>Z3 max (%)</label><input type="number" id="sZ3" placeholder="90"></div>
+        <div class="fg"><label>Z4 max (%)</label><input type="number" id="sZ4" placeholder="105"></div>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsZones()" id="btnSaveZones">Zones opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Fysiologie</div>
+      <div class="form-grid">
+        <div class="fg"><label>Max hartslag (slagen/min)</label><input type="number" id="sHrMax" placeholder="185"></div>
+        <div class="fg"><label>Gewichtsverlies doel (kg/week)</label><input type="number" step="0.1" id="sWeightLoss" placeholder="0.3"></div>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsFysiologie()" id="btnSaveFys">Opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Krachttraining</div>
+      <div class="form-grid">
+        <div class="fg"><label>Standaard RPE (1–10)</label><input type="number" step="0.5" min="1" max="10" id="sDefaultRPE" placeholder="7.5"></div>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsKracht()" id="btnSaveKracht">Opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Alertdrempels</div>
+      <div class="form-grid">
+        <div class="fg"><label>TSB waarschuwing</label><input type="number" id="sTsbWarn" placeholder="-20"></div>
+        <div class="fg"><label>TSB kritiek</label><input type="number" id="sTsbCrit" placeholder="-30"></div>
+        <div class="fg"><label>ACWR waarschuwing</label><input type="number" step="0.05" id="sAcwrWarn" placeholder="1.3"></div>
+        <div class="fg"><label>ACWR kritiek</label><input type="number" step="0.05" id="sAcwrCrit" placeholder="1.5"></div>
+        <div class="fg"><label>Monotony waarschuwing</label><input type="number" step="0.1" id="sMonoWarn" placeholder="2.0"></div>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsAlerts()" id="btnSaveAlerts">Opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Powermeter & FTP</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Vermogensdata in deze periode wordt gemarkeerd als onbetrouwbaar en niet gebruikt voor FTP-schatting of prestatielijsten.</p>
+      <div class="form-grid">
+        <div class="fg"><label>Onbetrouwbaar van</label><input type="date" id="sPwrStart" value="2020-01-01"></div>
+        <div class="fg"><label>Onbetrouwbaar tot</label><input type="date" id="sPwrEnd" value="2020-12-31"></div>
+        <div class="fg"><label>Huidige FTP (watt)</label><input type="number" id="sFtp" placeholder="280"></div>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettings()" id="btnSettings">Opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Garmin CSV — Gewicht importeren</div>
+      <p style="color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:12px">
+        Exporteer je gewichtsgeschiedenis via <strong style="color:var(--text)">Gezondheid → Gewicht → Exporteren (CSV)</strong>. Bestaande handmatige invoer wordt niet overschreven. Pounds worden automatisch omgezet naar kg.
+      </p>
+      <div class="upload-zone" id="weightUploadZone" onclick="document.getElementById('weightFileIn').click()" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:5px">⚖️</div>
+        <div style="color:var(--muted);font-size:13px">Klik of sleep Garmin CSV hierheen<br><span style="color:var(--accent)">Selecteer bestand</span></div>
+      </div>
+      <input type="file" id="weightFileIn" accept=".csv,.txt" style="display:none" onchange="handleWeightImport(this.files[0])">
+      <div id="weightImportMsg" class="hidden"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">ETL Kalibratie</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Calibratiefactor berekend op basis van historische ritten met vermogensmeter (mediaan TSS/suffer_score ratio).</p>
+      <div id="calibrationInfo" style="margin-bottom:12px;font-size:13px;color:var(--muted)">Nog niet berekend</div>
+      <button class="btn btn-ghost btn-sm" onclick="recalibrate()" id="btnRecalibrate">↻ Herbereken kalibratie</button>
+    </div>
+
   </div>
 
   <!-- ANALYSE -->
@@ -709,6 +755,20 @@ async function loadUserData() {
     document.getElementById('sPwrStart').value = cfg.unreliablePowerStart||'2020-01-01';
     document.getElementById('sPwrEnd').value = cfg.unreliablePowerEnd||'2020-12-31';
     document.getElementById('sFtp').value = cfg.ftp||280;
+    const z = cfg.zones||{};
+    if (document.getElementById('sZ1')) document.getElementById('sZ1').value = z.z1||55;
+    if (document.getElementById('sZ2')) document.getElementById('sZ2').value = z.z2||75;
+    if (document.getElementById('sZ3')) document.getElementById('sZ3').value = z.z3||90;
+    if (document.getElementById('sZ4')) document.getElementById('sZ4').value = z.z4||105;
+    if (document.getElementById('sHrMax')) document.getElementById('sHrMax').value = cfg.hrMax||'';
+    if (document.getElementById('sWeightLoss')) document.getElementById('sWeightLoss').value = cfg.targetWeightLossPerWeek||'';
+    if (document.getElementById('sDefaultRPE')) document.getElementById('sDefaultRPE').value = cfg.defaultRPE||7.5;
+    const al = cfg.alerts||{};
+    if (document.getElementById('sTsbWarn')) document.getElementById('sTsbWarn').value = al.tsbWarn ?? -20;
+    if (document.getElementById('sTsbCrit')) document.getElementById('sTsbCrit').value = al.tsbCrit ?? -30;
+    if (document.getElementById('sAcwrWarn')) document.getElementById('sAcwrWarn').value = al.acwrWarn ?? 1.3;
+    if (document.getElementById('sAcwrCrit')) document.getElementById('sAcwrCrit').value = al.acwrCrit ?? 1.5;
+    if (document.getElementById('sMonoWarn')) document.getElementById('sMonoWarn').value = al.monotonyWarn ?? 2.0;
     if (S.data.weight?.[today()]) document.getElementById('qWeight').value = S.data.weight[today()];
     if (g.weightTarget) document.getElementById('sWeightSub').textContent = `doel: ${g.weightTarget}kg`;
   } catch {}
@@ -792,11 +852,11 @@ async function loadFullState() {
     const ringColor = r.total >= 80 ? '#4ade80' : r.total >= 65 ? '#a3e635' : r.total >= 50 ? '#facc15' : r.total >= 35 ? '#fb923c' : '#f87171';
     ring.setAttribute('stroke', ringColor);
     document.getElementById('readinessBreakdown').innerHTML =
-      `TSB ${r.breakdown.tsb}/40 · ACWR ${r.breakdown.acwr}/25 · Monotony ${r.breakdown.monotony}/15<br>` +
-      `Load slope ${r.breakdown.loadSlope}/10 · Voeding ${r.breakdown.nutrition}/10`;
+      `TSB ${r.breakdown.tsb||0}/35 · ACWR ${r.breakdown.acwr||0}/20 · Monotony ${r.breakdown.monotony||0}/15<br>` +
+      `Load slope ${r.breakdown.loadSlope||0}/10 · Voeding ${r.breakdown.nutrition||0}/10 · Kracht ${r.breakdown.strengthFatigue||0}/10`;
 
     // Update all metrics
-    updateMetrics(s.metrics);
+    updateMetrics(s.enduranceMetrics || s.metrics);
 
     // FTP
     if (s.ftpInfo) {
@@ -812,6 +872,12 @@ async function loadFullState() {
       document.getElementById('sModelSub').textContent = `${model.lowPct}/${model.midPct}/${model.highPct}%`;
     }
 
+    // Strength overview
+    renderStrengthOverview(s);
+
+    // Calibration
+    if (s.calibration) renderCalibrationInfo(s.calibration);
+
     // Alerts
     renderAlerts(s);
   } catch(e) {
@@ -822,6 +888,11 @@ async function loadFullState() {
 function renderAlerts(s) {
   const container = document.getElementById('alertsContainer');
   const alerts = [];
+  const thr = s.alertThresholds || {};
+  const tsbCrit = thr.tsbCrit ?? -30;
+  const acwrCrit = thr.acwrCrit ?? 1.5;
+  const acwrWarn = thr.acwrWarn ?? 1.3;
+  const m = s.enduranceMetrics || s.metrics || {};
 
   if (s.overreaching.level === 'severe') {
     alerts.push({ type: 'error', icon: '🚨', title: 'Zwaar overreached',
@@ -840,9 +911,9 @@ function renderAlerts(s) {
     });
   }
 
-  if (s.metrics.acwr > 1.5) {
+  if (m.acwr > acwrCrit) {
     alerts.push({ type: 'error', icon: '⚡', title: 'ACWR spike',
-      content: `Acute belasting ${s.metrics.acwr}× chronische — hoog blessurerisico volgens Gabbett (BJSM 2016). Verlaag volume.` });
+      content: `Acute belasting ${m.acwr}× chronische — hoog blessurerisico volgens Gabbett (BJSM 2016). Verlaag volume.` });
   }
 
   if (alerts.length === 0) {
@@ -1177,11 +1248,92 @@ async function saveGoals() {
 }
 
 async function saveSettings() {
-  const settings = { unreliablePowerStart:document.getElementById('sPwrStart').value, unreliablePowerEnd:document.getElementById('sPwrEnd').value, ftp:parseInt(document.getElementById('sFtp').value)||280 };
+  const existing = S.data.settings || {};
+  const settings = { ...existing, unreliablePowerStart:document.getElementById('sPwrStart').value, unreliablePowerEnd:document.getElementById('sPwrEnd').value, ftp:parseInt(document.getElementById('sFtp').value)||280 };
   await saveDataPartial({ settings });
-  const b = document.getElementById('btnSettings');
-  b.textContent='✓ Opgeslagen'; b.className='btn btn-success mt-3';
-  setTimeout(()=>{b.textContent='Instellingen opslaan';b.className='btn btn-primary mt-3';},2000);
+  showSaved('btnSettings', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
+}
+
+async function saveSettingsZones() {
+  const existing = S.data.settings || {};
+  const zones = { z1: parseInt(document.getElementById('sZ1').value)||55, z2: parseInt(document.getElementById('sZ2').value)||75, z3: parseInt(document.getElementById('sZ3').value)||90, z4: parseInt(document.getElementById('sZ4').value)||105 };
+  const settings = { ...existing, zones };
+  await saveDataPartial({ settings });
+  showSaved('btnSaveZones', 'Zones opslaan', 'btn btn-primary mt-3 btn-sm');
+}
+
+async function saveSettingsFysiologie() {
+  const existing = S.data.settings || {};
+  const settings = { ...existing, hrMax: parseInt(document.getElementById('sHrMax').value)||185, targetWeightLossPerWeek: parseFloat(document.getElementById('sWeightLoss').value)||0.3 };
+  await saveDataPartial({ settings });
+  showSaved('btnSaveFys', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
+}
+
+async function saveSettingsKracht() {
+  const existing = S.data.settings || {};
+  const settings = { ...existing, defaultRPE: parseFloat(document.getElementById('sDefaultRPE').value)||7.5 };
+  await saveDataPartial({ settings });
+  showSaved('btnSaveKracht', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
+}
+
+async function saveSettingsAlerts() {
+  const existing = S.data.settings || {};
+  const alerts = { tsbWarn: parseInt(document.getElementById('sTsbWarn').value)||-20, tsbCrit: parseInt(document.getElementById('sTsbCrit').value)||-30, acwrWarn: parseFloat(document.getElementById('sAcwrWarn').value)||1.3, acwrCrit: parseFloat(document.getElementById('sAcwrCrit').value)||1.5, monotonyWarn: parseFloat(document.getElementById('sMonoWarn').value)||2.0 };
+  const settings = { ...existing, alerts };
+  await saveDataPartial({ settings });
+  showSaved('btnSaveAlerts', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
+}
+
+function showSaved(btnId, origText, origClass) {
+  const b = document.getElementById(btnId);
+  if (!b) return;
+  b.textContent = '✓ Opgeslagen'; b.className = 'btn btn-success mt-3 btn-sm';
+  setTimeout(() => { b.textContent = origText; b.className = origClass; }, 2000);
+}
+
+async function recalibrate() {
+  const btn = document.getElementById('btnRecalibrate');
+  btn.textContent = 'Bezig...'; btn.disabled = true;
+  try {
+    const r = await api('/api/calibration');
+    renderCalibrationInfo(r);
+  } catch(e) {
+    document.getElementById('calibrationInfo').textContent = 'Mislukt: ' + e.message;
+  }
+  btn.textContent = '↻ Herbereken kalibratie'; btn.disabled = false;
+}
+
+function renderCalibrationInfo(r) {
+  const el = document.getElementById('calibrationInfo');
+  if (!el || !r) return;
+  const rel = r.reliable ? '<span style="color:var(--green)">betrouwbaar</span>' : '<span style="color:var(--accent)">onvoldoende data</span>';
+  el.innerHTML = `Factor: <strong style="color:var(--text)">${r.factor}</strong> &nbsp;·&nbsp; ${r.count} ritten &nbsp;·&nbsp; ${rel}`;
+}
+
+function renderStrengthOverview(state) {
+  const sm = state.strengthMetrics;
+  const el = document.getElementById('strengthOverview');
+  if (!el) return;
+  if (!sm) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  const mg = sm.muscleGroups || {};
+  const days = sm.daysSinceLastSession ?? '–';
+  const avg = sm.avgWeeklyLoad4w ? sm.avgWeeklyLoad4w.toFixed(0) : '–';
+  const groups = [
+    { key: 'lower_body', label: 'Benen' },
+    { key: 'push', label: 'Push' },
+    { key: 'pull', label: 'Pull' },
+    { key: 'core', label: 'Core' },
+  ];
+  const rows = groups.map(g => {
+    const v = mg[g.key] || 0;
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--muted)">${g.label}</span><span style="font-weight:600">${v > 0 ? v.toFixed(0) + ' sets/w' : '–'}</span></div>`;
+  }).join('');
+  document.getElementById('strengthOverviewContent').innerHTML =
+    `<div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px">
+      <span style="color:var(--muted)">Laatste sessie: <strong style="color:var(--text)">${days === '–' ? '–' : days + 'd geleden'}</strong></span>
+      <span style="color:var(--muted)">Gem. 4w load: <strong style="color:var(--text)">${avg} ETL/w</strong></span>
+    </div>${rows}`;
 }
 
 function togglePatternForm() { document.getElementById('patternForm').classList.toggle('hidden'); }
@@ -1392,31 +1544,6 @@ async function handleLitUpload(file) {
     msg.textContent = '✓ Toegevoegd' + (file.type === 'application/pdf' ? ' (PDF samengevat)' : '');
     await loadLiterature();
   } catch(e) { msg.className = 'alert alert-error mt-2'; msg.textContent = '✗ ' + e.message; }
-}
-
-// ── Weight history upload ─────────────────────────────────────────────────────
-wuz = document.getElementById('weightUploadZone');
-wuz.addEventListener('dragover', e=>{e.preventDefault();wuz.classList.add('over');});
-wuz.addEventListener('dragleave', ()=>wuz.classList.remove('over'));
-wuz.addEventListener('drop', e=>{e.preventDefault();wuz.classList.remove('over');handleWeightUpload(e.dataTransfer.files[0]);});
-
-async function handleWeightUpload(file) {
-  if (!file) return;
-  const msg = document.getElementById('weightUploadMsg');
-  msg.className='alert alert-info mt-2'; msg.textContent='⚖️ Bestand verwerken...';
-  const fd = new FormData(); fd.append('csv', file);
-  try {
-    const r = await fetch('/api/weight/upload-history', { method:'POST', body:fd });
-    const d = await r.json();
-    if (!r.ok || d.error) throw new Error(d.error);
-    msg.className='alert alert-success mt-2';
-    msg.innerHTML = `✓ ${d.added} gewichtsinvoeren geïmporteerd (${d.skipped} overgeslagen — bestaande invoer behouden)<br>
-      <span style="color:var(--muted);font-size:11px">Periode: ${d.eerste} t/m ${d.laatste} · Eenheid: ${d.unit}</span>`;
-    await loadUserData(); // refresh weight data
-  } catch(e) {
-    msg.className='alert alert-error mt-2';
-    msg.textContent = '✗ ' + e.message;
-  }
 }
 
 // ── Charts ────────────────────────────────────────────────────────────────────
