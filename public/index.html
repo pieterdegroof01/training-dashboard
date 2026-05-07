@@ -932,12 +932,6 @@ function renderAlerts(s) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderStats() {
-  const now = new Date();
-  const dow = (now.getDay()+6)%7;
-  const wStart = new Date(now); wStart.setDate(now.getDate()-dow); wStart.setHours(0,0,0,0);
-  const thisW = S.recentActs.filter(a => new Date(a.start_date) >= wStart);
-  document.getElementById('sWeek').textContent = `${thisW.length}`;
-  document.getElementById('sWeekSub').textContent = thisW.length === 1 ? 'sessie' : 'sessies';
   const w = S.data.weight?.[today()];
   if (w) { document.getElementById('sWeight').textContent = `${w}kg`; }
 }
