@@ -227,9 +227,7 @@ function computeETLForHevyWorkout(workout, opts = {}) {
   let avgRPE = defaultRPE;
   if (highRPESets.length) {
     avgRPE = highRPESets.reduce((a, b) => a + b, 0) / highRPESets.length;
-  } else if (totalReps / totalSets <= 6) avgRPE = 8.5;
-  else if (totalReps / totalSets <= 10) avgRPE = 8.0;
-  else avgRPE = 7.0;
+  }
 
   const lowerRatio    = lowerBodySets / totalSets;
   const muscleGroupFactor = 1.0 + 0.3 * lowerRatio;
