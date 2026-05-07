@@ -338,10 +338,16 @@ app.get('/api/hevy/workouts', async (req, res) => {
     let page = 1;
     let done = false;
     while (!done) {
-      const resp = await axios.get('https://api.hevyapp.com/v1/workouts', {
-        headers: { 'api-key': process.env.HEVY_API_KEY },
-        params: { page, pageSize: 10 }
-      });
+      let resp;
+      try {
+        resp = await axios.get('https://api.hevyapp.com/v1/workouts', {
+          headers: { 'api-key': process.env.HEVY_API_KEY },
+          params: { page, pageSize: 10 }
+        });
+      } catch (e) {
+        if (e.response?.status === 404) break;
+        throw e;
+      }
       const batch = resp.data.workouts || [];
       if (batch.length === 0) break;
       for (const w of batch) {
