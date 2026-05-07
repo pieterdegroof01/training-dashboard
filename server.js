@@ -328,11 +328,38 @@ app.get('/api/charts/data', async (req, res) => {
 app.get('/api/hevy/workouts', async (req, res) => {
   try {
     if (!process.env.HEVY_API_KEY) return res.json([]);
-    const resp = await axios.get('https://api.hevyapp.com/v1/workouts', {
-      headers: { 'api-key': process.env.HEVY_API_KEY },
-      params: { page: 1, pageSize: 10 }
-    });
-    res.json(resp.data.workouts || []);
+    const data = await loadData();
+    const existing = data.hevyWorkouts || [];
+    const cutoff = existing.length > 0
+      ? existing.reduce((max, w) => (w.start_time > max ? w.start_time : max), existing[0].start_time)
+      : null;
+
+    const fetched = [];
+    let page = 1;
+    let done = false;
+    while (!done) {
+      const resp = await axios.get('https://api.hevyapp.com/v1/workouts', {
+        headers: { 'api-key': process.env.HEVY_API_KEY },
+        params: { page, pageSize: 10 }
+      });
+      const batch = resp.data.workouts || [];
+      if (batch.length === 0) break;
+      for (const w of batch) {
+        if (cutoff && w.start_time <= cutoff) { done = true; break; }
+        fetched.push(w);
+      }
+      page++;
+    }
+
+    const existingIds = new Set(existing.map(w => w.id));
+    const merged = [
+      ...fetched.filter(w => !existingIds.has(w.id)),
+      ...existing,
+    ].sort((a, b) => b.start_time.localeCompare(a.start_time));
+
+    data.hevyWorkouts = merged;
+    await saveData(data);
+    res.json(merged);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
