@@ -91,7 +91,8 @@ function estimateLoad(activity, settings) {
 
   if (activity.type === 'Ride' || activity.type === 'VirtualRide') {
     if (activity.average_watts && !inUnreliable) {
-      const IF = activity.average_watts / ftp;
+      const np = activity.weighted_average_watts || activity.average_watts;
+      const IF = np / ftp;
       return Math.min(Math.round(IF * IF * durationH * 100), 400);
     }
     if (activity.suffer_score > 0) return Math.round(activity.suffer_score * sufferFactor);
