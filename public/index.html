@@ -1326,8 +1326,9 @@ function renderStrengthOverview(state) {
     { key: 'core', label: 'Core' },
   ];
   const rows = groups.map(g => {
-    const v = mg[g.key] || 0;
-    return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--muted)">${g.label}</span><span style="font-weight:600">${v > 0 ? v.toFixed(0) + ' sets/w' : '–'}</span></div>`;
+    const grpData = mg[g.key];
+    const load = grpData?.weeklyLoad ?? 0;
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--muted)">${g.label}</span><span style="font-weight:600">${load > 0 ? load.toFixed(0) + ' kg·reps/w' : '–'}</span></div>`;
   }).join('');
   document.getElementById('strengthOverviewContent').innerHTML =
     `<div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px">
