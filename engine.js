@@ -104,10 +104,11 @@ function ftpForDate(activities, settings, date) {
 function activityZoneClassification(activity, ftp, hrMax, settings) {
   const inUnreliable = activity.average_watts && (activity._unreliablePower || false);
   const z = settings?.zones || {};
-  const z1 = z.z1 ?? 0.55;
-  const z2 = z.z2 ?? 0.75;
-  const z3 = z.z3 ?? 0.90;
-  const z4 = z.z4 ?? 1.05;
+  // zones opgeslagen als gehele getallen (55, 75, 90, 105), omzetten naar fracties
+  const z1 = (z.z1 != null ? z.z1 / 100 : null) ?? 0.55;
+  const z2 = (z.z2 != null ? z.z2 / 100 : null) ?? 0.75;
+  const z3 = (z.z3 != null ? z.z3 / 100 : null) ?? 0.90;
+  const z4 = (z.z4 != null ? z.z4 / 100 : null) ?? 1.05;
   const hrMaxEff = settings?.hrMax || hrMax || DEFAULT_HR_MAX;
 
   if (activity.average_watts && !inUnreliable) {
