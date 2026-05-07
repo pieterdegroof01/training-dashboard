@@ -330,7 +330,7 @@ app.get('/api/hevy/workouts', async (req, res) => {
     if (!process.env.HEVY_API_KEY) return res.json([]);
     const resp = await axios.get('https://api.hevyapp.com/v1/workouts', {
       headers: { 'api-key': process.env.HEVY_API_KEY },
-      params: { page: 1, pageSize: 30 }
+      params: { page: 1, pageSize: 10 }
     });
     res.json(resp.data.workouts || []);
   } catch (err) { res.status(500).json({ error: err.message }); }
