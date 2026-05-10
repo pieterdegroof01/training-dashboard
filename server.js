@@ -28,13 +28,38 @@ async function loadData() {
       weight: {},
       weekPlan: {},
       activityCache: { lastSync: null, activities: [] },
-      settings: { unreliablePowerStart: '2020-01-01', unreliablePowerEnd: '2020-12-31', ftp: 280 }
+      settings: { unreliablePowerStart: '2020-01-01', unreliablePowerEnd: '2020-12-31', ftp: 280 },
+      aiInsights: {}
     };
   }
 }
 
 async function saveData(data) {
   await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+function simpleHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+  return Math.abs(h).toString(36);
+}
+
+function getMealTimings(settings) {
+  const mt = settings?.mealTimes || {};
+  return {
+    weekday: {
+      breakfast: mt.weekdayBreakfast || '07:30',
+      lunch:     mt.weekdayLunch     || '12:30',
+      dinner:    mt.weekdayDinner    || '18:30',
+      snack:     mt.weekdaySnack     || '10:00',
+    },
+    weekend: {
+      breakfast: mt.weekendBreakfast || '09:00',
+      lunch:     mt.weekendLunch     || '13:00',
+      dinner:    mt.weekendDinner    || '19:00',
+      snack:     mt.weekendSnack     || '11:00',
+    }
+  };
 }
 
 // ── Strava token management ───────────────────────────────────────────────────
@@ -870,6 +895,181 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
     });
   } catch (err) {
     res.status(500).json({ error: 'Upload mislukt: ' + err.message });
+  }
+});
+
+// ── AI Insights (cached per page) ────────────────────────────────────────────
+
+app.post('/api/insights/:page', async (req, res) => {
+  try {
+    const { page } = req.params;
+    const force = req.body?.force === true;
+    const data = await loadData();
+    if (!data.aiInsights) data.aiInsights = {};
+
+    const acts       = data.activityCache?.activities || [];
+    const hevyWkts   = data.hevyWorkouts || [];
+    const weight     = data.weight || {};
+    const nutrition  = data.nutrition || {};
+    const weekPlan   = data.weekPlan || {};
+    const settings   = data.settings || {};
+    const mealTimings = getMealTimings(settings);
+    const todayStr   = new Date().toISOString().split('T')[0];
+
+    let fullState = null;
+    try { fullState = engine.computeFullState(acts, hevyWkts, weight, nutrition, weekPlan, settings); }
+    catch(e) { console.warn('computeFullState in insights:', e.message); }
+
+    const recentActs  = [...acts].sort((a,b) => new Date(b.start_date)-new Date(a.start_date)).slice(0, 21);
+    const recentNutr  = Object.entries(nutrition).sort((a,b) => b[0].localeCompare(a[0])).slice(0, 14);
+    const recentWt    = Object.entries(weight).sort((a,b) => b[0].localeCompare(a[0])).slice(0, 14);
+
+    const m  = fullState?.enduranceMetrics || fullState?.metrics || {};
+    const sm = fullState?.strengthMetrics;
+
+    let systemPrompt = 'Je bent een persoonlijke sport- en voedingscoach die evidence-based, gepersonaliseerd advies geeft in het Nederlands. Wees concreet, bondig en bruikbaar.';
+    let context = '';
+    let dataForHash = '';
+    let ttlHours = 6;
+    let emptyMsg = null;
+
+    if (page === 'vandaag') {
+      if (!fullState && !recentActs.length)
+        return res.json({ text: 'Sync eerst je trainingsdata om dagcoaching te activeren.', cached: false, empty: true });
+      dataForHash = JSON.stringify({ m, todayStr, w: weight[todayStr], note: data.quickNote });
+      context = `Datum: ${todayStr}
+Readiness: ${fullState?.readiness?.total||'–'}/100 (${fullState?.readiness?.interpretation||'–'})
+ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'} | ACWR: ${m.acwr||'–'} | Monotony: ${m.monotony||'–'}
+Overreaching: ${fullState?.overreaching?.level||'geen'} ${fullState?.overreaching?.flags?.length?'('+fullState.overreaching.flags.join(', ')+')':''}
+FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W | Gewicht: ${weight[todayStr]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Notitie: ${data.quickNote||'–'}
+Maaltijdtijden: ontbijt ${mealTimings.weekday.breakfast}, lunch ${mealTimings.weekday.lunch}, diner ${mealTimings.weekday.dinner}
+Laatste 3 activiteiten: ${recentActs.slice(0,3).map(a=>`${a.name} (${a.type}, ${new Date(a.start_date).toLocaleDateString('nl-NL')}, ${a.average_watts?Math.round(a.average_watts)+'W':'–'}, ${Math.round((a.moving_time||0)/60)}min)`).join(' | ')||'–'}
+Doel: ${data.goals?.primary||'–'}`;
+      systemPrompt += ' Geef vandaag praktisch dagadvies: (1) is trainen verstandig gezien readiness+belasting, (2) zo ja: type, intensiteit en duur, (3) voedings- of hersteladvies. Max 200 woorden. Spreek de atleet direct aan.';
+    }
+    else if (page === 'integratie') {
+      if (!fullState) return res.json({ text: 'Sync je data voor geïntegreerde analyse.', cached: false, empty: true });
+      dataForHash = JSON.stringify({ m, sm: sm?.daysSinceLastSession, nutrToday: nutrition[todayStr], todayStr });
+      context = `Datum: ${todayStr}
+Duurtraining: ATL ${m.atl||'–'}, CTL ${m.ctl||'–'}, TSB ${m.tsb||'–'}, ACWR ${m.acwr||'–'}
+Kracht (Hevy): ${sm?`${sm.daysSinceLastSession} dagen geleden, weekbelasting ${sm.weeklyLoad}`:'geen data'}
+Voeding vandaag: ${nutrition[todayStr]?`${nutrition[todayStr].kcal||'–'} kcal, ${nutrition[todayStr].protein||'–'}g eiwit, ${nutrition[todayStr].carbs||'–'}g koolhydraten`:'niet gelogd'}
+Gewicht: ${weight[todayStr]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Doel: ${data.goals?.primary||'–'}
+Maaltijdtijden weekdag: ${JSON.stringify(mealTimings.weekday)}`;
+      systemPrompt += ' Geef een geïntegreerde daganalyse: hoe verhouden duur- en krachtbelasting zich, implicaties voor herstel, en hoe voeding de training optimaliseert. Max 250 woorden.';
+    }
+    else if (page === 'activiteiten') {
+      if (!recentActs.length) return res.json({ text: 'Geen activiteitendata beschikbaar voor analyse.', cached: false, empty: true });
+      dataForHash = JSON.stringify({ acts: recentActs.slice(0,10).map(a=>a.id) });
+      context = `Laatste 10 activiteiten:\n${recentActs.slice(0,10).map(a=>`${new Date(a.start_date).toLocaleDateString('nl-NL')}: ${a.type}, ${Math.round((a.moving_time||0)/60)}min, ${a.distance?(a.distance/1000).toFixed(1)+'km':'–'}, ${a.average_watts?Math.round(a.average_watts)+'W':'–'}, suffer=${a.suffer_score||'–'}`).join('\n')}
+FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W | Doel: ${data.goals?.primary||'–'}`;
+      systemPrompt += ' Analyseer de trainingsdistributie van de laatste 3 weken: intensiteitsverdeling (laag/middel/hoog), herstelpatronen, en concrete aanbevelingen voor de volgende sessie. Max 200 woorden.';
+    }
+    else if (page === 'voeding') {
+      if (!recentNutr.length) return res.json({ text: 'Log eerst voedingsdata om voedingsadvies te activeren.', cached: false, empty: true });
+      dataForHash = JSON.stringify({ nutr: recentNutr.slice(0,7).map(([d])=>d) });
+      const nutrLines = recentNutr.slice(0,7).map(([d,v])=>`${d}: ${v.kcal||'–'} kcal, ${v.protein||'–'}g eiwit, ${v.carbs||'–'}g koolhydraten, ${v.fat||'–'}g vet`).join('\n');
+      const n7 = recentNutr.slice(0,7);
+      const avgKcal = n7.length ? Math.round(n7.reduce((s,[,v])=>s+(v.kcal||0),0)/n7.length) : '–';
+      const avgProt = n7.length ? Math.round(n7.reduce((s,[,v])=>s+(v.protein||0),0)/n7.length) : '–';
+      context = `Voeding laatste 7 dagen:\n${nutrLines}\nGemiddeld: ${avgKcal} kcal/dag, ${avgProt}g eiwit/dag
+Huidig gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Maaltijdtijden: ontbijt ${mealTimings.weekday.breakfast}, lunch ${mealTimings.weekday.lunch}, diner ${mealTimings.weekday.dinner}
+CTL (activiteitenniveau): ${m.ctl||'–'}`;
+      systemPrompt += ' Analyseer de voeding van de afgelopen week: eiwitinname vs. lichaamsgewicht, caloriebalans tov het doel, en geef concrete aanbevelingen voor timing en macroverdeling. Max 200 woorden.';
+    }
+    else if (page === 'week') {
+      if (!fullState) return res.json({ text: 'Sync trainingsdata om weekanalyse te genereren.', cached: false, empty: true });
+      dataForHash = JSON.stringify({ m, todayStr });
+      const n7 = recentNutr.slice(0,7);
+      const avgKcalWk = n7.length ? Math.round(n7.reduce((s,[,v])=>s+(v.kcal||0),0)/n7.length) : '–';
+      context = `Weekoverzicht — ${todayStr}:
+ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'} | ACWR: ${m.acwr||'–'} | Monotony: ${m.monotony||'–'}
+Wekelijkse load: ${m.weeklyLoad||'–'} ETL | Overreaching: ${fullState?.overreaching?.level||'geen'}
+Voeding deze week gem.: ${avgKcalWk} kcal/dag
+Gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Trainingspatronen: ${(data.patterns||[]).map(p=>`${p.day}: ${p.type} ${p.duration}min`).join(', ')||'–'}
+Doel: ${data.goals?.primary||'–'}`;
+      systemPrompt += ' Geef een weekanalyse: belasting deze week tov chronische, ACWR acceptabel, sterkste en zwakste punten, en optimale focus voor de komende 7 dagen. Max 250 woorden.';
+    }
+    else if (page === 'weekplanning') {
+      dataForHash = JSON.stringify({ weekPlan: Object.keys(weekPlan).sort().slice(-7), m, todayStr });
+      const upcoming = Object.entries(weekPlan)
+        .filter(([d]) => { const diff = (new Date(d)-new Date(todayStr))/86400000; return diff >= -1 && diff <= 7; })
+        .sort(([a],[b]) => a.localeCompare(b))
+        .map(([d,ss]) => `${d}: ${(ss||[]).map(s=>s.type+' '+s.duration+'min').join(', ')||'rust'}`).join('\n');
+      context = `Datum: ${todayStr}
+ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'}
+Geplande sessies komende week:\n${upcoming||'Nog niets gepland'}
+Trainingspatronen: ${(data.patterns||[]).map(p=>`${p.day}: ${p.type} ${p.duration}min`).join(', ')||'–'}
+Doel: ${data.goals?.primary||'–'} | Overreaching: ${fullState?.overreaching?.level||'geen'}`;
+      systemPrompt += ' Je bent een periodiseringsexpert. Analyseer de weekplanning: klopt de intensiteitsverdeling, zijn er hersteldagen nodig, wat is de optimale sessievolgorde? Geef ook een concreet sessieadvies voor vrije dagen. Max 250 woorden.';
+    }
+    else if (page === 'trends') {
+      if (acts.length < 10) return res.json({ text: 'Sync de volledige trainingshistory voor trendanalyse.', cached: false, empty: true });
+      dataForHash = JSON.stringify({ ctl: m.ctl, atl: m.atl, todayStr, actsCount: acts.length });
+      const n7 = recentNutr.slice(0,7);
+      const avgKcal7 = n7.length ? Math.round(n7.reduce((s,[,v])=>s+(v.kcal||0),0)/n7.length) : '–';
+      context = `Trainingsdata: ${acts.length} activiteiten totaal
+ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'}
+Weekbelasting nu: ${m.weeklyLoad||'–'} ETL
+FTP (rolling): ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W
+Gewicht trend: ${recentWt.slice(0,4).map(([d,v])=>`${d}: ${v}kg`).join(', ')||'–'}
+Voeding gem. (7d): ${avgKcal7} kcal/dag
+Doel: ${data.goals?.primary||'–'}`;
+      systemPrompt += ' Geef een trendanalyse: is fitheid (CTL) stijgend of dalend, wat zegt TSB over recente belasting, welke aanpassingen zijn aanbevolen voor het komende kwartaal? Max 250 woorden.';
+    }
+    else if (page === 'voorspelling') {
+      ttlHours = 24;
+      if (acts.length < 30) return res.json({ text: 'Minimaal 30 activiteiten nodig voor betrouwbare prognose.', cached: false, empty: true });
+      dataForHash = JSON.stringify({ ctl: m.ctl, actsCount: acts.length, todayStr, goals: data.goals });
+      context = `Trainingsdata: ${acts.length} activiteiten
+Huidige status: CTL ${m.ctl||'–'}, ATL ${m.atl||'–'}, TSB ${m.tsb||'–'}
+FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W
+Gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
+      systemPrompt += ' Geef een 12-weken prognose: verwachte CTL-groei bij consistent trainen, wanneer bereikt de atleet de doelen, welke risico\'s (overtraining, blessure) verwacht je? Geef streefwaarden (CTL, gewicht, FTP) per maand. Max 300 woorden.';
+    }
+    else {
+      return res.status(400).json({ error: 'Onbekende pagina: ' + page });
+    }
+
+    // Cache check
+    const hash = simpleHash(dataForHash);
+    const cached = data.aiInsights[page];
+    if (!force && cached && cached.hash === hash && (Date.now() - cached.ts) < ttlHours * 3600000) {
+      return res.json({ text: cached.text, cached: true, cachedAt: cached.ts });
+    }
+
+    // Check API key
+    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('jouw')) {
+      return res.json({ text: 'ANTHROPIC_API_KEY niet ingesteld in .env.', cached: false, empty: true });
+    }
+
+    // Call Claude
+    const resp = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-sonnet-4-5',
+      max_tokens: 700,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: context }]
+    }, {
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      }
+    });
+
+    const text = resp.data.content?.[0]?.text || 'Geen inzicht gegenereerd.';
+    data.aiInsights[page] = { text, hash, ts: Date.now() };
+    await saveData(data);
+
+    res.json({ text, cached: false });
+  } catch(err) {
+    console.error('insights error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Inzicht genereren mislukt: ' + (err.response?.data?.error?.message || err.message) });
   }
 });
 

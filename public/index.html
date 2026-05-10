@@ -286,6 +286,16 @@ body { overflow-x: hidden; }
 .nutr-day-macros { font-size: 9px; color: var(--muted); line-height: 1.6; }
 .nutr-day-weight { font-size: 10px; color: var(--blue); margin-top: 4px; font-weight: 600; }
 .nutr-day-empty { font-size: 16px; color: var(--subtle); margin-top: 6px; }
+
+/* ═══ AI INSIGHT CARDS ═══ */
+.insight-card { background: linear-gradient(135deg, #0b1a0b 0%, var(--card) 100%); border: 1px solid #1e3a1e; border-radius: 12px; padding: 14px; }
+.insight-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.insight-label { font-size: 11px; color: var(--green); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.insight-meta { font-size: 10px; color: var(--muted); }
+.insight-text { font-size: 13px; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
+.insight-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-style: italic; }
+.insight-loading::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--border2); border-top-color: var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -392,6 +402,31 @@ body { overflow-x: hidden; }
         <button class="btn btn-primary" id="btnQSave" onclick="saveQuick()" style="flex-shrink:0">Opslaan</button>
       </div>
     </div>
+
+    <!-- AI: DAGCOACHING -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">⚡ Dagcoaching</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-vandaag"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('vandaag',true)" style="font-size:11px;padding:3px 9px">↻</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-vandaag"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
+    <!-- AI: GEÏNTEGREERDE ANALYSE -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">🔗 Geïntegreerde analyse</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-integratie"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('integratie',true)" style="font-size:11px;padding:3px 9px">↻</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-integratie"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
   </div>
 
   <!-- ACTIVITEITEN (Strava + Hevy samengevoegd) -->
@@ -421,6 +456,19 @@ body { overflow-x: hidden; }
         <div id="hevyProgression"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
       </div>
     </div>
+
+    <!-- AI: ACTIVITEITEN -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">🤖 Activiteitenanalyse</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-activiteiten"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('activiteiten',true)" style="font-size:11px;padding:3px 9px">↻</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-activiteiten"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
   </div>
 
   <!-- VOEDING -->
@@ -448,9 +496,23 @@ body { overflow-x: hidden; }
         <div class="fg"><label>Eiwit (g)</label><input type="number" id="mProt" placeholder="180"></div>
         <div class="fg"><label>Koolhydraten (g)</label><input type="number" id="mCarb" placeholder="250"></div>
         <div class="fg"><label>Vet (g)</label><input type="number" id="mFat" placeholder="70"></div>
+        <div class="fg"><label>Tijdstip (optioneel)</label><input type="time" id="mTime"></div>
       </div>
       <button class="btn btn-primary mt-3" onclick="saveManualNutr()" id="btnManualNutr">Opslaan voor vandaag</button>
     </div>
+
+    <!-- AI: VOEDINGSADVIES -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">🥗 Voedingsadvies</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-voeding"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('voeding',true)" style="font-size:11px;padding:3px 9px">↻</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-voeding"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
     <div class="card">
       <div class="card-label">Afgelopen 14 dagen</div>
       <div id="nutrHistory"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
@@ -471,6 +533,31 @@ body { overflow-x: hidden; }
       <div class="card-label">Weekoverzicht</div>
       <div id="weekSummaryContent"></div>
     </div>
+
+    <!-- AI: BELASTING -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">📊 Weekanalyse belasting</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-week"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('week',true)" style="font-size:11px;padding:3px 9px">↻</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-week"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
+    <!-- AI: WEEKPLANNING -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">📅 Weekplanning advies</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-weekplanning"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('weekplanning',true)" title="Herplan" style="font-size:11px;padding:3px 9px">↻ Herplan</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-weekplanning"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
   </div>
 
   <!-- VOORTGANG -->
@@ -520,6 +607,31 @@ body { overflow-x: hidden; }
       </div>
 
     </div>
+
+    <!-- AI: TRENDS -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">📈 Trendanalyse</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-trends"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('trends',true)" style="font-size:11px;padding:3px 9px">↻</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-trends"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
+    <!-- AI: PROGNOSE -->
+    <div class="insight-card">
+      <div class="insight-header">
+        <div class="insight-label">🔮 12-weken prognose</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="insight-meta" id="insight-meta-voorspelling"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadInsight('voorspelling',true)" style="font-size:11px;padding:3px 9px">↻ Herbereken</button>
+        </div>
+      </div>
+      <div class="insight-text" id="insight-text-voorspelling"><div class="insight-loading">AI-inzicht laden...</div></div>
+    </div>
+
   </div>
 
   <!-- PLANNING / DOELEN -->
@@ -640,6 +752,26 @@ body { overflow-x: hidden; }
       <button class="btn btn-ghost btn-sm" onclick="recalibrate()" id="btnRecalibrate">↻ Herbereken kalibratie</button>
     </div>
 
+    <div class="card">
+      <div class="card-label">Maaltijdtijden</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Wordt gebruikt door de AI voor pre/post-workout voedingsadvies.</p>
+      <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Weekdag</div>
+      <div class="form-grid" style="margin-bottom:10px">
+        <div class="fg"><label>Ontbijt</label><input type="time" id="mtWdBreakfast" value="07:30"></div>
+        <div class="fg"><label>Tussendoor</label><input type="time" id="mtWdSnack" value="10:00"></div>
+        <div class="fg"><label>Lunch</label><input type="time" id="mtWdLunch" value="12:30"></div>
+        <div class="fg"><label>Diner</label><input type="time" id="mtWdDinner" value="18:30"></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Weekend</div>
+      <div class="form-grid">
+        <div class="fg"><label>Ontbijt</label><input type="time" id="mtWeBreakfast" value="09:00"></div>
+        <div class="fg"><label>Tussendoor</label><input type="time" id="mtWeSnack" value="11:00"></div>
+        <div class="fg"><label>Lunch</label><input type="time" id="mtWeLunch" value="13:00"></div>
+        <div class="fg"><label>Diner</label><input type="time" id="mtWeDinner" value="19:00"></div>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsMeals()" id="btnSaveMeals">Opslaan</button>
+    </div>
+
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;padding:8px 2px 0">Literatuur</div>
 
     <div class="card">
@@ -745,6 +877,7 @@ let S = {
   data: { goals:{}, patterns:[], nutrition:{}, weight:{}, weekPlan:{}, settings:{} },
   parsedNutr: null, currentWeekOffset: 0,
   pendingSession: null, histSummary: null,
+  insightLoaded: {},
 };
 
 const DAYS_NL = ['Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag','Zondag'];
@@ -835,6 +968,17 @@ async function loadUserData() {
     if (document.getElementById('sMonoWarn')) document.getElementById('sMonoWarn').value = al.monotonyWarn ?? 2.0;
     if (S.data.weight?.[today()]) document.getElementById('qWeight').value = S.data.weight[today()];
     if (g.weightTarget) document.getElementById('sWeightSub').textContent = `doel: ${g.weightTarget}kg`;
+    // Meal times
+    const mt = cfg.mealTimes || {};
+    const setMt = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    setMt('mtWdBreakfast', mt.weekdayBreakfast);
+    setMt('mtWdSnack',     mt.weekdaySnack);
+    setMt('mtWdLunch',     mt.weekdayLunch);
+    setMt('mtWdDinner',    mt.weekdayDinner);
+    setMt('mtWeBreakfast', mt.weekendBreakfast);
+    setMt('mtWeSnack',     mt.weekendSnack);
+    setMt('mtWeLunch',     mt.weekendLunch);
+    setMt('mtWeDinner',    mt.weekendDinner);
   } catch {}
 }
 
@@ -1484,12 +1628,77 @@ async function runAnalysis() {
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 let currentTab = 'overview';
 
+const TAB_INSIGHTS = {
+  overview:    ['vandaag', 'integratie'],
+  activiteiten:['activiteiten'],
+  nutrition:   ['voeding'],
+  week:        ['week', 'weekplanning'],
+  voortgang:   ['trends', 'voorspelling'],
+};
+
 function showTab(name, btn) {
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
   document.querySelectorAll('.nav-item, .nav-item-small').forEach(el=>el.classList.remove('active'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   if (btn) btn.classList.add('active');
   currentTab = name;
+  // Load AI insights for this tab (once per session unless forced)
+  const pages = TAB_INSIGHTS[name] || [];
+  pages.forEach(p => { if (!S.insightLoaded[p]) loadInsight(p); });
+}
+
+async function loadInsight(page, force = false) {
+  const textEl = document.getElementById('insight-text-' + page);
+  const metaEl = document.getElementById('insight-meta-' + page);
+  if (!textEl) return;
+  textEl.innerHTML = '<div class="insight-loading">AI-inzicht laden...</div>';
+  if (metaEl) metaEl.textContent = '';
+  try {
+    const result = await api('/api/insights/' + page, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force })
+    });
+    if (result.empty) {
+      textEl.textContent = result.text;
+      textEl.style.color = 'var(--muted)';
+      if (metaEl) metaEl.textContent = '';
+    } else {
+      textEl.textContent = result.text;
+      textEl.style.color = '';
+      if (metaEl) metaEl.textContent = result.cached
+        ? `Gecached · ${new Date(result.cachedAt).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`
+        : 'Zojuist gegenereerd';
+      S.insightLoaded[page] = true;
+    }
+  } catch(e) {
+    textEl.textContent = 'Inzicht laden mislukt: ' + e.message;
+    textEl.style.color = 'var(--red)';
+  }
+}
+
+async function saveSettingsMeals() {
+  const btn = document.getElementById('btnSaveMeals');
+  btn.textContent = 'Opslaan...'; btn.disabled = true;
+  try {
+    const data = await api('/api/data');
+    if (!data.settings) data.settings = {};
+    data.settings.mealTimes = {
+      weekdayBreakfast: document.getElementById('mtWdBreakfast').value,
+      weekdaySnack:     document.getElementById('mtWdSnack').value,
+      weekdayLunch:     document.getElementById('mtWdLunch').value,
+      weekdayDinner:    document.getElementById('mtWdDinner').value,
+      weekendBreakfast: document.getElementById('mtWeBreakfast').value,
+      weekendSnack:     document.getElementById('mtWeSnack').value,
+      weekendLunch:     document.getElementById('mtWeLunch').value,
+      weekendDinner:    document.getElementById('mtWeDinner').value,
+    };
+    await api('/api/data', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    btn.textContent = '✓ Opgeslagen'; btn.disabled = false;
+    setTimeout(() => { btn.textContent = 'Opslaan'; }, 2000);
+  } catch(e) {
+    btn.textContent = 'Fout: ' + e.message; btn.disabled = false;
+  }
 }
 
 // ── Help modal ────────────────────────────────────────────────────────────────
@@ -1815,6 +2024,7 @@ async function loadCharts() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 syncAll();
+(TAB_INSIGHTS['overview'] || []).forEach(p => loadInsight(p));
 </script>
 </body>
 </html>
