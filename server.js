@@ -931,6 +931,7 @@ app.post('/api/insights/:page', async (req, res) => {
     let context = '';
     let dataForHash = '';
     let ttlHours = 6;
+    let maxTokens = 300;
     let emptyMsg = null;
 
     if (page === 'vandaag') {
@@ -946,7 +947,7 @@ Notitie: ${data.quickNote||'–'}
 Maaltijdtijden: ontbijt ${mealTimings.weekday.breakfast}, lunch ${mealTimings.weekday.lunch}, diner ${mealTimings.weekday.dinner}
 Laatste 3 activiteiten: ${recentActs.slice(0,3).map(a=>`${a.name} (${a.type}, ${new Date(a.start_date).toLocaleDateString('nl-NL')}, ${a.average_watts?Math.round(a.average_watts)+'W':'–'}, ${Math.round((a.moving_time||0)/60)}min)`).join(' | ')||'–'}
 Doel: ${data.goals?.primary||'–'}`;
-      systemPrompt += ' Geef vandaag praktisch dagadvies: (1) is trainen verstandig gezien readiness+belasting, (2) zo ja: type, intensiteit en duur, (3) voedings- of hersteladvies. Max 200 woorden. Spreek de atleet direct aan.';
+      systemPrompt += ' Geef vandaag praktisch dagadvies: (1) is trainen verstandig gezien readiness+belasting, (2) zo ja: type, intensiteit en duur, (3) voedings- of hersteladvies. Antwoord in maximaal 60 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'integratie') {
       if (!fullState) return res.json({ text: 'Sync je data voor geïntegreerde analyse.', cached: false, empty: true });
@@ -958,14 +959,15 @@ Voeding vandaag: ${nutrition[todayStr]?`${nutrition[todayStr].kcal||'–'} kcal,
 Gewicht: ${weight[todayStr]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
 Doel: ${data.goals?.primary||'–'}
 Maaltijdtijden weekdag: ${JSON.stringify(mealTimings.weekday)}`;
-      systemPrompt += ' Geef een geïntegreerde daganalyse: hoe verhouden duur- en krachtbelasting zich, implicaties voor herstel, en hoe voeding de training optimaliseert. Max 250 woorden.';
+      maxTokens = 400;
+      systemPrompt += ' Geef een geïntegreerde daganalyse: hoe verhouden duur- en krachtbelasting zich, implicaties voor herstel, en hoe voeding de training optimaliseert. Antwoord in maximaal 200 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'activiteiten') {
       if (!recentActs.length) return res.json({ text: 'Geen activiteitendata beschikbaar voor analyse.', cached: false, empty: true });
       dataForHash = JSON.stringify({ acts: recentActs.slice(0,10).map(a=>a.id) });
       context = `Laatste 10 activiteiten:\n${recentActs.slice(0,10).map(a=>`${new Date(a.start_date).toLocaleDateString('nl-NL')}: ${a.type}, ${Math.round((a.moving_time||0)/60)}min, ${a.distance?(a.distance/1000).toFixed(1)+'km':'–'}, ${a.average_watts?Math.round(a.average_watts)+'W':'–'}, suffer=${a.suffer_score||'–'}`).join('\n')}
 FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W | Doel: ${data.goals?.primary||'–'}`;
-      systemPrompt += ' Analyseer de trainingsdistributie van de laatste 3 weken: intensiteitsverdeling (laag/middel/hoog), herstelpatronen, en concrete aanbevelingen voor de volgende sessie. Max 200 woorden.';
+      systemPrompt += ' Analyseer de trainingsdistributie van de laatste 3 weken: intensiteitsverdeling (laag/middel/hoog), herstelpatronen, en concrete aanbevelingen voor de volgende sessie. Antwoord in maximaal 80 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'voeding') {
       if (!recentNutr.length) return res.json({ text: 'Log eerst voedingsdata om voedingsadvies te activeren.', cached: false, empty: true });
@@ -978,7 +980,7 @@ FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W | Doel: ${data.goals?.prim
 Huidig gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
 Maaltijdtijden: ontbijt ${mealTimings.weekday.breakfast}, lunch ${mealTimings.weekday.lunch}, diner ${mealTimings.weekday.dinner}
 CTL (activiteitenniveau): ${m.ctl||'–'}`;
-      systemPrompt += ' Analyseer de voeding van de afgelopen week: eiwitinname vs. lichaamsgewicht, caloriebalans tov het doel, en geef concrete aanbevelingen voor timing en macroverdeling. Max 200 woorden.';
+      systemPrompt += ' Analyseer de voeding van de afgelopen week: eiwitinname vs. lichaamsgewicht, caloriebalans tov het doel, en geef concrete aanbevelingen voor timing en macroverdeling. Antwoord in maximaal 80 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'week') {
       if (!fullState) return res.json({ text: 'Sync trainingsdata om weekanalyse te genereren.', cached: false, empty: true });
@@ -992,7 +994,7 @@ Voeding deze week gem.: ${avgKcalWk} kcal/dag
 Gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
 Trainingspatronen: ${(data.patterns||[]).map(p=>`${p.day}: ${p.type} ${p.duration}min`).join(', ')||'–'}
 Doel: ${data.goals?.primary||'–'}`;
-      systemPrompt += ' Geef een weekanalyse: belasting deze week tov chronische, ACWR acceptabel, sterkste en zwakste punten, en optimale focus voor de komende 7 dagen. Max 250 woorden.';
+      systemPrompt += ' Geef een weekanalyse: belasting deze week tov chronische, ACWR acceptabel, sterkste en zwakste punten, en optimale focus voor de komende 7 dagen. Antwoord in maximaal 80 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'weekplanning') {
       dataForHash = JSON.stringify({ weekPlan: Object.keys(weekPlan).sort().slice(-7), m, todayStr });
@@ -1005,7 +1007,7 @@ ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'}
 Geplande sessies komende week:\n${upcoming||'Nog niets gepland'}
 Trainingspatronen: ${(data.patterns||[]).map(p=>`${p.day}: ${p.type} ${p.duration}min`).join(', ')||'–'}
 Doel: ${data.goals?.primary||'–'} | Overreaching: ${fullState?.overreaching?.level||'geen'}`;
-      systemPrompt += ' Je bent een periodiseringsexpert. Analyseer de weekplanning: klopt de intensiteitsverdeling, zijn er hersteldagen nodig, wat is de optimale sessievolgorde? Geef ook een concreet sessieadvies voor vrije dagen. Max 250 woorden.';
+      systemPrompt += ' Je bent een periodiseringsexpert. Analyseer de weekplanning: klopt de intensiteitsverdeling, zijn er hersteldagen nodig, wat is de optimale sessievolgorde? Geef ook een concreet sessieadvies voor vrije dagen. Antwoord in maximaal 150 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'trends') {
       if (acts.length < 10) return res.json({ text: 'Sync de volledige trainingshistory voor trendanalyse.', cached: false, empty: true });
@@ -1019,7 +1021,7 @@ FTP (rolling): ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W
 Gewicht trend: ${recentWt.slice(0,4).map(([d,v])=>`${d}: ${v}kg`).join(', ')||'–'}
 Voeding gem. (7d): ${avgKcal7} kcal/dag
 Doel: ${data.goals?.primary||'–'}`;
-      systemPrompt += ' Geef een trendanalyse: is fitheid (CTL) stijgend of dalend, wat zegt TSB over recente belasting, welke aanpassingen zijn aanbevolen voor het komende kwartaal? Max 250 woorden.';
+      systemPrompt += ' Geef een trendanalyse: is fitheid (CTL) stijgend of dalend, wat zegt TSB over recente belasting, welke aanpassingen zijn aanbevolen voor het komende kwartaal? Antwoord in maximaal 80 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'voorspelling') {
       ttlHours = 24;
@@ -1030,7 +1032,8 @@ Huidige status: CTL ${m.ctl||'–'}, ATL ${m.atl||'–'}, TSB ${m.tsb||'–'}
 FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W
 Gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
 Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
-      systemPrompt += ' Geef een 12-weken prognose: verwachte CTL-groei bij consistent trainen, wanneer bereikt de atleet de doelen, welke risico\'s (overtraining, blessure) verwacht je? Geef streefwaarden (CTL, gewicht, FTP) per maand. Max 300 woorden.';
+      maxTokens = 500;
+      systemPrompt += ' Geef een 12-weken prognose: verwachte CTL-groei bij consistent trainen, wanneer bereikt de atleet de doelen, welke risico\'s (overtraining, blessure) verwacht je? Geef streefwaarden (CTL, gewicht, FTP) per maand. Antwoord in maximaal 200 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else {
       return res.status(400).json({ error: 'Onbekende pagina: ' + page });
@@ -1051,7 +1054,7 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
     // Call Claude
     const resp = await axios.post('https://api.anthropic.com/v1/messages', {
       model: 'claude-sonnet-4-5',
-      max_tokens: 700,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: 'user', content: context }]
     }, {
