@@ -287,6 +287,27 @@ body { overflow-x: hidden; }
 .nutr-day-weight { font-size: 10px; color: var(--blue); margin-top: 4px; font-weight: 600; }
 .nutr-day-empty { font-size: 16px; color: var(--subtle); margin-top: 6px; }
 
+/* ═══ WEEK AVAILABILITY & AI CYCLING ═══ */
+.avail-toggle { display:flex; align-items:center; gap:6px; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); }
+.avail-switch { position:relative; width:32px; height:18px; flex-shrink:0; }
+.avail-switch input { opacity:0; width:0; height:0; position:absolute; }
+.avail-slider { position:absolute; inset:0; background:var(--border2); border-radius:9px; cursor:pointer; transition:background 0.2s; }
+.avail-slider::before { content:''; position:absolute; width:12px; height:12px; left:3px; top:3px; background:white; border-radius:50%; transition:transform 0.2s; }
+.avail-switch input:checked + .avail-slider { background:var(--green); }
+.avail-switch input:checked + .avail-slider::before { transform:translateX(14px); }
+.avail-label { font-size:10px; color:var(--muted); white-space:nowrap; }
+.avail-dur { width:52px; font-size:11px; padding:3px 6px; margin-left:4px; }
+.ai-session { border:2px dashed var(--accent) !important; position:relative; cursor:pointer; }
+.ai-session:hover { background:var(--accent)11 !important; }
+.ai-badge { position:absolute; top:4px; right:4px; font-size:10px; line-height:1; }
+.ai-tss { font-size:10px; color:var(--muted); }
+/* AI session modal */
+.block-bar { display:flex; height:28px; border-radius:6px; overflow:hidden; margin:10px 0; }
+.block-seg { height:100%; display:flex; align-items:center; justify-content:center; font-size:9px; color:rgba(255,255,255,0.85); font-weight:700; overflow:hidden; cursor:pointer; transition:opacity 0.15s; }
+.block-seg:hover { opacity:0.8; }
+.block-editor { background:var(--card2); border-radius:8px; padding:8px 10px; margin-bottom:6px; }
+.block-editor-row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+
 /* ═══ AI INSIGHT CARDS ═══ */
 .insight-card { background: linear-gradient(135deg, #0b1a0b 0%, var(--card) 100%); border: 1px solid #1e3a1e; border-radius: 12px; padding: 14px; }
 .insight-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -526,6 +547,9 @@ body { overflow-x: hidden; }
         <button class="btn btn-secondary btn-sm" onclick="changeWeek(-1)">← Vorige</button>
         <span class="week-title" id="weekTitle"></span>
         <button class="btn btn-secondary btn-sm" onclick="changeWeek(1)">Volgende →</button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button class="btn btn-ghost btn-sm" id="btnGenCycling" onclick="generateCyclingPlan()">🤖 Genereer fietsplan</button>
       </div>
       <div class="week-grid" id="weekGrid"></div>
     </div>
@@ -870,6 +894,36 @@ body { overflow-x: hidden; }
   </div>
 </div>
 
+<!-- AI SESSION MODAL -->
+<div id="aiSessionOverlay" class="modal-overlay hidden" onclick="closeAiSession(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:520px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+      <div>
+        <div class="modal-title" id="aiSessTitle" style="margin:0">–</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px" id="aiSessMeta">–</div>
+      </div>
+      <button onclick="closeAiSession()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;line-height:1;padding:0;flex-shrink:0">×</button>
+    </div>
+    <!-- Block bar -->
+    <div class="block-bar" id="aiBlockBar"></div>
+    <!-- TSS summary -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:12px;color:var(--muted)" id="aiSessTotals">–</div>
+      <div style="font-size:11px;color:var(--muted)" id="aiSessReden"></div>
+    </div>
+    <!-- Block editors -->
+    <div id="aiBlockList"></div>
+    <!-- Add block -->
+    <button class="btn btn-secondary btn-sm" onclick="addAiBlock()" style="width:100%;margin-top:6px;font-size:11px">+ Blok toevoegen</button>
+    <!-- Actions -->
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-primary" onclick="saveAiSession()">Opslaan</button>
+      <button class="btn btn-secondary" onclick="resetAiSession()">↩ Reset naar AI-voorstel</button>
+      <button class="btn btn-secondary" onclick="closeAiSession()" style="margin-left:auto">Annuleren</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
 let S = {
@@ -878,6 +932,8 @@ let S = {
   parsedNutr: null, currentWeekOffset: 0,
   pendingSession: null, histSummary: null,
   insightLoaded: {},
+  weekAvailability: {},
+  editingAiSession: null,
 };
 
 const DAYS_NL = ['Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag','Zondag'];
@@ -900,7 +956,7 @@ async function api(path, opts={}) {
 // ── Load ──────────────────────────────────────────────────────────────────────
 async function syncAll() {
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Laden...');
-  await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature()]);
+  await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability()]);
   await loadFullState();
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Sync');
 }
@@ -1317,15 +1373,42 @@ function renderWeekGrid() {
     const isToday = date===t;
     const sessions = (S.data.weekPlan?.[date]||[]);
     const dayNum = new Date(date+'T12:00:00').getDate();
-    const sessHtml = sessions.map((s,si) => `
-      <div class="planned-session">
+    const avail = S.weekAvailability[date] || {};
+    const availActive = !!avail.cycling;
+    const maxDur = avail.maxDuration || 90;
+
+    const sessHtml = sessions.map((s,si) => {
+      if (s.aiGenerated && s.type === 'cycling') {
+        const tssLabel = s.tss ? ` · ~${s.tss} TSS` : '';
+        return `<div class="planned-session ai-session" onclick="openAiSession('${date}',${si})" style="padding:6px 8px;flex-wrap:wrap">
+          <span class="ps-icon">🚴</span>
+          <div class="ps-info" style="flex:1;min-width:0">
+            <div class="ps-name" style="font-size:11px">${s.titel||s.type}</div>
+            <div class="ai-tss">${s.duur_min||s.duration||'?'}min${tssLabel}</div>
+          </div>
+          <span class="ai-badge">🤖</span>
+          <button class="ps-remove" onclick="event.stopPropagation();removeSession('${date}',${si})">×</button>
+        </div>`;
+      }
+      return `<div class="planned-session">
         <span class="ps-icon">${sEmoji(s.type)}</span>
         <div class="ps-info">
           <div class="ps-name">${s.split ? s.type+' ('+s.split+')' : (s.description||s.type)}</div>
-          <div class="ps-sub">${s.duration}min</div>
+          <div class="ps-sub">${s.duration||s.duur_min||'?'}min</div>
         </div>
         <button class="ps-remove" onclick="removeSession('${date}',${si})">×</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
+
+    const availToggle = `<div class="avail-toggle">
+      <label class="avail-switch">
+        <input type="checkbox" ${availActive?'checked':''} onchange="toggleAvailability('${date}',this.checked)">
+        <span class="avail-slider"></span>
+      </label>
+      <span class="avail-label">🚴 Beschikbaar</span>
+      ${availActive ? `<input class="avail-dur" type="number" min="30" max="360" value="${maxDur}" onchange="setAvailDuration('${date}',this.value)" title="Max duur (min)">` : ''}
+    </div>`;
+
     return `<div class="day-card ${isToday?'today':''}">
       <div class="day-card-head ${isToday?'today-lbl':''}">${dayNames[i]}</div>
       <div class="day-num">${dayNum}</div>
@@ -1336,6 +1419,7 @@ function renderWeekGrid() {
         <button class="add-btn" onclick="openAddSession('${date}','running')">🏃</button>
         <button class="add-btn" onclick="openAddSession('${date}','custom')">✏️</button>
       </div>
+      ${availToggle}
     </div>`;
   }).join('');
 
@@ -1344,7 +1428,7 @@ function renderWeekGrid() {
   const ws = document.getElementById('weekSummary');
   if (totalSessions > 0) {
     ws.style.display='block';
-    const lines = dates.flatMap(d => (S.data.weekPlan?.[d]||[]).map(s=>`<span style="margin-right:6px">${sEmoji(s.type)} ${s.split?s.split+' - ':''}${s.duration}min ${s.description?'('+s.description+')':''} <span style="color:var(--muted)">${new Date(d+'T12:00:00').toLocaleDateString('nl-NL',{weekday:'short',day:'numeric'})}</span></span>`));
+    const lines = dates.flatMap(d => (S.data.weekPlan?.[d]||[]).map(s=>`<span style="margin-right:6px">${sEmoji(s.type)} ${s.split?s.split+' - ':''}${(s.duration||s.duur_min||'?')}min ${s.description?'('+s.description+')':''} <span style="color:var(--muted)">${new Date(d+'T12:00:00').toLocaleDateString('nl-NL',{weekday:'short',day:'numeric'})}</span></span>`));
     document.getElementById('weekSummaryContent').innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px">${lines.join('')}</div>`;
   } else { ws.style.display='none'; }
 }
@@ -1352,6 +1436,165 @@ function renderWeekGrid() {
 function changeWeek(dir) {
   S.currentWeekOffset += dir;
   renderWeekGrid();
+}
+
+// ── Week availability ─────────────────────────────────────────────────────────
+async function loadWeekAvailability() {
+  try { S.weekAvailability = await api('/api/week-availability'); } catch {}
+}
+
+async function toggleAvailability(date, checked) {
+  if (checked) {
+    S.weekAvailability[date] = { cycling: true, maxDuration: S.weekAvailability[date]?.maxDuration || 90 };
+  } else {
+    delete S.weekAvailability[date];
+  }
+  renderWeekGrid();
+  try { await api('/api/week-availability', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(S.weekAvailability) }); }
+  catch(e) { console.warn('week-availability save failed:', e.message); }
+}
+
+async function setAvailDuration(date, val) {
+  const dur = parseInt(val) || 90;
+  if (!S.weekAvailability[date]) S.weekAvailability[date] = { cycling: true };
+  S.weekAvailability[date].maxDuration = dur;
+  try { await api('/api/week-availability', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(S.weekAvailability) }); }
+  catch(e) { console.warn('week-availability save failed:', e.message); }
+}
+
+async function generateCyclingPlan() {
+  const btn = document.getElementById('btnGenCycling');
+  btn.textContent = '⏳ Genereren...'; btn.disabled = true;
+  try {
+    const result = await api('/api/insights/weekplanning', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ generateSessions: true, force: true })
+    });
+    if (result.sessions) {
+      result.sessions.forEach(s => {
+        if (!s.datum) return;
+        const existing = (S.data.weekPlan[s.datum] || []).filter(x => x.type !== 'cycling' || !x.aiGenerated);
+        S.data.weekPlan[s.datum] = [...existing, s];
+      });
+      renderWeekGrid();
+      btn.textContent = `✓ ${result.sessions.length} sessie(s) gegenereerd`;
+    } else {
+      btn.textContent = result.message || 'Geen sessies gegenereerd';
+    }
+  } catch(e) {
+    btn.textContent = 'Fout: ' + e.message;
+  }
+  setTimeout(() => { btn.textContent = '🤖 Genereer fietsplan'; btn.disabled = false; }, 3000);
+}
+
+// ── AI session modal ──────────────────────────────────────────────────────────
+const ZONE_COLORS = { Z1:'#888888', Z2:'#43a047', Z3:'#fb8c00', Z4:'#e53935', Z5:'#b71c1c' };
+const ZONE_TSS_PER_H = { Z1:30, Z2:50, Z3:70, Z4:90, Z5:110 };
+
+function calcSessionTSS(blocks) {
+  return Math.round(blocks.reduce((sum, b) => sum + (ZONE_TSS_PER_H[b.zone] || 50) * (b.duur / 60), 0));
+}
+
+function blockColor(zone) { return ZONE_COLORS[zone] || '#888888'; }
+
+function renderAiModal() {
+  const s = S.editingAiSession?.session;
+  if (!s) return;
+  const blocks = S.editingAiSession.blocks;
+  const totalMin = blocks.reduce((sum, b) => sum + (b.duur || 0), 0);
+  const tss = calcSessionTSS(blocks);
+
+  document.getElementById('aiSessTitle').textContent = s.titel || 'AI Sessie';
+  document.getElementById('aiSessMeta').textContent = `${s.zone||'–'} · ${totalMin}min · ~${tss} TSS`;
+  document.getElementById('aiSessTotals').textContent = `Totaal: ${totalMin} min / ~${tss} TSS`;
+  document.getElementById('aiSessReden').textContent = s.reden ? `ℹ️ ${s.reden}` : '';
+
+  // Block bar
+  const bar = document.getElementById('aiBlockBar');
+  bar.innerHTML = blocks.map((b, bi) => {
+    const pct = totalMin > 0 ? (b.duur / totalMin * 100).toFixed(1) : 0;
+    const col = b.kleur || blockColor(b.zone);
+    return `<div class="block-seg" style="width:${pct}%;background:${col}" title="${b.naam} (${b.duur}min, ${b.zone})" onclick="focusBlockEditor(${bi})">${pct > 8 ? b.naam : ''}</div>`;
+  }).join('');
+
+  // Block editors
+  const list = document.getElementById('aiBlockList');
+  list.innerHTML = blocks.map((b, bi) => `
+    <div class="block-editor" id="blk-${bi}">
+      <div class="block-editor-row">
+        <div style="width:12px;height:12px;border-radius:3px;background:${b.kleur||blockColor(b.zone)};flex-shrink:0"></div>
+        <input style="flex:1;min-width:80px;font-size:12px;padding:4px 7px" value="${b.naam}" onchange="updateBlock(${bi},'naam',this.value)">
+        <input type="number" min="1" max="180" style="width:52px;font-size:12px;padding:4px 6px" value="${b.duur}" onchange="updateBlock(${bi},'duur',+this.value)">
+        <span style="font-size:11px;color:var(--muted)">min</span>
+        <select style="font-size:12px;padding:4px 6px" onchange="updateBlock(${bi},'zone',this.value)">
+          ${['Z1','Z2','Z3','Z4','Z5'].map(z=>`<option ${b.zone===z?'selected':''}>${z}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary btn-sm" style="padding:2px 7px;font-size:11px" onclick="duplicateBlock(${bi})" title="Dupliceren">×2</button>
+        <button class="btn btn-danger" style="font-size:14px" onclick="removeBlock(${bi})" title="Verwijderen">×</button>
+      </div>
+    </div>`).join('');
+}
+
+function focusBlockEditor(bi) {
+  document.getElementById('blk-'+bi)?.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+function updateBlock(bi, field, value) {
+  S.editingAiSession.blocks[bi][field] = value;
+  if (field === 'zone') S.editingAiSession.blocks[bi].kleur = blockColor(value);
+  renderAiModal();
+}
+
+function duplicateBlock(bi) {
+  const copy = { ...S.editingAiSession.blocks[bi] };
+  S.editingAiSession.blocks.splice(bi + 1, 0, copy);
+  renderAiModal();
+}
+
+function removeBlock(bi) {
+  if (S.editingAiSession.blocks.length <= 1) return;
+  S.editingAiSession.blocks.splice(bi, 1);
+  renderAiModal();
+}
+
+function addAiBlock() {
+  S.editingAiSession.blocks.push({ naam: 'Blok', duur: 10, zone: 'Z2', kleur: blockColor('Z2') });
+  renderAiModal();
+}
+
+function openAiSession(date, idx) {
+  const s = S.data.weekPlan?.[date]?.[idx];
+  if (!s) return;
+  const blocks = JSON.parse(JSON.stringify(s.blokken || []));
+  S.editingAiSession = { date, idx, session: s, blocks, originalBlocks: JSON.parse(JSON.stringify(blocks)) };
+  document.getElementById('aiSessionOverlay').classList.remove('hidden');
+  renderAiModal();
+}
+
+async function saveAiSession() {
+  const { date, idx, session, blocks } = S.editingAiSession;
+  const updated = { ...session, blokken: blocks, duur_min: blocks.reduce((s,b)=>s+b.duur,0), tss: calcSessionTSS(blocks) };
+  const weekPlan = { ...(S.data.weekPlan||{}) };
+  const daySessions = [...(weekPlan[date]||[])];
+  daySessions[idx] = updated;
+  weekPlan[date] = daySessions;
+  await saveDataPartial({ weekPlan });
+  S.data.weekPlan = weekPlan;
+  renderWeekGrid();
+  document.getElementById('aiSessionOverlay').classList.add('hidden');
+  S.editingAiSession = null;
+}
+
+function resetAiSession() {
+  S.editingAiSession.blocks = JSON.parse(JSON.stringify(S.editingAiSession.originalBlocks));
+  renderAiModal();
+}
+
+function closeAiSession(e) {
+  if (e && e.target !== document.getElementById('aiSessionOverlay')) return;
+  document.getElementById('aiSessionOverlay').classList.add('hidden');
+  S.editingAiSession = null;
 }
 
 function openAddSession(date, type) {

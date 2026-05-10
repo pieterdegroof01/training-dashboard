@@ -29,7 +29,8 @@ async function loadData() {
       weekPlan: {},
       activityCache: { lastSync: null, activities: [] },
       settings: { unreliablePowerStart: '2020-01-01', unreliablePowerEnd: '2020-12-31', ftp: 280 },
-      aiInsights: {}
+      aiInsights: {},
+      weekAvailability: {}
     };
   }
 }
@@ -898,6 +899,22 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
   }
 });
 
+// ── Week availability ─────────────────────────────────────────────────────────
+
+app.get('/api/week-availability', async (req, res) => {
+  const data = await loadData();
+  res.json(data.weekAvailability || {});
+});
+
+app.post('/api/week-availability', async (req, res) => {
+  try {
+    const data = await loadData();
+    data.weekAvailability = req.body;
+    await saveData(data);
+    res.json(data.weekAvailability);
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── AI Insights (cached per page) ────────────────────────────────────────────
 
 app.post('/api/insights/:page', async (req, res) => {
@@ -998,6 +1015,69 @@ Doel: ${data.goals?.primary||'–'}`;
     }
     else if (page === 'weekplanning') {
       maxTokens = 400;
+
+      // ── generateSessions path ──────────────────────────────────────────────
+      if (req.body?.generateSessions === true) {
+        if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('jouw'))
+          return res.status(500).json({ error: 'ANTHROPIC_API_KEY niet ingesteld.' });
+
+        const weekAvailability = data.weekAvailability || {};
+        const availDays = Object.entries(weekAvailability).filter(([,v])=>v.cycling);
+        if (!availDays.length)
+          return res.json({ sessions: [], message: 'Geen beschikbare fietsdagen ingesteld.' });
+
+        const fourWeeksAgoGs = new Date(todayStr); fourWeeksAgoGs.setDate(fourWeeksAgoGs.getDate()-28);
+        const recentHevyGs = (hevyWkts||[])
+          .filter(w => new Date(w.start_time) >= fourWeeksAgoGs)
+          .sort((a,b) => new Date(b.start_time)-new Date(a.start_time)).slice(0,20)
+          .map(w => `${w.start_time?.split('T')[0]||'–'}: ${w.name||'Workout'} ${w.duration_seconds?Math.round(w.duration_seconds/60)+'min':''}`);
+        const upcomingGymGs = Object.entries(weekPlan)
+          .filter(([d]) => { const diff=(new Date(d)-new Date(todayStr))/86400000; return diff>=-1&&diff<=7; })
+          .sort(([a],[b])=>a.localeCompare(b))
+          .flatMap(([d,ss])=>(ss||[]).filter(s=>s.type==='gym').map(s=>`${d}: gym ${s.split||'?'} ${s.duration}min`));
+
+        const genContext = `Datum vandaag: ${todayStr}
+ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'} | ACWR: ${m.acwr||'–'} | Overreaching: ${fullState?.overreaching?.level||'geen'}
+FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W
+Beschikbare fietsdagen (cycling=true):
+${availDays.map(([d,v])=>`${d}: maxDuur=${v.maxDuration||90}min`).join('\n')}
+Geplande gymsessies komende week:
+${upcomingGymGs.join('\n')||'Geen'}
+Hevy workouts afgelopen 4 weken:
+${recentHevyGs.join('\n')||'Geen data'}
+Primair doel: ${data.goals?.primary||'–'}`;
+
+        const genSystem = 'Genereer concrete fietstrainingen voor de beschikbare dagen. Respecteer de maxDuration per dag. Houd rekening met de geplande gymsessies (PPL-volgorde, interferentierisico Legs). Stem de intensiteit af op TSB, ACWR en het primaire doel. Retourneer alleen een JSON-array van sessie-objecten met de velden: datum, type ("cycling"), aiGenerated (true), titel, beschrijving, duur_min, tss, zone, reden, blokken. Elk blok heeft: naam, duur (minuten, number), zone, kleur (hex). Geen tekst buiten de JSON.';
+
+        const genResp = await axios.post('https://api.anthropic.com/v1/messages', {
+          model: 'claude-sonnet-4-5',
+          max_tokens: 2000,
+          system: genSystem,
+          messages: [{ role: 'user', content: genContext }]
+        }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
+
+        let rawText = genResp.data.content?.[0]?.text || '[]';
+        // Strip markdown code fences if present
+        rawText = rawText.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
+        let sessions;
+        try { sessions = JSON.parse(rawText); }
+        catch(e) { return res.status(500).json({ error: 'AI retourneerde geen geldige JSON: ' + rawText.slice(0,200) }); }
+        if (!Array.isArray(sessions)) sessions = [];
+
+        // Merge into weekPlan: keep existing non-cycling sessions, add AI cycling sessions
+        const updatedWp = { ...(data.weekPlan||{}) };
+        sessions.forEach(s => {
+          if (!s.datum) return;
+          const existing = (updatedWp[s.datum]||[]).filter(x => x.type !== 'cycling' || !x.aiGenerated);
+          updatedWp[s.datum] = [...existing, s];
+        });
+        data.weekPlan = updatedWp;
+        await saveData(data);
+
+        return res.json({ sessions });
+      }
+      // ── end generateSessions ───────────────────────────────────────────────
+
       const upcomingGym = Object.entries(weekPlan)
         .filter(([d]) => { const diff = (new Date(d)-new Date(todayStr))/86400000; return diff >= -1 && diff <= 7; })
         .sort(([a],[b]) => a.localeCompare(b))
