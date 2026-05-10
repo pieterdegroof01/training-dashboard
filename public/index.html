@@ -217,6 +217,46 @@ body { overflow-x: hidden; }
   .monthly-stats { min-width: auto; gap: 6px; }
 }
 
+/* ═══ SIDEBAR LAYOUT ═══ */
+.app-layout { display: flex; min-height: calc(100vh - 53px); }
+.sidebar {
+  width: 180px; flex-shrink: 0; background: var(--card);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  position: sticky; top: 53px; height: calc(100vh - 53px); overflow-y: auto;
+}
+.sidebar-nav { flex: 1; padding: 6px 0; }
+.nav-item {
+  display: block; width: 100%; padding: 10px 16px; background: none; border: none;
+  border-left: 2px solid transparent; color: var(--muted); cursor: pointer;
+  font-size: 13px; font-family: inherit; text-align: left; transition: all 0.15s;
+}
+.nav-item:hover { color: var(--text); background: var(--card2); }
+.nav-item.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; background: var(--card2); }
+.sidebar-bottom { padding: 6px 0; border-top: 1px solid var(--border); }
+.nav-item-small {
+  display: block; width: 100%; padding: 8px 16px; background: none; border: none;
+  border-left: 2px solid transparent; color: var(--muted); cursor: pointer;
+  font-size: 11px; font-family: inherit; text-align: left; transition: all 0.15s;
+}
+.nav-item-small:hover { color: var(--text); background: var(--card2); }
+.nav-item-small.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; background: var(--card2); }
+.main-content { flex: 1; min-width: 0; }
+
+@media (max-width: 768px) {
+  .app-layout { flex-direction: column; min-height: auto; }
+  .sidebar { width: 100%; height: auto; position: static; flex-direction: row;
+    overflow-x: auto; overflow-y: hidden; border-right: none; border-bottom: 1px solid var(--border); }
+  .sidebar-nav { display: flex; flex-direction: row; padding: 0; flex: 1; }
+  .nav-item { border-left: none; border-bottom: 2px solid transparent; white-space: nowrap;
+    flex-shrink: 0; min-height: 44px; display: inline-flex; align-items: center; padding: 10px 13px; }
+  .nav-item.active { border-left-color: transparent; border-bottom-color: var(--accent); }
+  .sidebar-bottom { display: flex; flex-direction: row; border-top: none;
+    border-left: 1px solid var(--border); padding: 0; }
+  .nav-item-small { border-left: none; border-bottom: 2px solid transparent; white-space: nowrap;
+    flex-shrink: 0; min-height: 44px; display: inline-flex; align-items: center; padding: 10px 10px; }
+  .nav-item-small.active { border-left-color: transparent; border-bottom-color: var(--accent); }
+}
+
 /* ═══ NUTRITION HISTORY CARDS ═══ */
 .nutr-history-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .nutr-history-grid {
@@ -260,19 +300,23 @@ body { overflow-x: hidden; }
   </div>
 </div>
 
-<div class="tabs">
-  <button class="tab active" onclick="showTab('overview',this)">Overzicht</button>
-  <button class="tab" onclick="showTab('activities',this)">Activiteiten</button>
-  <button class="tab" onclick="showTab('hevy',this)">Gym</button>
-  <button class="tab" onclick="showTab('nutrition',this)">Voeding</button>
-  <button class="tab" onclick="showTab('week',this)">Weekplanning</button>
-  <button class="tab" onclick="showTab('voortgang',this)">Voortgang</button>
-  <button class="tab" onclick="showTab('literatuur',this)">Literatuur</button>
-  <button class="tab" onclick="showTab('planning',this)">Doelen</button>
-  <button class="tab" onclick="showTab('instellingen',this)">Instellingen</button>
-  <button class="tab" onclick="showTab('analyse',this)">AI-analyse</button>
-</div>
-
+<div class="app-layout">
+<nav class="sidebar">
+  <div class="sidebar-nav">
+    <button class="nav-item active" onclick="showTab('overview',this)">Vandaag</button>
+    <button class="nav-item" onclick="showTab('week',this)">Week</button>
+    <button class="nav-item" onclick="showTab('activiteiten',this)">Activiteiten</button>
+    <button class="nav-item" onclick="showTab('nutrition',this)">Voeding</button>
+    <button class="nav-item" onclick="showTab('analyse',this)">Coach</button>
+    <button class="nav-item" onclick="showTab('planning',this)">Doelen</button>
+    <button class="nav-item" onclick="showTab('voortgang',this)">Trends</button>
+  </div>
+  <div class="sidebar-bottom">
+    <button class="nav-item-small" onclick="showTab('instellingen',this)">⚙ Settings</button>
+    <button class="nav-item-small" id="helpBtn" onclick="openHelp()">? Help</button>
+  </div>
+</nav>
+<div class="main-content">
 <div class="content">
 
   <!-- OVERZICHT -->
@@ -350,25 +394,32 @@ body { overflow-x: hidden; }
     </div>
   </div>
 
-  <!-- ACTIVITEITEN -->
-  <div id="tab-activities" class="section hidden">
-    <div class="card">
-      <div class="card-header">
-        <div class="card-label" style="margin:0">Activiteiten · 21 dagen</div>
+  <!-- ACTIVITEITEN (Strava + Hevy samengevoegd) -->
+  <div id="tab-activiteiten" class="section hidden">
+    <div class="card" style="padding-bottom:8px">
+      <div class="card-header" style="margin-bottom:0">
+        <div class="card-label" style="margin:0">Activiteiten</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <button id="filterAlles" class="btn btn-sm btn-primary" onclick="filterActivities('alles')">Alles</button>
+          <button id="filterFietsen" class="btn btn-sm btn-secondary" onclick="filterActivities('fietsen')">Fietsen</button>
+          <button id="filterLopen" class="btn btn-sm btn-secondary" onclick="filterActivities('lopen')">Lopen</button>
+          <button id="filterGym" class="btn btn-sm btn-secondary" onclick="filterActivities('gym')">Gym</button>
+        </div>
       </div>
+    </div>
+    <div id="actStravaSection" class="card">
+      <div class="card-label">Strava · 21 dagen</div>
       <div id="allActs"><div style="color:var(--muted);font-size:13px;padding:16px 0">Laden...</div></div>
     </div>
-  </div>
-
-  <!-- GYM / HEVY -->
-  <div id="tab-hevy" class="section hidden">
-    <div class="card">
-      <div class="card-label">Recente gym workouts (Hevy)</div>
-      <div id="hevyList"><div class="alert alert-info">Hevy API key toevoegen aan .env om workouts te laden</div></div>
-    </div>
-    <div class="card">
-      <div class="card-label">Progressie-analyse</div>
-      <div id="hevyProgression"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
+    <div id="actHevySection">
+      <div class="card">
+        <div class="card-label">Gym workouts (Hevy)</div>
+        <div id="hevyList"><div class="alert alert-info">Hevy API key toevoegen aan .env om workouts te laden</div></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Progressie-analyse</div>
+        <div id="hevyProgression"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
+      </div>
     </div>
   </div>
 
@@ -469,57 +520,6 @@ body { overflow-x: hidden; }
       </div>
 
     </div>
-  </div>
-
-  <!-- LITERATUUR -->
-  <div id="tab-literatuur" class="section hidden">
-
-    <div class="card">
-      <div class="card-label">Wat is dit?</div>
-      <p style="color:var(--muted);font-size:13px;line-height:1.7">
-        Voeg hier studies, richtlijnen of samenvattingen toe die de AI gebruikt als context bij elke analyse. Upload een PDF (wordt automatisch samengevat), een tekstbestand, of plak een samenvatting direct in. Goede bronnen: papers over concurrent training, ACSM-richtlijnen, voedingsstudies.
-      </p>
-    </div>
-
-    <div class="card">
-      <div class="card-label">PDF of tekstbestand uploaden</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="fg">
-          <label>Titel / referentie</label>
-          <input type="text" id="litUploadTitle" placeholder="Bijv. Wilson et al. 2012 — Concurrent training meta-analyse">
-        </div>
-        <div class="upload-zone" id="litUploadZone" onclick="document.getElementById('litFileIn').click()" style="padding:16px">
-          <div style="font-size:22px;margin-bottom:5px">📄</div>
-          <div style="color:var(--muted);font-size:13px">Klik of sleep PDF of .txt hierheen<br><span style="color:var(--accent)">PDF wordt automatisch samengevat via AI</span></div>
-        </div>
-        <input type="file" id="litFileIn" accept=".pdf,.txt" style="display:none" onchange="handleLitUpload(this.files[0])">
-        <div id="litUploadMsg" class="hidden"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-label">Tekst direct invoeren</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="fg">
-          <label>Titel / referentie</label>
-          <input type="text" id="litPasteTitle" placeholder="Bijv. Murach & Bagley 2016 — Interference effect">
-        </div>
-        <div class="fg">
-          <label>Inhoud (samenvatting, abstract, aantekeningen)</label>
-          <textarea id="litPasteContent" rows="6" placeholder="Plak hier de samenvatting, het abstract, of jouw eigen aantekeningen bij de studie..."></textarea>
-        </div>
-        <button class="btn btn-primary btn-sm" style="align-self:flex-start" onclick="saveLitPaste()" id="btnLitPaste">Toevoegen</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <div class="card-label" style="margin:0">Opgeslagen literatuur</div>
-        <span id="litCount" style="font-size:12px;color:var(--muted)"></span>
-      </div>
-      <div id="litList"><div style="color:var(--muted);font-size:13px;padding:12px 0">Geen literatuur toegevoegd.</div></div>
-    </div>
-
   </div>
 
   <!-- PLANNING / DOELEN -->
@@ -640,6 +640,54 @@ body { overflow-x: hidden; }
       <button class="btn btn-ghost btn-sm" onclick="recalibrate()" id="btnRecalibrate">↻ Herbereken kalibratie</button>
     </div>
 
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;padding:8px 2px 0">Literatuur</div>
+
+    <div class="card">
+      <div class="card-label">Wat is dit?</div>
+      <p style="color:var(--muted);font-size:13px;line-height:1.7">
+        Voeg hier studies, richtlijnen of samenvattingen toe die de AI gebruikt als context bij elke analyse. Upload een PDF (wordt automatisch samengevat), een tekstbestand, of plak een samenvatting direct in. Goede bronnen: papers over concurrent training, ACSM-richtlijnen, voedingsstudies.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-label">PDF of tekstbestand uploaden</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="fg">
+          <label>Titel / referentie</label>
+          <input type="text" id="litUploadTitle" placeholder="Bijv. Wilson et al. 2012 — Concurrent training meta-analyse">
+        </div>
+        <div class="upload-zone" id="litUploadZone" onclick="document.getElementById('litFileIn').click()" style="padding:16px">
+          <div style="font-size:22px;margin-bottom:5px">📄</div>
+          <div style="color:var(--muted);font-size:13px">Klik of sleep PDF of .txt hierheen<br><span style="color:var(--accent)">PDF wordt automatisch samengevat via AI</span></div>
+        </div>
+        <input type="file" id="litFileIn" accept=".pdf,.txt" style="display:none" onchange="handleLitUpload(this.files[0])">
+        <div id="litUploadMsg" class="hidden"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Tekst direct invoeren</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="fg">
+          <label>Titel / referentie</label>
+          <input type="text" id="litPasteTitle" placeholder="Bijv. Murach & Bagley 2016 — Interference effect">
+        </div>
+        <div class="fg">
+          <label>Inhoud (samenvatting, abstract, aantekeningen)</label>
+          <textarea id="litPasteContent" rows="6" placeholder="Plak hier de samenvatting, het abstract, of jouw eigen aantekeningen bij de studie..."></textarea>
+        </div>
+        <button class="btn btn-primary btn-sm" style="align-self:flex-start" onclick="saveLitPaste()" id="btnLitPaste">Toevoegen</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-label" style="margin:0">Opgeslagen literatuur</div>
+        <span id="litCount" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div id="litList"><div style="color:var(--muted);font-size:13px;padding:12px 0">Geen literatuur toegevoegd.</div></div>
+    </div>
+
   </div>
 
   <!-- ANALYSE -->
@@ -660,7 +708,9 @@ body { overflow-x: hidden; }
       <div class="empty"><div class="empty-icon">🤖</div><div class="empty-text">Klik op "Genereer analyse" voor diepgaand gepersonaliseerd advies op basis van je volledige trainingsgeschiedenis, voeding, gewicht, doelen en weekplanning.</div></div>
     </div>
   </div>
-</div>
+</div><!-- .content -->
+</div><!-- .main-content -->
+</div><!-- .app-layout -->
 
 <!-- SESSION MODAL -->
 <div id="modalOverlay" class="modal-overlay hidden" onclick="closeModal(event)">
@@ -670,6 +720,20 @@ body { overflow-x: hidden; }
     <div style="display:flex;gap:8px;margin-top:14px">
       <button class="btn btn-primary" onclick="confirmSession()">Toevoegen</button>
       <button class="btn btn-secondary" onclick="closeModal()">Annuleren</button>
+    </div>
+  </div>
+</div>
+
+<!-- HELP MODAL -->
+<div id="helpOverlay" class="modal-overlay hidden" onclick="closeHelp(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:480px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="modal-title" id="helpTitle" style="margin:0">Help</div>
+      <button onclick="closeHelp()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;line-height:1;padding:0">×</button>
+    </div>
+    <div id="helpContent" style="font-size:13px;color:var(--text);line-height:1.8"></div>
+    <div style="margin-top:16px">
+      <button class="btn btn-secondary btn-sm" onclick="closeHelp()">Sluiten</button>
     </div>
   </div>
 </div>
@@ -1418,11 +1482,71 @@ async function runAnalysis() {
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
+let currentTab = 'overview';
+
 function showTab(name, btn) {
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
-  document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.nav-item, .nav-item-small').forEach(el=>el.classList.remove('active'));
   document.getElementById('tab-'+name).classList.remove('hidden');
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
+  currentTab = name;
+}
+
+// ── Help modal ────────────────────────────────────────────────────────────────
+const HELP_TEXTS = {
+  overview: { title: 'Vandaag — Help', content: `<strong>Readiness score (0–100)</strong><br>Samengesteld uit TSB, ACWR, monotony, voedingsstatus en krachtstatus.<br><br><strong>ATL</strong> — Acute Training Load: gemiddelde belasting afgelopen 7 dagen.<br><strong>CTL</strong> — Chronic Training Load: gemiddelde belasting afgelopen 42 dagen.<br><strong>TSB</strong> — Training Stress Balance: CTL − ATL. Positief = uitgerust, negatief = vermoeid.<br><strong>ACWR</strong> — Acute:Chronic Workload Ratio. Boven 1.5 = verhoogd blessurerisico.<br><strong>Monotony</strong> — Maat voor trainingsafwisseling. Boven 2.0 = te eentonig.` },
+  week: { title: 'Week — Help', content: `<strong>Weekplanning</strong><br>Plan trainingen door op de + knoppen te klikken.<br><br><strong>Sessietypen</strong><br>🏋️ Gym — kracht (Push / Pull / Legs / Full Body)<br>🚴 Wielrennen — duur of intervaltraining<br>🏃 Hardlopen — easy run of intervallen<br>✏️ Overig — zwemmen, yoga, etc.<br><br>Gebruik de pijlen om naar andere weken te navigeren.` },
+  activiteiten: { title: 'Activiteiten — Help', content: `<strong>Filter</strong><br>Gebruik de filterknopen om activiteiten te filteren:<br>• <strong>Alles</strong> — Strava-activiteiten én Hevy gym workouts<br>• <strong>Fietsen</strong> — alleen wielrenactiviteiten (buiten + trainer)<br>• <strong>Lopen</strong> — alleen hardloopactiviteiten<br>• <strong>Gym</strong> — alleen Hevy workouts met progressie-analyse<br><br><strong>Progressie-analyse</strong><br>Toont 1RM-trend per oefening via Epley-formule (minimaal 2 sessies nodig).` },
+  nutrition: { title: 'Voeding — Help', content: `<strong>Voeding bijhouden</strong><br>Importeer een Yazio screenshot of voer macros handmatig in.<br><br><strong>Macros</strong><br>• Calorieën (kcal) — totale energie-inname<br>• Eiwit (g) — spieronderhoud en groei<br>• Koolhydraten (g) — primaire energiebron<br>• Vet (g) — hormonen en vetoplosbare vitaminen<br><br><strong>14-dagenkaart</strong><br>Overzicht van de afgelopen 14 dagen inclusief gewicht per dag.` },
+  analyse: { title: 'Coach — Help', content: `<strong>AI Coach</strong><br>Genereert gepersonaliseerd trainingsadvies op basis van al je data.<br><br><strong>Wat wordt meegenomen</strong><br>• Trainingsgeschiedenis (Strava)<br>• Gym workouts (Hevy)<br>• Voeding en gewicht<br>• Doelen en weekpatronen<br>• Literatuur (wetenschappelijke context)<br><br><strong>Tip</strong><br>Voeg een notitie toe voor specifieke vragen of aanvullingen (blessures, afwijkingen).` },
+  planning: { title: 'Doelen — Help', content: `<strong>Doelen instellen</strong><br>Stel je primaire trainingsdoel in. Dit wordt meegenomen in de AI-analyse.<br><br><strong>Velden</strong><br>• Primair doel — wat wil je bereiken?<br>• Doelgewicht — streefgewicht in kg<br>• Tijdlijn — wanneer bereikt?<br>• Extra context — blessures, events, beperkingen<br><br><strong>Vaste patronen</strong><br>Wekelijks terugkerende trainingen als basis voor weekplanning en analyse.` },
+  voortgang: { title: 'Trends — Help', content: `<strong>Grafieken</strong><br>Visualiseer je trainingsdata over tijd.<br><br><strong>Beschikbare grafieken</strong><br>• <strong>Gewicht</strong> — trend over de geselecteerde periode<br>• <strong>ATL / CTL / TSB</strong> — trainingsbelasting (120 dagen)<br>• <strong>Wekelijks volume</strong> — uren en sessies per week<br>• <strong>Voeding</strong> — calorieën en eiwit per dag<br>• <strong>Vermogen</strong> — gemiddeld wattage per maand<br><br>Selecteer een periode en klik op Laden.` },
+  instellingen: { title: 'Settings — Help', content: `<strong>Instellingen</strong><br>Configureer je dashboard en trainingszones.<br><br><strong>Secties</strong><br>• Trainingszones — FTP-percentages per zone<br>• Fysiologie — max hartslag, gewichtsverlies doel<br>• Krachttraining — standaard RPE<br>• Alertdrempels — wanneer worden waarschuwingen getoond?<br>• Powermeter & FTP — onbetrouwbare periode en handmatige FTP<br>• Gewicht importeren — Garmin CSV import<br>• Literatuur — wetenschappelijke bronnen voor AI-analyse` },
+};
+
+function openHelp() {
+  const h = HELP_TEXTS[currentTab] || { title: 'Help', content: 'Geen helptekst beschikbaar voor deze pagina.' };
+  document.getElementById('helpTitle').textContent = h.title;
+  document.getElementById('helpContent').innerHTML = h.content;
+  document.getElementById('helpOverlay').classList.remove('hidden');
+}
+
+function closeHelp(e) {
+  if (e && e.target !== document.getElementById('helpOverlay')) return;
+  document.getElementById('helpOverlay').classList.add('hidden');
+}
+
+// ── Activiteiten filter ───────────────────────────────────────────────────────
+let currentActivityFilter = 'alles';
+
+function filterActivities(type) {
+  currentActivityFilter = type;
+  ['alles','fietsen','lopen','gym'].forEach(t => {
+    const btn = document.getElementById('filter' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) btn.className = 'btn btn-sm ' + (t === type ? 'btn-primary' : 'btn-secondary');
+  });
+  const stravaSection = document.getElementById('actStravaSection');
+  const hevySection = document.getElementById('actHevySection');
+  if (type === 'gym') {
+    stravaSection.classList.add('hidden');
+    hevySection.classList.remove('hidden');
+  } else if (type === 'alles') {
+    stravaSection.classList.remove('hidden');
+    hevySection.classList.remove('hidden');
+    renderFilteredActs(null);
+  } else {
+    stravaSection.classList.remove('hidden');
+    hevySection.classList.add('hidden');
+    const typeMap = { fietsen: ['Ride','VirtualRide'], lopen: ['Run'] };
+    renderFilteredActs(typeMap[type]);
+  }
+}
+
+function renderFilteredActs(typeFilter) {
+  const acts = typeFilter ? S.recentActs.filter(a => typeFilter.includes(a.type)) : S.recentActs;
+  document.getElementById('allActs').innerHTML = acts.length
+    ? acts.map(a => actRow(a, true)).join('')
+    : '<div class="empty"><div class="empty-text">Geen activiteiten gevonden voor dit filter</div></div>';
 }
 
 
