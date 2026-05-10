@@ -997,17 +997,25 @@ Doel: ${data.goals?.primary||'–'}`;
       systemPrompt += ' Geef een weekanalyse: belasting deze week tov chronische, ACWR acceptabel, sterkste en zwakste punten, en optimale focus voor de komende 7 dagen. Antwoord in maximaal 80 woorden. Geen inleiding, geen afsluiting, direct to the point.';
     }
     else if (page === 'weekplanning') {
-      dataForHash = JSON.stringify({ weekPlan: Object.keys(weekPlan).sort().slice(-7), m, todayStr });
-      const upcoming = Object.entries(weekPlan)
+      maxTokens = 400;
+      const upcomingGym = Object.entries(weekPlan)
         .filter(([d]) => { const diff = (new Date(d)-new Date(todayStr))/86400000; return diff >= -1 && diff <= 7; })
         .sort(([a],[b]) => a.localeCompare(b))
-        .map(([d,ss]) => `${d}: ${(ss||[]).map(s=>s.type+' '+s.duration+'min').join(', ')||'rust'}`).join('\n');
+        .flatMap(([d,ss]) => (ss||[]).filter(s=>s.type==='gym').map(s=>`${d}: gym ${s.split||'?'} ${s.duration}min`));
+      const fourWeeksAgo = new Date(todayStr); fourWeeksAgo.setDate(fourWeeksAgo.getDate()-28);
+      const recentHevy = (hevyWkts||[])
+        .filter(w => new Date(w.start_time) >= fourWeeksAgo)
+        .sort((a,b) => new Date(b.start_time)-new Date(a.start_time))
+        .slice(0, 20)
+        .map(w => `${w.start_time?.split('T')[0]||'–'}: ${w.name||'Workout'} ${w.duration_seconds?Math.round(w.duration_seconds/60)+'min':''}`);
+      dataForHash = JSON.stringify({ weekPlan: Object.keys(weekPlan).sort().slice(-7), m, todayStr, hevyCount: recentHevy.length });
       context = `Datum: ${todayStr}
-ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'}
-Geplande sessies komende week:\n${upcoming||'Nog niets gepland'}
+ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'} | Overreaching: ${fullState?.overreaching?.level||'geen'}
+Geplande gymsessies komende week:\n${upcomingGym.join('\n')||'Geen gymsessies gepland'}
+Hevy workouts afgelopen 4 weken:\n${recentHevy.join('\n')||'Geen data'}
 Trainingspatronen: ${(data.patterns||[]).map(p=>`${p.day}: ${p.type} ${p.duration}min`).join(', ')||'–'}
-Doel: ${data.goals?.primary||'–'} | Overreaching: ${fullState?.overreaching?.level||'geen'}`;
-      systemPrompt += ' Je bent een periodiseringsexpert. Analyseer de weekplanning: klopt de intensiteitsverdeling, zijn er hersteldagen nodig, wat is de optimale sessievolgorde? Geef ook een concreet sessieadvies voor vrije dagen. Antwoord in maximaal 150 woorden. Geen inleiding, geen afsluiting, direct to the point.';
+Doel: ${data.goals?.primary||'–'}`;
+      systemPrompt = 'Je bent een periodiseringsexpert. De atleet volgt een vaste PPL-split (Push/Pull/Legs). Je mag de volgorde van gymdagen onderling aanpassen als dat beter uitkomt met de fietstrainingen (bijv. Legs niet de dag voor een zware fietsrit), maar plan altijd exact de gymsessies die al ingepland staan — nooit een andere split dan Push, Pull of Legs, nooit een extra gymsessie toevoegen of verwijderen. Je mag alleen fietstrainingen inplannen op dagen waar cycling=true staat in de beschikbaarheid. Houd rekening met het interferentierisico: plan geen zware fietstraining op de dag na een Legs-sessie, en verschuif bij voorkeur Legs naar na een rustdag of lichte fietsdag. Antwoord in maximaal 150 woorden. Geen inleiding, direct beginnen met de analyse.';
     }
     else if (page === 'trends') {
       if (acts.length < 10) return res.json({ text: 'Sync de volledige trainingshistory voor trendanalyse.', cached: false, empty: true });
