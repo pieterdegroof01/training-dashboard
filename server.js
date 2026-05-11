@@ -368,7 +368,10 @@ app.get('/api/charts/data', async (req, res) => {
 
 app.get('/api/hevy/workouts', async (req, res) => {
   try {
-    if (!process.env.HEVY_API_KEY) return res.json([]);
+    if (!process.env.HEVY_API_KEY) {
+      const data = await loadData();
+      return res.json(data.hevyWorkouts || []);
+    }
     const data = await loadData();
     const existing = data.hevyWorkouts || [];
     const cutoff = existing.length > 0
