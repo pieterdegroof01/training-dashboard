@@ -1,4 +1,4 @@
-﻿*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #0a0a0a; --card: #141414; --card2: #1c1c1c; --border: #222; --border2: #2a2a2a;
   --accent: #f97316; --accent2: #fb923c; --blue: #38bdf8; --green: #4ade80;

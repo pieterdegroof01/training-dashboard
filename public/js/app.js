@@ -1,4 +1,4 @@
-﻿// ── State ─────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 let S = {
   athlete: null, recentActs: [], hevyWorkouts: [],
   data: { goals:{}, patterns:[], nutrition:{}, weight:{}, weekPlan:{}, settings:{} },
@@ -30,6 +30,7 @@ async function api(path, opts={}) {
 async function syncAll() {
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Laden...');
   await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability()]);
+  renderWeekGrid(); // re-render now that weekAvailability is guaranteed loaded
   await loadFullState();
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Sync');
 }
@@ -108,7 +109,7 @@ async function loadUserData() {
     setMt('mtWeSnack',     mt.weekendSnack);
     setMt('mtWeLunch',     mt.weekendLunch);
     setMt('mtWeDinner',    mt.weekendDinner);
-  } catch {}
+  } catch(e) { console.error('[loadUserData]', e); }
 }
 
 async function loadHistSummary() {
