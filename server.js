@@ -1157,8 +1157,10 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
     });
 
     const text = resp.data.content?.[0]?.text || 'Geen inzicht gegenereerd.';
-    data.aiInsights[page] = { text, hash, ts: Date.now() };
-    await saveData(data);
+    const freshData = await loadData();
+    if (!freshData.aiInsights) freshData.aiInsights = {};
+    freshData.aiInsights[page] = { text, hash, ts: Date.now() };
+    await saveData(freshData);
 
     res.json({ text, cached: false });
   } catch(err) {
