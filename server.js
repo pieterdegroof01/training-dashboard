@@ -8,7 +8,7 @@ const engine = require('./engine');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, 'data.json');
+const DATA_FILE = process.env.DATA_PATH || path.join(__dirname, 'data.json');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 app.use(express.json({ limit: '50mb' }));
