@@ -24,7 +24,7 @@ if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
   const authMiddleware = basicAuth({ users: { [BASIC_AUTH_USER]: BASIC_AUTH_PASS }, challenge: true });
   const AUTH_EXCLUDED = ['/auth/strava', '/auth/strava/callback', '/webhook/strava'];
   app.use((req, res, next) => {
-    if (req.method === 'GET' && AUTH_EXCLUDED.includes(req.path)) return next();
+    if (AUTH_EXCLUDED.includes(req.path)) return next();
     authMiddleware(req, res, next);
   });
 } else {
@@ -1396,6 +1396,51 @@ Retourneer uitsluitend een valide JSON array zonder markdown of uitleg. Formaat 
 
     res.json({ sessions });
   } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Strava Webhooks ───────────────────────────────────────────────────────────
+
+app.get('/webhook/strava', (req, res) => {
+  const verifyToken = process.env.STRAVA_VERIFY_TOKEN;
+  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === verifyToken) {
+    return res.status(200).json({ 'hub.challenge': req.query['hub.challenge'] });
+  }
+  res.sendStatus(403);
+});
+
+app.post('/webhook/strava', (req, res) => {
+  res.status(200).send('OK');
+
+  const { object_type, aspect_type, object_id } = req.body || {};
+  if (object_type !== 'activity' || aspect_type !== 'create') return;
+
+  (async () => {
+    try {
+      const token = await getStravaToken();
+      const { data: activity } = await axios.get(
+        `https://www.strava.com/api/v3/activities/${object_id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const data = await loadData();
+      const cache = data.activityCache || { lastSync: null, activities: [] };
+
+      if (cache.activities.some(a => a.id === activity.id)) return;
+
+      cache.activities.unshift(activity);
+      cache.lastSync = new Date().toISOString();
+      data.activityCache = cache;
+
+      const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
+      data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
+      data.calibration = calibration;
+
+      await matchPlannedToActual(data);
+      await saveData(data);
+    } catch (err) {
+      console.error('Webhook verwerking mislukt:', err.message);
+    }
+  })();
 });
 
 app.listen(PORT, () => {
