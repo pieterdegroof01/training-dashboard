@@ -293,6 +293,9 @@ body { overflow-x: hidden; }
 .ai-session:hover { background:var(--accent)11 !important; }
 .ai-badge { position:absolute; top:4px; right:4px; font-size:10px; line-height:1; }
 .ai-tss { font-size:10px; color:var(--muted); }
+.session-cycling { background:rgba(37,99,235,0.12) !important; border:1px solid rgba(59,130,246,0.28); }
+.session-cycling.ai-session { border:2px dashed rgba(59,130,246,0.60) !important; }
+.session-cycling.ai-session:hover { background:rgba(37,99,235,0.22) !important; }
 /* AI session modal */
 .block-bar { display:flex; height:28px; border-radius:6px; overflow:hidden; margin:10px 0; }
 .block-seg { height:100%; display:flex; align-items:center; justify-content:center; font-size:9px; color:rgba(255,255,255,0.85); font-weight:700; overflow:hidden; cursor:pointer; transition:opacity 0.15s; }

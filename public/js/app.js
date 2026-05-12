@@ -465,15 +465,22 @@ function renderWeekGrid() {
     const maxDur = avail.maxDuration || 90;
 
     const sessHtml = sessions.map((s,si) => {
-      if (s.aiGenerated && s.type === 'cycling') {
-        const tssLabel = s.tss ? ` · ~${s.tss} TSS` : '';
-        return `<div class="planned-session ai-session" onclick="openAiSession('${date}',${si})" style="padding:6px 8px;flex-wrap:wrap">
+      if (s.type === 'cycling') {
+        const title = s.title || s.titel || 'Fietssessie';
+        const dur   = s.duration || s.duur_min || '?';
+        const tss   = s.targetTSS || s.tss;
+        const tssLabel = tss ? ` · ~${tss} TSS` : '';
+        const aiClass  = s.aiGenerated ? ' ai-session' : '';
+        const aiIcon   = s.aiGenerated ? '<span class="ai-badge">✨</span>' : '';
+        const clickable = s.aiGenerated && s.blokken?.length;
+        const clickAttr = clickable ? `onclick="openAiSession('${date}',${si})"` : '';
+        return `<div class="planned-session session-cycling${aiClass}" ${clickAttr} style="padding:6px 8px${clickable ? ';cursor:pointer' : ''}">
           <span class="ps-icon">🚴</span>
           <div class="ps-info" style="flex:1;min-width:0">
-            <div class="ps-name" style="font-size:11px">${s.titel||s.type}</div>
-            <div class="ai-tss">${s.duur_min||s.duration||'?'}min${tssLabel}</div>
+            <div class="ps-name" style="font-size:11px">${title}</div>
+            <div class="ai-tss">${dur}min${tssLabel}</div>
           </div>
-          <span class="ai-badge">🤖</span>
+          ${aiIcon}
           <button class="ps-remove" onclick="event.stopPropagation();removeSession('${date}',${si})">×</button>
         </div>`;
       }
