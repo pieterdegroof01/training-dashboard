@@ -634,29 +634,61 @@ function renderAiModal() {
     document.getElementById('aiSessTotals').textContent = '';
     document.getElementById('aiSessReden').textContent  = '';
 
-    // Proportional timeline
+    // Workout-profile timeline (height = intensity, width = duration, bars from bottom)
     const bar = document.getElementById('aiBlockBar');
     bar.className = 'cyc-timeline';
-    bar.innerHTML = blocks.map(b => {
-      const groupDur  = blockTotalDuration(b);
-      const pct       = totalMin > 0 ? (groupDur / totalMin * 100).toFixed(2) : 0;
-      const workDur   = b.duration || 0;
-      const reps      = b.herhalingen || 1;
-      const wCol      = ZONE_COLORS[b.zone] || '#888';
-      const wattTxt   = (b.wattMin && b.wattMax) ? ` ${b.wattMin}–${b.wattMax}W` : '';
-      const prefix    = reps > 1 ? `${reps}× ` : '';
-      const mainLabel = `${prefix}${b.type || 'blok'} ${workDur}min${wattTxt}`;
 
+    const ZONE_PCT = { Z1:20, Z2:40, Z3:65, Z4:85, Z5:100 };
+
+    // maxWatt across all blocks + herstelBlokken
+    let maxWatt = 0;
+    blocks.forEach(b => {
+      const w = b.wattMax || b.wattMin || 0;
+      if (w > maxWatt) maxWatt = w;
       if (b.herstelBlok) {
-        const hb    = b.herstelBlok;
-        const rCol  = ZONE_COLORS[hb.zone] || ZONE_COLORS.Z1;
-        const hWatt = (hb.wattMin && hb.wattMax) ? ` ${hb.wattMin}–${hb.wattMax}W` : '';
-        return `<div class="cyc-group" style="width:${pct}%;min-width:48px">
-          <div class="cyc-seg" style="background:${wCol};flex:${workDur * reps}">${mainLabel}</div>
-          <div class="cyc-seg cyc-seg-recovery" style="background:${rCol};flex:${hb.duration * reps}">↳ ${hb.duration}min${hWatt}</div>
-        </div>`;
+        const hw = b.herstelBlok.wattMax || b.herstelBlok.wattMin || 0;
+        if (hw > maxWatt) maxWatt = hw;
       }
-      return `<div class="cyc-seg" style="width:${pct}%;min-width:32px;background:${wCol}">${mainLabel}</div>`;
+    });
+
+    // Unroll herhalingen: werk · herstel · werk · herstel · werk (last herstel omitted)
+    const flatBars = [];
+    blocks.forEach(b => {
+      const reps     = b.herhalingen || 1;
+      const workDur  = b.duration || 0;
+      const recovDur = b.herstelBlok?.duration || 0;
+      for (let i = 0; i < reps; i++) {
+        flatBars.push({ dur: workDur, zone: b.zone, wMin: b.wattMin, wMax: b.wattMax, label: b.type || 'werk', isRecov: false });
+        if (b.herstelBlok && i < reps - 1) {
+          const hb = b.herstelBlok;
+          flatBars.push({ dur: recovDur, zone: hb.zone, wMin: hb.wattMin, wMax: hb.wattMax, label: 'herstel', isRecov: true });
+        }
+      }
+    });
+
+    const totalBarMin = flatBars.reduce((s, fb) => s + fb.dur, 0) || 1;
+
+    function barHeight(fb) {
+      if (maxWatt > 0 && (fb.wMin || fb.wMax)) {
+        const avg = ((fb.wMin || 0) + (fb.wMax || fb.wMin || 0)) / 2;
+        return Math.min(100, Math.max(10, Math.round(avg / maxWatt * 100)));
+      }
+      return ZONE_PCT[fb.zone] || 20;
+    }
+
+    bar.innerHTML = flatBars.map(fb => {
+      const widthPct  = (fb.dur / totalBarMin * 100).toFixed(2);
+      const heightPct = barHeight(fb);
+      const col       = ZONE_COLORS[fb.zone] || '#888';
+      const wattTip   = (fb.wMin && fb.wMax) ? ` · ${fb.wMin}–${fb.wMax}W` : '';
+      const tooltip   = fb.isRecov
+        ? `herstel · ${fb.zone} · ${fb.dur}min`
+        : `${fb.zone}${wattTip} · ${fb.dur}min`;
+      const showLabel = parseFloat(widthPct) > 8 && !fb.isRecov;
+      const labelHtml = showLabel
+        ? `<span class="cyc-bar-label">${fb.label} ${fb.dur}min</span>`
+        : '';
+      return `<div class="cyc-bar" style="width:${widthPct}%;height:${heightPct}%;background:${col}" title="${tooltip}">${labelHtml}</div>`;
     }).join('');
 
     // Detail list
