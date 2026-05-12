@@ -129,7 +129,11 @@ select option { background: #1c1c1c; }
 .day-card-head.today-lbl { color: var(--accent); }
 .day-num { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
 
-.planned-session { display: flex; align-items: center; gap: 5px; background: var(--card); border-radius: 6px; padding: 5px 7px; margin-bottom: 4px; font-size: 12px; }
+.planned-session { display: flex; align-items: center; gap: 5px; background: var(--card); border-radius: 6px; padding: 5px 7px; margin-bottom: 4px; font-size: 12px; position: relative; }
+.session-score-badge { position: absolute; bottom: 3px; right: 3px; font-size: 10px; border-radius: 4px; padding: 1px 5px; font-weight: 700; color: white; pointer-events: none; }
+.score-good { background: #16a34a; }
+.score-ok   { background: #d97706; }
+.score-poor { background: #dc2626; }
 .ps-icon { font-size: 14px; }
 .ps-info { flex: 1; min-width: 0; }
 .ps-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

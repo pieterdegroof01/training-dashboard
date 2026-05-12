@@ -209,6 +209,118 @@ function buildHistorySummary(activities, settings) {
   return { maandelijks: summary.slice(-24), topVermogen: topWatt };
 }
 
+// ── Session completion matching ───────────────────────────────────────────────
+
+function computeSessionScore(planned, actual, settings) {
+  const ftp      = settings?.ftp || 280;
+  const hasPower = !!(actual.weighted_average_watts || actual.average_watts);
+
+  // plannedMin
+  let plannedMin;
+  if (planned.duration) {
+    plannedMin = planned.duration;
+  } else if (planned.blokken?.length) {
+    plannedMin = planned.blokken.reduce((sum, b) => {
+      const reps = b.herhalingen || 1;
+      return sum + (b.duration || 0) * reps + (b.herstelBlok?.duration || 0) * reps;
+    }, 0);
+  }
+  if (!plannedMin) plannedMin = 60;
+
+  const actualMin = (actual.moving_time || 0) / 60;
+
+  // Component 1 — Duration
+  const durRatio = actualMin / plannedMin;
+  const durScore = durRatio >= 0.90 ? 10 : durRatio >= 0.75 ? 7 : durRatio >= 0.50 ? 4 : 1;
+
+  // Component 2 — Intensity (power only)
+  let intScore = null;
+  if (hasPower && planned.targetTSS && plannedMin > 0) {
+    const actualIF   = (actual.weighted_average_watts || actual.average_watts) / ftp;
+    const plannedIF  = Math.sqrt(planned.targetTSS / ((plannedMin / 60) * 100));
+    if (plannedIF > 0) {
+      const diff = Math.abs(actualIF / plannedIF - 1);
+      intScore = diff < 0.05 ? 10 : diff < 0.10 ? 8 : diff < 0.20 ? 5 : 2;
+    }
+  }
+
+  // Component 3 — Zone alignment
+  let plannedPrimaryZone;
+  if (planned.blokken?.length) {
+    const zoneMins = {};
+    planned.blokken.forEach(b => {
+      const reps = b.herhalingen || 1;
+      const z    = b.zone || 'Z2';
+      zoneMins[z] = (zoneMins[z] || 0) + (b.duration || 0) * reps;
+      if (b.herstelBlok) zoneMins['Z1'] = (zoneMins['Z1'] || 0) + (b.herstelBlok.duration || 0) * reps;
+    });
+    plannedPrimaryZone = Object.entries(zoneMins).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Z3';
+  } else {
+    plannedPrimaryZone = planned.zone || 'Z3';
+  }
+
+  let zoneScore;
+  if (!hasPower && !actual.average_heartrate) {
+    zoneScore = 5;
+  } else {
+    const zNum = { Z1:1, Z2:2, Z3:3, Z4:4, Z5:5 };
+    const actualZone = engine.activityZoneClassification(actual, ftp, settings?.hrMax || 197, settings).zone;
+    const diff = Math.abs((zNum[actualZone] || 3) - (zNum[plannedPrimaryZone] || 3));
+    zoneScore = diff === 0 ? 10 : diff === 1 ? 7 : diff === 2 ? 4 : 1;
+  }
+
+  const score = (hasPower && intScore !== null)
+    ? 0.40 * durScore + 0.35 * intScore + 0.25 * zoneScore
+    : 0.55 * durScore + 0.45 * zoneScore;
+
+  return Math.min(10.0, Math.max(1.0, Math.round(score * 10) / 10));
+}
+
+async function matchPlannedToActual(data) {
+  const activities = data.activityCache?.activities || [];
+  const settings   = data.settings || {};
+  const now        = Date.now();
+  const cutoffDate = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  // Index rides by date
+  const ridesByDate = {};
+  activities.forEach(a => {
+    if (a.type !== 'Ride' && a.type !== 'VirtualRide') return;
+    const d = a.start_date?.split('T')[0];
+    if (!d) return;
+    if (!ridesByDate[d]) ridesByDate[d] = [];
+    ridesByDate[d].push(a);
+  });
+
+  let changed = false;
+  Object.entries(data.weekPlan || {}).forEach(([date, sessions]) => {
+    if (date < cutoffDate) return;
+    sessions.forEach(session => {
+      if (session.type !== 'cycling') return;
+      if (session.completionScore !== undefined || session.missed) return;
+
+      const rides = ridesByDate[date] || [];
+      if (rides.length > 0) {
+        const actual = rides.reduce((best, a) => (a.moving_time || 0) > (best.moving_time || 0) ? a : best);
+        session.completionScore   = computeSessionScore(session, actual, settings);
+        session.actualTSS         = estimateLoad(actual, settings);
+        session.actualDuration    = Math.round((actual.moving_time || 0) / 60);
+        session.matchedActivityId = actual.id;
+        changed = true;
+      } else {
+        // End of day (UTC midnight next day) + 2 h grace period
+        const endOfDay = new Date(date).getTime() + 24 * 60 * 60 * 1000;
+        if (now - endOfDay > 2 * 60 * 60 * 1000) {
+          session.missed = true;
+          changed = true;
+        }
+      }
+    });
+  });
+
+  if (changed) await saveData(data);
+}
+
 // ── API Routes ────────────────────────────────────────────────────────────────
 
 app.get('/api/strava/athlete', async (req, res) => {
@@ -258,6 +370,7 @@ app.post('/api/strava/sync-all', async (req, res) => {
     data.calibration = calibration;
 
     await saveData(data);
+    await matchPlannedToActual(data);
     res.json({ total: cache.activities.length, new: newActs?.length || 0, lastSync: cache.lastSync, calibration });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

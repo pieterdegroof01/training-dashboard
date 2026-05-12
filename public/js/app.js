@@ -474,6 +474,13 @@ function renderWeekGrid() {
         const aiIcon   = s.aiGenerated ? '<span class="ai-badge">✨</span>' : '';
         const clickable = s.aiGenerated && s.blokken?.length;
         const clickAttr = clickable ? `onclick="openAiSession('${date}',${si})"` : '';
+        let scoreBadge = '';
+        if (s.missed) {
+          scoreBadge = `<span class="session-score-badge" style="background:#6b7280">✗</span>`;
+        } else if (s.completionScore !== undefined) {
+          const cls = s.completionScore >= 8 ? 'score-good' : s.completionScore >= 6 ? 'score-ok' : 'score-poor';
+          scoreBadge = `<span class="session-score-badge ${cls}">${s.completionScore}</span>`;
+        }
         return `<div class="planned-session session-cycling${aiClass}" ${clickAttr} style="padding:6px 8px${clickable ? ';cursor:pointer' : ''}">
           <span class="ps-icon">🚴</span>
           <div class="ps-info" style="flex:1;min-width:0">
@@ -482,6 +489,7 @@ function renderWeekGrid() {
           </div>
           ${aiIcon}
           <button class="ps-remove" onclick="event.stopPropagation();removeSession('${date}',${si})">×</button>
+          ${scoreBadge}
         </div>`;
       }
       return `<div class="planned-session">
