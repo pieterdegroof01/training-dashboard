@@ -728,7 +728,7 @@ app.get('/api/state/full', async (req, res) => {
     const allActivities = data.activityCache?.activities || [];
     const settings = data.settings || {};
     const hevyWorkouts = data.hevyWorkouts || [];
-    const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings);
+    const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings, data);
     const { enduranceDailyETL, strengthDailyETL, dailyETL, sources, ...rest } = state;
     rest.enduranceMetrics = { ...rest.enduranceMetrics, history: undefined };
     rest.metrics = rest.enduranceMetrics;
@@ -1184,6 +1184,105 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
     console.error('insights error:', err.response?.data || err.message);
     res.status(500).json({ error: 'Inzicht genereren mislukt: ' + (err.response?.data?.error?.message || err.message) });
   }
+});
+
+// ── Goals endpoint ────────────────────────────────────────────────────────────
+
+app.post('/api/goals', async (req, res) => {
+  try {
+    const data = await loadData();
+    data.goals = { ...(data.goals || {}), ...req.body };
+    await saveData(data);
+    res.json({ ok: true });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Week plan generation ──────────────────────────────────────────────────────
+
+function dayNameFromDate(dateStr) {
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  return days[new Date(dateStr + 'T12:00:00').getDay()];
+}
+
+app.post('/api/weekplan/generate', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'ANTHROPIC_API_KEY niet ingesteld' });
+
+    const data = await loadData();
+    const allActivities = data.activityCache?.activities || [];
+    const hevyWorkouts = data.hevyWorkouts || [];
+    const settings = data.settings || {};
+
+    const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings, data);
+    const tp = state.trainingPlan;
+    if (!tp) return res.status(400).json({ error: 'Geen eventdatum ingesteld. Stel eerst een event in bij Settings.' });
+
+    const ftp = state.ftpInfo?.ftp || settings.ftp || 280;
+    const weekAvailability = data.weekAvailability || {};
+    const availDays = Object.entries(weekAvailability).filter(([, v]) => v.cycling);
+    if (!availDays.length) return res.json({ sessions: [], message: 'Geen beschikbare fietsdagen ingesteld.' });
+
+    const dayLines = availDays.map(([date, v]) => {
+      const dayName = dayNameFromDate(date);
+      const restriction = tp.cyclingRestrictions[dayName] || { maxZone: 5 };
+      return `${date} (${dayName}): maxDuur=${v.maxDuration || 90}min, maxZone=Z${restriction.maxZone}`;
+    });
+
+    const wattageSchema = [
+      `Z1: 0–${Math.round(ftp * 0.55)}W`,
+      `Z2: ${Math.round(ftp * 0.56)}–${Math.round(ftp * 0.75)}W`,
+      `Z3: ${Math.round(ftp * 0.76)}–${Math.round(ftp * 0.90)}W`,
+      `Z4: ${Math.round(ftp * 0.91)}–${Math.round(ftp * 1.05)}W`,
+      `Z5: ${Math.round(ftp * 1.06)}–${Math.round(ftp * 1.20)}W`,
+    ].join(' | ');
+
+    let taperNote = '';
+    if (tp.phase === 'taper_week1') {
+      taperNote = '\nTAPER: Gebruik dezelfde sessietypen als een build week maar halveer de duur van alle werkblokken. Behoud dezelfde wattages/zones.';
+    } else if (tp.phase === 'race_week') {
+      taperNote = '\nRACE WEEK: Maximaal 2 activatiesessies van max 60 min. Per sessie: 15 min Z2 inrijden, 3×3–5 min Z4 werkblokken met Z1-herstel ertussen, 10 min Z2 uitrijden.';
+    }
+
+    const prompt = `Genereer fietstrainingen voor de beschikbare dagen.
+
+FTP: ${ftp}W
+Event: ${tp.eventName || 'Event'} over ${tp.weeksToEvent} weken
+Fase: ${tp.phase} | Mesocycle week: ${tp.mesocycleWeek}${tp.isRecoveryWeek ? ' (HERSTELWEEK — alleen Z1-Z2)' : ''}
+Wekelijkse TSS-doelstelling: ${tp.weeklyTSSTarget}
+TID doel: Z1-Z2 ${tp.tidMinutes.low}min · Z3 ${tp.tidMinutes.mid}min · Z4-Z5 ${tp.tidMinutes.high}min · Totaal ${tp.tidMinutes.total}min
+
+Wattage schema: ${wattageSchema}
+
+Beschikbare dagen (maxZone = maximale intensiteitszone op die dag):
+${dayLines.join('\n')}${taperNote}
+
+Retourneer uitsluitend een valide JSON array zonder markdown of uitleg. Formaat per sessie:
+{"date":"YYYY-MM-DD","type":"cycling","aiGenerated":true,"title":"string","targetTSS":number,"duration":number,"blokken":[{"type":"warmup"|"work"|"recovery"|"cooldown","duration":number,"zone":"Z1"|"Z2"|"Z3"|"Z4"|"Z5","wattMin":number,"wattMax":number,"herhalingen":number(optioneel),"herstelBlok":{"duration":number,"zone":"Z1","wattMin":number,"wattMax":number}(optioneel)}]}`;
+
+    const genResp = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-sonnet-4-5',
+      max_tokens: 3000,
+      messages: [{ role: 'user', content: prompt }]
+    }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
+
+    let rawText = genResp.data.content?.[0]?.text || '[]';
+    rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+    let sessions;
+    try { sessions = JSON.parse(rawText); }
+    catch(e) { return res.status(500).json({ error: 'AI retourneerde geen geldige JSON: ' + rawText.slice(0, 200) }); }
+    if (!Array.isArray(sessions)) sessions = [];
+    sessions = sessions.filter(s => s.date && s.type === 'cycling' && Array.isArray(s.blokken));
+
+    const freshData = await loadData();
+    sessions.forEach(s => {
+      const existing = (freshData.weekPlan[s.date] || []).filter(x => x.type !== 'cycling' || !x.aiGenerated);
+      freshData.weekPlan[s.date] = [...existing, s];
+    });
+    await saveData(freshData);
+
+    res.json({ sessions });
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.listen(PORT, () => {

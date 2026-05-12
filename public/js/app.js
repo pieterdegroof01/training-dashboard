@@ -98,6 +98,19 @@ async function loadUserData() {
     if (document.getElementById('sMonoWarn')) document.getElementById('sMonoWarn').value = al.monotonyWarn ?? 2.0;
     if (S.data.weight?.[today()]) document.getElementById('qWeight').value = S.data.weight[today()];
     if (g.weightTarget) document.getElementById('sWeightSub').textContent = `doel: ${g.weightTarget}kg`;
+    // Event & Planning
+    const eDateEl = document.getElementById('event-date-input');
+    const eNameEl = document.getElementById('event-name-input');
+    if (eDateEl) eDateEl.value = g.eventDate || '';
+    if (eNameEl) eNameEl.value = g.eventName || '';
+    // PPL Pattern
+    const pplPatterns = (S.data.patterns || []).filter(p => p.type === 'gym' && p.split);
+    ['push', 'pull', 'legs'].forEach(split => {
+      ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].forEach(day => {
+        const el = document.getElementById(`ppl-${split}-${day}`);
+        if (el) el.checked = pplPatterns.some(p => p.split === split && p.day === day);
+      });
+    });
     // Meal times
     const mt = cfg.mealTimes || {};
     const setMt = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
@@ -540,16 +553,16 @@ async function generateCyclingPlan() {
   const btn = document.getElementById('btnGenCycling');
   btn.textContent = '⏳ Genereren...'; btn.disabled = true;
   try {
-    const result = await api('/api/insights/weekplanning', {
+    const result = await api('/api/weekplan/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ generateSessions: true, force: true })
+      body: JSON.stringify({})
     });
-    if (result.sessions) {
+    if (result.sessions && result.sessions.length) {
       result.sessions.forEach(s => {
-        if (!s.datum) return;
-        const existing = (S.data.weekPlan[s.datum] || []).filter(x => x.type !== 'cycling' || !x.aiGenerated);
-        S.data.weekPlan[s.datum] = [...existing, s];
+        if (!s.date) return;
+        const existing = (S.data.weekPlan[s.date] || []).filter(x => x.type !== 'cycling' || !x.aiGenerated);
+        S.data.weekPlan[s.date] = [...existing, s];
       });
       renderWeekGrid();
       btn.textContent = `✓ ${result.sessions.length} sessie(s) gegenereerd`;
@@ -1015,6 +1028,43 @@ async function saveSettingsMeals() {
     setTimeout(() => { btn.textContent = 'Opslaan'; }, 2000);
   } catch(e) {
     btn.textContent = 'Fout: ' + e.message; btn.disabled = false;
+  }
+}
+
+async function saveEventPlanning() {
+  const eventDate = document.getElementById('event-date-input').value;
+  const eventName = document.getElementById('event-name-input').value;
+  try {
+    await api('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eventDate, eventName }) });
+    S.data.goals = { ...(S.data.goals || {}), eventDate, eventName };
+    showSaved('btnSaveEvent', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
+  } catch(e) {
+    const b = document.getElementById('btnSaveEvent');
+    if (b) { b.textContent = 'Fout: ' + e.message; }
+  }
+}
+
+async function savePplPattern() {
+  const splits = ['push', 'pull', 'legs'];
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const pplPatterns = [];
+  splits.forEach(split => {
+    days.forEach(day => {
+      if (document.getElementById(`ppl-${split}-${day}`)?.checked) {
+        pplPatterns.push({ day, type: 'gym', split });
+      }
+    });
+  });
+  try {
+    const data = await api('/api/data');
+    const existing = (data.patterns || []).filter(p => !(p.type === 'gym' && p.split));
+    data.patterns = [...existing, ...pplPatterns];
+    await api('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    S.data.patterns = data.patterns;
+    showSaved('btnSavePpl', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
+  } catch(e) {
+    const b = document.getElementById('btnSavePpl');
+    if (b) { b.textContent = 'Fout: ' + e.message; }
   }
 }
 

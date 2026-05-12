@@ -484,6 +484,70 @@
       <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsMeals()" id="btnSaveMeals">Opslaan</button>
     </div>
 
+    <div class="card">
+      <div class="card-label">Event &amp; Planning</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Stel een doelevent in. De periodiseringsengine berekent automatisch de fase, TSS-doelstelling en TID op basis van de resterende tijd.</p>
+      <div class="form-grid">
+        <div class="fg"><label>Eventnaam</label><input type="text" id="event-name-input" placeholder="Bijv. Ronde van Vlaanderen granfondo"></div>
+        <div class="fg"><label>Eventdatum</label><input type="date" id="event-date-input"></div>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveEventPlanning()" id="btnSaveEvent">Opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">PPL Patroon</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:12px;line-height:1.6">Selecteer op welke weekdagen je Push, Pull of Legs traint. Wordt gebruikt om concurrent training restricties te berekenen voor het fietsplan.</p>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;min-width:50px">Split</th>
+              <th style="padding:6px 4px;color:var(--muted);font-weight:600;text-align:center">Ma</th>
+              <th style="padding:6px 4px;color:var(--muted);font-weight:600;text-align:center">Di</th>
+              <th style="padding:6px 4px;color:var(--muted);font-weight:600;text-align:center">Wo</th>
+              <th style="padding:6px 4px;color:var(--muted);font-weight:600;text-align:center">Do</th>
+              <th style="padding:6px 4px;color:var(--muted);font-weight:600;text-align:center">Vr</th>
+              <th style="padding:6px 4px;color:var(--muted);font-weight:600;text-align:center">Za</th>
+              <th style="padding:6px 4px;color:var(--muted);font-weight:600;text-align:center">Zo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:6px 8px;font-weight:600">Push</td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-push-monday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-push-tuesday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-push-wednesday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-push-thursday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-push-friday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-push-saturday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-push-sunday"></td>
+            </tr>
+            <tr>
+              <td style="padding:6px 8px;font-weight:600">Pull</td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-pull-monday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-pull-tuesday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-pull-wednesday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-pull-thursday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-pull-friday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-pull-saturday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-pull-sunday"></td>
+            </tr>
+            <tr>
+              <td style="padding:6px 8px;font-weight:600">Legs</td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-legs-monday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-legs-tuesday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-legs-wednesday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-legs-thursday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-legs-friday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-legs-saturday"></td>
+              <td style="padding:6px 4px;text-align:center"><input type="checkbox" id="ppl-legs-sunday"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="savePplPattern()" id="btnSavePpl">Opslaan</button>
+    </div>
+
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;padding:8px 2px 0">Literatuur</div>
 
     <div class="card">

@@ -808,9 +808,97 @@ function adaptiveWeekAdjustments(weekPlan, readiness, overreaching, plateaus, cu
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// PERIODISATION PLAN
+// ────────────────────────────────────────────────────────────────────────────
+function computeTrainingPlan(data, state) {
+  const eventDate = data?.goals?.eventDate;
+  const eventName = data?.goals?.eventName || '';
+  if (!eventDate) return null;
+
+  const weeksToEvent = Math.ceil((new Date(eventDate) - new Date()) / (7 * 24 * 60 * 60 * 1000));
+
+  let phase;
+  if (weeksToEvent <= 1)      phase = 'race_week';
+  else if (weeksToEvent <= 2) phase = 'taper_week1';
+  else if (weeksToEvent <= 4) phase = 'peak';
+  else if (weeksToEvent <= 8) phase = 'build';
+  else                        phase = 'base';
+
+  const mesocycleWeek = ((weeksToEvent - 1) % 4) + 1;
+  const isRecoveryWeek = mesocycleWeek === 4;
+
+  const ctl = state?.metrics?.ctl || state?.enduranceMetrics?.ctl || 0;
+
+  let weeklyTSSTarget;
+  if (isRecoveryWeek) {
+    weeklyTSSTarget = Math.round(ctl * 7 * 0.60);
+  } else {
+    switch (phase) {
+      case 'base':       weeklyTSSTarget = Math.round((ctl + 6) * 7); break;
+      case 'build':      weeklyTSSTarget = Math.round((ctl + 7) * 7); break;
+      case 'peak':       weeklyTSSTarget = Math.round((ctl + 4) * 7); break;
+      case 'taper_week1':weeklyTSSTarget = Math.round(ctl * 7 * 0.50); break;
+      case 'race_week':  weeklyTSSTarget = Math.round(ctl * 7 * 0.30); break;
+      default:           weeklyTSSTarget = Math.round(ctl * 7);
+    }
+  }
+  weeklyTSSTarget = Math.max(50, weeklyTSSTarget);
+
+  // Total training minutes (1 TSS ≈ 1 min at mixed intensity)
+  let timeFactor = 1.0;
+  if (phase === 'taper_week1') timeFactor = 0.5;
+  if (phase === 'race_week')   timeFactor = 0.3;
+  const totalMinutes = Math.round(weeklyTSSTarget * timeFactor);
+
+  let pcts;
+  if (isRecoveryWeek) {
+    pcts = { low: 1.0, mid: 0.0, high: 0.0 };
+  } else {
+    switch (phase) {
+      case 'base':        pcts = { low: 0.80, mid: 0.15, high: 0.05 }; break;
+      case 'build':       pcts = { low: 0.75, mid: 0.20, high: 0.05 }; break;
+      case 'peak':        pcts = { low: 0.65, mid: 0.20, high: 0.15 }; break;
+      case 'taper_week1': pcts = { low: 0.70, mid: 0.20, high: 0.10 }; break;
+      case 'race_week':   pcts = { low: 0.80, mid: 0.15, high: 0.05 }; break;
+      default:            pcts = { low: 0.80, mid: 0.15, high: 0.05 };
+    }
+  }
+  const tidMinutes = {
+    low:   Math.round(totalMinutes * pcts.low),
+    mid:   Math.round(totalMinutes * pcts.mid),
+    high:  Math.round(totalMinutes * pcts.high),
+    total: totalMinutes
+  };
+
+  // Concurrent training restrictions per day-of-week
+  const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const gymPatterns = (data?.patterns || []).filter(p => p.type === 'gym' && p.split);
+  const legsDays = new Set(gymPatterns.filter(p => p.split === 'legs').map(p => p.day));
+
+  const cyclingRestrictions = {};
+  dayOrder.forEach((day, idx) => {
+    if (legsDays.has(day)) {
+      cyclingRestrictions[day] = { maxZone: 2, reason: 'legs_day' };
+    } else {
+      const prevDay    = dayOrder[(idx + 6) % 7];
+      const twoDaysPrev = dayOrder[(idx + 5) % 7];
+      if (legsDays.has(prevDay)) {
+        cyclingRestrictions[day] = { maxZone: 2, reason: 'day_after_legs' };
+      } else if (legsDays.has(twoDaysPrev)) {
+        cyclingRestrictions[day] = { maxZone: 3, reason: 'two_days_after_legs' };
+      } else {
+        cyclingRestrictions[day] = { maxZone: 5, reason: 'no_restriction' };
+      }
+    }
+  });
+
+  return { phase, mesocycleWeek, isRecoveryWeek, weeksToEvent, weeklyTSSTarget, tidMinutes, cyclingRestrictions, eventDate, eventName };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // COMPLETE STATE
 // ────────────────────────────────────────────────────────────────────────────
-function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan, settings) {
+function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan, settings, data = null) {
   const { enduranceDailyETL, strengthDailyETL, dailyETL, sources } = buildDailyETLSeries(activities, hevyWorkouts, settings);
   const enduranceMetrics = computeLoadMetrics(enduranceDailyETL);
   const strengthMetrics  = computeStrengthMetrics(hevyWorkouts);
@@ -839,7 +927,8 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
     ftpInfo, zoneBreakdown, currentZoneModel,
     perfTrends, plateaus, overreaching,
     readiness, personalModel, adaptivePlan,
-    currentWeight
+    currentWeight,
+    trainingPlan: computeTrainingPlan(data, { metrics: enduranceMetrics })
   };
 }
 
@@ -867,6 +956,7 @@ module.exports = {
   readinessScore,
   buildPersonalResponseModel,
   adaptiveWeekAdjustments,
+  computeTrainingPlan,
   computeFullState,
   isUnreliablePower,
   ENDURANCE_TYPES, STRENGTH_TYPES
