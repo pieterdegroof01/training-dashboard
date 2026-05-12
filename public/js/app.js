@@ -583,11 +583,23 @@ async function generateCyclingPlan() {
 }
 
 // ── AI session modal ──────────────────────────────────────────────────────────
-const ZONE_COLORS = { Z1:'#888888', Z2:'#43a047', Z3:'#fb8c00', Z4:'#e53935', Z5:'#b71c1c' };
+const ZONE_COLORS = { Z1:'#93C5FD', Z2:'#3B82F6', Z3:'#F59E0B', Z4:'#EF4444', Z5:'#7C3AED' };
 const ZONE_TSS_PER_H = { Z1:30, Z2:50, Z3:70, Z4:90, Z5:110 };
 
+function isNewFormatBlock(b) { return b.duration !== undefined || b.wattMin !== undefined; }
+
+function blockTotalDuration(b) {
+  const workDur = b.duration || b.duur || 0;
+  const reps    = b.herhalingen || 1;
+  const recovDur = b.herstelBlok?.duration || 0;
+  return reps * (workDur + recovDur);
+}
+
 function calcSessionTSS(blocks) {
-  return Math.round(blocks.reduce((sum, b) => sum + (ZONE_TSS_PER_H[b.zone] || 50) * (b.duur / 60), 0));
+  return Math.round(blocks.reduce((sum, b) => {
+    const dur = b.duur || b.duration || 0;
+    return sum + (ZONE_TSS_PER_H[b.zone] || 50) * (dur / 60);
+  }, 0));
 }
 
 function blockColor(zone) { return ZONE_COLORS[zone] || '#888888'; }
@@ -596,38 +608,107 @@ function renderAiModal() {
   const s = S.editingAiSession?.session;
   if (!s) return;
   const blocks = S.editingAiSession.blocks;
-  const totalMin = blocks.reduce((sum, b) => sum + (b.duur || 0), 0);
-  const tss = calcSessionTSS(blocks);
+  const newFormat = blocks.length > 0 && isNewFormatBlock(blocks[0]);
 
-  document.getElementById('aiSessTitle').textContent = s.titel || 'AI Sessie';
-  document.getElementById('aiSessMeta').textContent = `${s.zone||'–'} · ${totalMin}min · ~${tss} TSS`;
-  document.getElementById('aiSessTotals').textContent = `Totaal: ${totalMin} min / ~${tss} TSS`;
-  document.getElementById('aiSessReden').textContent = s.reden ? `ℹ️ ${s.reden}` : '';
+  // Show/hide editor vs detail controls
+  document.getElementById('aiEditorControls').style.display = newFormat ? 'none' : '';
+  document.getElementById('aiDetailClose').style.display    = newFormat ? '' : 'none';
 
-  // Block bar
-  const bar = document.getElementById('aiBlockBar');
-  bar.innerHTML = blocks.map((b, bi) => {
-    const pct = totalMin > 0 ? (b.duur / totalMin * 100).toFixed(1) : 0;
-    const col = b.kleur || blockColor(b.zone);
-    return `<div class="block-seg" style="width:${pct}%;background:${col}" title="${b.naam} (${b.duur}min, ${b.zone})" onclick="focusBlockEditor(${bi})">${pct > 8 ? b.naam : ''}</div>`;
-  }).join('');
+  if (newFormat) {
+    // ── New-format detail view ────────────────────────────────────────────────
+    const totalMin = blocks.reduce((sum, b) => sum + blockTotalDuration(b), 0);
+    const tss  = s.targetTSS || s.tss || calcSessionTSS(blocks);
+    const date = S.editingAiSession.date || '';
 
-  // Block editors
-  const list = document.getElementById('aiBlockList');
-  list.innerHTML = blocks.map((b, bi) => `
-    <div class="block-editor" id="blk-${bi}">
-      <div class="block-editor-row">
-        <div style="width:12px;height:12px;border-radius:3px;background:${b.kleur||blockColor(b.zone)};flex-shrink:0"></div>
-        <input style="flex:1;min-width:80px;font-size:12px;padding:4px 7px" value="${b.naam}" onchange="updateBlock(${bi},'naam',this.value)">
-        <input type="number" min="1" max="180" style="width:52px;font-size:12px;padding:4px 6px" value="${b.duur}" onchange="updateBlock(${bi},'duur',+this.value)">
-        <span style="font-size:11px;color:var(--muted)">min</span>
-        <select style="font-size:12px;padding:4px 6px" onchange="updateBlock(${bi},'zone',this.value)">
-          ${['Z1','Z2','Z3','Z4','Z5'].map(z=>`<option ${b.zone===z?'selected':''}>${z}</option>`).join('')}
-        </select>
-        <button class="btn btn-secondary btn-sm" style="padding:2px 7px;font-size:11px" onclick="duplicateBlock(${bi})" title="Dupliceren">×2</button>
-        <button class="btn btn-danger" style="font-size:14px" onclick="removeBlock(${bi})" title="Verwijderen">×</button>
-      </div>
-    </div>`).join('');
+    document.getElementById('aiSessTitle').textContent = s.title || s.titel || 'Fietssessie';
+    document.getElementById('aiSessMeta').textContent  =
+      `${date ? fmtD(date, true) : ''} · ${totalMin}min · ~${tss} TSS`;
+    document.getElementById('aiSessTotals').textContent = '';
+    document.getElementById('aiSessReden').textContent  = '';
+
+    // Proportional timeline
+    const bar = document.getElementById('aiBlockBar');
+    bar.className = 'cyc-timeline';
+    bar.innerHTML = blocks.map(b => {
+      const groupDur  = blockTotalDuration(b);
+      const pct       = totalMin > 0 ? (groupDur / totalMin * 100).toFixed(2) : 0;
+      const workDur   = b.duration || 0;
+      const reps      = b.herhalingen || 1;
+      const wCol      = ZONE_COLORS[b.zone] || '#888';
+      const wattTxt   = (b.wattMin && b.wattMax) ? ` ${b.wattMin}–${b.wattMax}W` : '';
+      const prefix    = reps > 1 ? `${reps}× ` : '';
+      const mainLabel = `${prefix}${b.type || 'blok'} ${workDur}min${wattTxt}`;
+
+      if (b.herstelBlok) {
+        const hb    = b.herstelBlok;
+        const rCol  = ZONE_COLORS[hb.zone] || ZONE_COLORS.Z1;
+        const hWatt = (hb.wattMin && hb.wattMax) ? ` ${hb.wattMin}–${hb.wattMax}W` : '';
+        return `<div class="cyc-group" style="width:${pct}%;min-width:48px">
+          <div class="cyc-seg" style="background:${wCol};flex:${workDur * reps}">${mainLabel}</div>
+          <div class="cyc-seg cyc-seg-recovery" style="background:${rCol};flex:${hb.duration * reps}">↳ ${hb.duration}min${hWatt}</div>
+        </div>`;
+      }
+      return `<div class="cyc-seg" style="width:${pct}%;min-width:32px;background:${wCol}">${mainLabel}</div>`;
+    }).join('');
+
+    // Detail list
+    const list = document.getElementById('aiBlockList');
+    list.innerHTML = blocks.map(b => {
+      const workDur = b.duration || 0;
+      const reps    = b.herhalingen || 1;
+      const wattTxt = (b.wattMin && b.wattMax) ? ` · ${b.wattMin}–${b.wattMax}W` : '';
+      const prefix  = reps > 1 ? `${reps}× ` : '';
+      const col     = ZONE_COLORS[b.zone] || '#888';
+      let html = `<div class="cyc-detail-row">
+        <div class="cyc-dot" style="background:${col}"></div>
+        <span><strong>${prefix}${b.type || 'blok'}</strong> · ${workDur}min · ${b.zone}${wattTxt}</span>
+      </div>`;
+      if (b.herstelBlok) {
+        const hb   = b.herstelBlok;
+        const hCol = ZONE_COLORS[hb.zone] || '#888';
+        const hW   = (hb.wattMin && hb.wattMax) ? ` · ${hb.wattMin}–${hb.wattMax}W` : '';
+        html += `<div class="cyc-detail-row cyc-detail-recovery">
+          <div class="cyc-dot" style="background:${hCol}"></div>
+          <span>↳ herstel · ${hb.duration}min · ${hb.zone}${hW}</span>
+        </div>`;
+      }
+      return html;
+    }).join('');
+
+  } else {
+    // ── Old-format editor ─────────────────────────────────────────────────────
+    const totalMin = blocks.reduce((sum, b) => sum + (b.duur || 0), 0);
+    const tss = calcSessionTSS(blocks);
+
+    document.getElementById('aiSessTitle').textContent = s.titel || 'AI Sessie';
+    document.getElementById('aiSessMeta').textContent  = `${s.zone||'–'} · ${totalMin}min · ~${tss} TSS`;
+    document.getElementById('aiSessTotals').textContent = `Totaal: ${totalMin} min / ~${tss} TSS`;
+    document.getElementById('aiSessReden').textContent  = s.reden ? `ℹ️ ${s.reden}` : '';
+
+    const bar = document.getElementById('aiBlockBar');
+    bar.className = 'block-bar';
+    bar.innerHTML = blocks.map((b, bi) => {
+      const pct = totalMin > 0 ? (b.duur / totalMin * 100).toFixed(1) : 0;
+      const col = b.kleur || blockColor(b.zone);
+      return `<div class="block-seg" style="width:${pct}%;background:${col}" title="${b.naam} (${b.duur}min, ${b.zone})" onclick="focusBlockEditor(${bi})">${pct > 8 ? b.naam : ''}</div>`;
+    }).join('');
+
+    const list = document.getElementById('aiBlockList');
+    list.innerHTML = blocks.map((b, bi) => `
+      <div class="block-editor" id="blk-${bi}">
+        <div class="block-editor-row">
+          <div style="width:12px;height:12px;border-radius:3px;background:${b.kleur||blockColor(b.zone)};flex-shrink:0"></div>
+          <input style="flex:1;min-width:80px;font-size:12px;padding:4px 7px" value="${b.naam}" onchange="updateBlock(${bi},'naam',this.value)">
+          <input type="number" min="1" max="180" style="width:52px;font-size:12px;padding:4px 6px" value="${b.duur}" onchange="updateBlock(${bi},'duur',+this.value)">
+          <span style="font-size:11px;color:var(--muted)">min</span>
+          <select style="font-size:12px;padding:4px 6px" onchange="updateBlock(${bi},'zone',this.value)">
+            ${['Z1','Z2','Z3','Z4','Z5'].map(z=>`<option ${b.zone===z?'selected':''}>${z}</option>`).join('')}
+          </select>
+          <button class="btn btn-secondary btn-sm" style="padding:2px 7px;font-size:11px" onclick="duplicateBlock(${bi})" title="Dupliceren">×2</button>
+          <button class="btn btn-danger" style="font-size:14px" onclick="removeBlock(${bi})" title="Verwijderen">×</button>
+        </div>
+      </div>`).join('');
+  }
 }
 
 function focusBlockEditor(bi) {
@@ -668,7 +749,7 @@ function openAiSession(date, idx) {
 
 async function saveAiSession() {
   const { date, idx, session, blocks } = S.editingAiSession;
-  const updated = { ...session, blokken: blocks, duur_min: blocks.reduce((s,b)=>s+b.duur,0), tss: calcSessionTSS(blocks) };
+  const updated = { ...session, blokken: blocks, duur_min: blocks.reduce((s,b)=>s+(b.duur||b.duration||0),0), tss: calcSessionTSS(blocks) };
   const weekPlan = { ...(S.data.weekPlan||{}) };
   const daySessions = [...(weekPlan[date]||[])];
   daySessions[idx] = updated;

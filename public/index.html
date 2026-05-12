@@ -663,15 +663,20 @@
       <div style="font-size:12px;color:var(--muted)" id="aiSessTotals">–</div>
       <div style="font-size:11px;color:var(--muted)" id="aiSessReden"></div>
     </div>
-    <!-- Block editors -->
+    <!-- Block list: detail view (new format) or editors (old format) -->
     <div id="aiBlockList"></div>
-    <!-- Add block -->
-    <button class="btn btn-secondary btn-sm" onclick="addAiBlock()" style="width:100%;margin-top:6px;font-size:11px">+ Blok toevoegen</button>
-    <!-- Actions -->
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <button class="btn btn-primary" onclick="saveAiSession()">Opslaan</button>
-      <button class="btn btn-secondary" onclick="resetAiSession()">↩ Reset naar AI-voorstel</button>
-      <button class="btn btn-secondary" onclick="closeAiSession()" style="margin-left:auto">Annuleren</button>
+    <!-- Editor-only controls (hidden for new-format sessions) -->
+    <div id="aiEditorControls">
+      <button class="btn btn-secondary btn-sm" onclick="addAiBlock()" style="width:100%;margin-top:6px;font-size:11px">+ Blok toevoegen</button>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-primary" onclick="saveAiSession()">Opslaan</button>
+        <button class="btn btn-secondary" onclick="resetAiSession()">↩ Reset naar AI-voorstel</button>
+        <button class="btn btn-secondary" onclick="closeAiSession()" style="margin-left:auto">Annuleren</button>
+      </div>
+    </div>
+    <!-- Close button for new-format detail view -->
+    <div id="aiDetailClose" style="display:none;margin-top:14px;text-align:right">
+      <button class="btn btn-secondary" onclick="closeAiSession()">Sluiten</button>
     </div>
   </div>
 </div>
