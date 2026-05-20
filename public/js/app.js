@@ -294,7 +294,9 @@ function actRow(a, detail=false) {
   const hr = a.average_heartrate ? `<span>♥ ${Math.round(a.average_heartrate)}bpm</span>` : '';
   const elev = a.total_elevation_gain > 0 ? `<span>⛰ ${a.total_elevation_gain}m</span>` : '';
   const suf = a.suffer_score ? `<span class="c-red">🔥 ${a.suffer_score}</span>` : '';
-  return `<div class="act-row">
+  const _CLICK_TYPES = new Set(['Ride','VirtualRide','Run','TrailRun']);
+  const _detailAttr = _CLICK_TYPES.has(a.type) ? `onclick="openActivityDetail(${a.id})" data-strava-id="${a.id}" style="cursor:pointer"` : '';
+  return `<div class="act-row" ${_detailAttr}>
     <div class="act-icon">${sEmoji(a.type)}</div>
     <div class="act-info"><div class="act-name">${a.name}</div><div class="act-date">${detail ? fmtD(a.start_date,true) : fmtD(a.start_date)}</div></div>
     <div class="act-right">${dist}<div class="act-time">${t}</div></div>
@@ -477,8 +479,12 @@ function renderWeekGrid() {
         const adjustedIcon  = isAdjusted
           ? `<span class="session-adjusted" title="${(s.adjustedReason || '').replace(/"/g,'&quot;')}">↻</span>` : '';
         const aiIcon  = s.aiGenerated && !isAdjusted && !isUnplanned ? '<span class="ai-badge">✨</span>' : '';
-        const clickable = s.aiGenerated && s.blokken?.length && !isUnplanned;
-        const clickAttr = clickable ? `onclick="openAiSession('${date}',${si})"` : '';
+        const actStravaId    = s.matchedActivityId || s.stravaId;
+        const aiClickable    = s.aiGenerated && s.blokken?.length && !isUnplanned && !actStravaId;
+        const clickAttr      = actStravaId
+          ? `onclick="openActivityDetail(${actStravaId})" data-strava-id="${actStravaId}"`
+          : aiClickable ? `onclick="openAiSession('${date}',${si})"` : '';
+        const isCursorPointer = !!(actStravaId || aiClickable);
         let scoreBadge = '';
         if (s.missed) {
           scoreBadge = `<span class="session-score-badge" style="background:#6b7280">✗</span>`;
@@ -1522,6 +1528,202 @@ async function loadCharts() {
     msg.textContent = 'Laden mislukt: ' + e.message;
   }
 }
+
+// ── Activity detail modal ─────────────────────────────────────────────────────
+
+const ADM_ZONE_COLORS = ['#93C5FD','#3B82F6','#F59E0B','#EF4444','#7C3AED'];
+
+function _zoneIdx(z) {
+  if (typeof z === 'number') return Math.max(0, Math.min(4, z - 1));
+  const n = parseInt(String(z).replace(/[^\d]/g, ''));
+  return isNaN(n) ? 0 : Math.max(0, Math.min(4, n - 1));
+}
+
+async function openActivityDetail(stravaId) {
+  const modal = document.getElementById('activity-detail-modal');
+  modal.style.display = 'flex';
+
+  document.getElementById('adm-title').textContent = 'Laden...';
+  document.getElementById('adm-meta').textContent  = '';
+  document.getElementById('adm-metrics').innerHTML = '';
+  ['adm-zone-bar','adm-zone-labels','adm-planned-comparison',
+   'adm-power-section','adm-hr-row','adm-planned-section'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+  });
+  document.getElementById('adm-ai-content').innerHTML =
+    '<button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>';
+  document.getElementById('adm-ai-btn').onclick = () => loadActivityAnalysis(stravaId);
+
+  let d;
+  try {
+    const resp = await fetch('/api/activity/' + stravaId + '/detail');
+    if (!resp.ok) throw new Error(await resp.text());
+    d = await resp.json();
+  } catch(e) {
+    document.getElementById('adm-title').textContent = 'Fout bij laden';
+    return;
+  }
+  const a = d.activity;
+
+  document.getElementById('adm-title').textContent = a.name;
+  document.getElementById('adm-meta').textContent  = a.date + ' · ' + a.type;
+
+  // Metrics
+  const metrics = [
+    ['Duur',    a.duration_min + ' min'],
+    a.distance_km  ? ['Afstand',  a.distance_km + ' km']  : null,
+    a.elevation_m  ? ['Stijging', a.elevation_m + ' hm']  : null,
+    a.avg_watts    ? ['Gem. watt', a.avg_watts + 'W']      : null,
+    a.np           ? ['NP',        a.np + 'W']             : null,
+    a.IF           ? ['IF',        a.IF]                   : null,
+    ['TSS',     a.tss],
+    a.suffer_score ? ['Suffer',    a.suffer_score]         : null,
+  ].filter(Boolean);
+  document.getElementById('adm-metrics').innerHTML = metrics.map(([label, val]) =>
+    '<div class="adm-metric"><span class="adm-metric-val">' + val +
+    '</span><span class="adm-metric-label">' + label + '</span></div>'
+  ).join('');
+
+  // Zone bar
+  if (d.zoneBreakdown && !d.zoneBreakdown.estimated) {
+    const zb   = d.zoneBreakdown;
+    const mins = [zb.z1Min, zb.z2Min, zb.z3Min, zb.z4Min, zb.z5Min];
+    const tot  = mins.reduce((s, v) => s + v, 0);
+
+    const zBar = document.getElementById('adm-zone-bar');
+    zBar.style.display = 'flex';
+    zBar.innerHTML = mins.map((m, i) => {
+      const pct = tot > 0 ? (m / tot * 100).toFixed(1) : 0;
+      return '<div style="width:' + pct + '%;background:' + ADM_ZONE_COLORS[i] +
+             ';height:28px;min-width:' + (pct > 0 ? '2px' : '0') +
+             '" title="Z' + (i+1) + ': ' + m + 'min"></div>';
+    }).join('');
+
+    const zLabels = document.getElementById('adm-zone-labels');
+    zLabels.style.display = 'flex';
+    zLabels.innerHTML = mins.map((m, i) =>
+      '<div class="adm-zone-label" style="color:' + ADM_ZONE_COLORS[i] +
+      '">Z' + (i+1) + '<br>' + m + 'min</div>'
+    ).join('');
+
+    // Gepland vs werkelijk
+    if (d.plannedSession?.blokken?.length) {
+      const pz = [0, 0, 0, 0, 0];
+      d.plannedSession.blokken.forEach(b => {
+        const reps = b.herhalingen || 1;
+        const zi   = _zoneIdx(b.zone);
+        pz[zi] += (b.duration || 0) * reps;
+        if (b.herstelBlok) {
+          const hi = _zoneIdx(b.herstelBlok.zone);
+          pz[hi] += (b.herstelBlok.duration || 0) * reps;
+        }
+      });
+      const pTot = pz.reduce((s, v) => s + v, 0);
+      if (pTot > 0) {
+        const compEl = document.getElementById('adm-planned-comparison');
+        compEl.style.display = 'block';
+        const makeBar = (vals, t) =>
+          '<div style="display:flex;border-radius:4px;overflow:hidden;height:18px">' +
+          vals.map((m, i) => {
+            const p = t > 0 ? (m / t * 100).toFixed(1) : 0;
+            return '<div style="width:' + p + '%;background:' + ADM_ZONE_COLORS[i] +
+                   ';min-width:' + (p > 0 ? '2px' : '0') +
+                   '" title="Z' + (i+1) + ': ' + m + 'min"></div>';
+          }).join('') + '</div>';
+        document.getElementById('adm-planned-bar').innerHTML =
+          '<div class="adm-compare-row"><span>Gepland</span>' + makeBar(pz, pTot) + '</div>' +
+          '<div class="adm-compare-row"><span>Werkelijk</span>' + makeBar(mins, tot) + '</div>';
+      }
+    }
+  }
+
+  // Power SVG
+  if (d.powerTimeline?.length > 1) {
+    const section = document.getElementById('adm-power-section');
+    section.style.display = 'block';
+    const svg  = document.getElementById('adm-power-svg');
+    const W    = svg.getBoundingClientRect().width || 600;
+    const H    = 130;
+    const pad  = { top: 10, right: 10, bottom: 20, left: 40 };
+    const pts  = d.powerTimeline;
+    const maxT = pts[pts.length - 1].t;
+    const maxW = Math.max(...pts.map(p => p.w), (d.ftp || 280) * 1.1);
+    const xS   = t => pad.left + (t / maxT) * (W - pad.left - pad.right);
+    const yS   = w => H - pad.bottom - (w / (maxW || 1)) * (H - pad.top - pad.bottom);
+    const ftpY = yS(d.ftp || 280);
+
+    const bands = [[0,0.55],[0.55,0.75],[0.75,0.90],[0.90,1.05],[1.05,1.5]].map(([lo,hi],i) => {
+      const y1 = yS(Math.min(hi * (d.ftp||280), maxW));
+      const y2 = yS(lo * (d.ftp||280));
+      return '<rect x="' + pad.left + '" y="' + y1 + '" width="' + (W-pad.left-pad.right) +
+             '" height="' + (y2-y1) + '" fill="' + ADM_ZONE_COLORS[i] + '" opacity="0.12"/>';
+    }).join('');
+
+    const ftpLine = '<line x1="' + pad.left + '" y1="' + ftpY + '" x2="' + (W-pad.right) +
+      '" y2="' + ftpY + '" stroke="#EF4444" stroke-width="1" stroke-dasharray="4,3" opacity="0.7"/>' +
+      '<text x="' + (pad.left+4) + '" y="' + (ftpY-3) + '" fill="#EF4444" font-size="10">FTP ' + (d.ftp||280) + 'W</text>';
+
+    const line = '<polyline points="' + pts.map(p => xS(p.t) + ',' + yS(p.w)).join(' ') +
+      '" fill="none" stroke="#3B82F6" stroke-width="1.5"/>';
+
+    const interval = maxT > 5400 ? 1800 : 900;
+    const xLabels  = [];
+    for (let t = 0; t <= maxT; t += interval) {
+      xLabels.push('<text x="' + xS(t) + '" y="' + (H-5) +
+        '" fill="#4A5568" font-size="9" text-anchor="middle">' + Math.round(t/60) + 'min</text>');
+    }
+    svg.innerHTML = bands + ftpLine + line + xLabels.join('');
+  }
+
+  // HR + cadence
+  if (d.hrSummary?.avgHR) {
+    const hrRow = document.getElementById('adm-hr-row');
+    hrRow.style.display = 'block';
+    let txt = 'Hartslag: gem. ' + d.hrSummary.avgHR + ' bpm  max ' + d.hrSummary.maxHR + ' bpm';
+    if (d.avgCadence) txt += '  ·  Cadans: ' + d.avgCadence + ' rpm';
+    document.getElementById('adm-hr-text').textContent = txt;
+  }
+
+  // Planned session blocks
+  if (d.plannedSession) {
+    const ps = document.getElementById('adm-planned-section');
+    ps.style.display = 'block';
+    document.getElementById('adm-planned-blocks').innerHTML =
+      '<p style="margin:0 0 6px;font-size:12px;opacity:0.6">' +
+      (d.plannedSession.title || '–') + ' — target ' + d.plannedSession.targetTSS + ' TSS</p>' +
+      (d.plannedSession.blokken || []).map(b => {
+        const zi   = _zoneIdx(b.zone);
+        const reps = b.herhalingen > 1 ? b.herhalingen + '× ' : '';
+        const watt = (b.wattMin && b.wattMax) ? ' · ' + b.wattMin + '–' + b.wattMax + 'W' : '';
+        let txt = reps + (b.type || 'blok') + ' ' + b.duration + 'min · Z' + (zi+1) + watt;
+        if (b.herstelBlok) txt += ' | herstel ' + b.herstelBlok.duration + 'min Z' + (_zoneIdx(b.herstelBlok.zone)+1);
+        return '<div class="adm-block-row" style="border-left:3px solid ' + ADM_ZONE_COLORS[zi] + '">' + txt + '</div>';
+      }).join('');
+  }
+}
+
+async function loadActivityAnalysis(stravaId) {
+  document.getElementById('adm-ai-content').innerHTML =
+    '<span style="font-size:13px;opacity:0.6">Analyseren...</span>';
+  try {
+    const resp = await fetch('/api/activity/' + stravaId + '/analyse', { method: 'POST' });
+    const d    = await resp.json();
+    document.getElementById('adm-ai-content').innerHTML =
+      '<div class="adm-ai-text">' + (d.text || 'Analyse niet beschikbaar.') + '</div>';
+  } catch(e) {
+    document.getElementById('adm-ai-content').innerHTML =
+      '<span style="font-size:13px;opacity:0.6">Fout bij laden.</span>';
+  }
+}
+
+document.getElementById('adm-close').addEventListener('click', () => {
+  document.getElementById('activity-detail-modal').style.display = 'none';
+});
+document.getElementById('activity-detail-modal').addEventListener('click', e => {
+  if (e.target.id === 'activity-detail-modal')
+    document.getElementById('activity-detail-modal').style.display = 'none';
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 syncAll();

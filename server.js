@@ -696,6 +696,216 @@ app.get('/api/strava/history-summary', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Activity detail helper ────────────────────────────────────────────────────
+
+async function getActivityDetail(stravaId, data, settings) {
+  const sid  = String(stravaId);
+  const FTP  = settings.ftp || 280;
+  const acts = data.activityCache?.activities || [];
+  const activity = acts.find(a => String(a.id) === sid);
+  const actDate  = activity?.start_date?.split('T')[0] || '';
+
+  function buildMeta(act) {
+    return {
+      id: act.id, name: act.name, date: actDate, type: act.type,
+      distance_km:  act.distance ? +(act.distance / 1000).toFixed(1) : null,
+      duration_min: Math.round((act.moving_time || 0) / 60),
+      elevation_m:  Math.round(act.total_elevation_gain || 0),
+      avg_watts:    act.average_watts          ? Math.round(act.average_watts)          : null,
+      np:           act.weighted_average_watts ? Math.round(act.weighted_average_watts) : null,
+      IF:           act.weighted_average_watts ? +((act.weighted_average_watts / FTP).toFixed(2)) : null,
+      tss:          Math.round(estimateLoad(act, settings)),
+      suffer_score: act.suffer_score || null
+    };
+  }
+
+  function findPlanned(date) {
+    const dayPlan = data.weekPlan?.[date] || [];
+    const s = dayPlan.find(s =>
+      s.type === 'cycling' && (
+        String(s.matchedActivityId) === sid ||
+        (s.completionScore !== undefined && !s.missed)
+      )
+    );
+    return s ? { targetTSS: s.targetTSS, duration: s.duration, blokken: s.blokken, title: s.title } : null;
+  }
+
+  // Cache check (24 h)
+  const cached = data.activityStreams?.[sid];
+  if (cached?.cachedAt && (Date.now() - new Date(cached.cachedAt).getTime()) < 24 * 60 * 60 * 1000) {
+    return {
+      activity:      activity ? buildMeta(activity) : null,
+      zoneBreakdown: cached.zoneBreakdown,
+      powerTimeline: cached.powerTimeline,
+      hrSummary:     cached.hrSummary,
+      avgCadence:    cached.avgCadence,
+      ftp:           FTP,
+      plannedSession: activity ? findPlanned(actDate) : null
+    };
+  }
+
+  const inUnreliable = actDate >= (settings.unreliablePowerStart || '2020-01-01') &&
+                       actDate <= (settings.unreliablePowerEnd   || '2020-12-31');
+
+  let streams = [];
+  try {
+    const token = await getStravaToken();
+    const resp  = await axios.get(
+      `https://www.strava.com/api/v3/activities/${sid}/streams?keys=watts,time,heartrate,cadence,altitude,distance&series_type=time`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    streams = resp.data || [];
+  } catch(e) { console.warn(`Stream ophalen mislukt (${sid}):`, e.message); }
+
+  const wattsS   = streams.find(s => s.type === 'watts');
+  const timeS    = streams.find(s => s.type === 'time');
+  const hrS      = streams.find(s => s.type === 'heartrate');
+  const cadS     = streams.find(s => s.type === 'cadence');
+
+  let zoneBreakdown = null;
+  try {
+    if (wattsS && timeS && !inUnreliable)
+      zoneBreakdown = calcZoneBreakdown(timeS.data, wattsS.data, FTP);
+  } catch(e) { console.warn('Zone breakdown:', e.message); }
+
+  let powerTimeline = null;
+  try {
+    if (wattsS && timeS) {
+      const tArr = timeS.data, wArr = wattsS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw  = [];
+      let j = 0;
+      for (let ws = 0; ws < maxT; ws += 30) {
+        const we = ws + 30;
+        let sum = 0, cnt = 0;
+        while (j < tArr.length && tArr[j] < ws) j++;
+        let k = j;
+        while (k < tArr.length && tArr[k] < we) { sum += wArr[k]; cnt++; k++; }
+        if (cnt > 0) raw.push({ t: ws, w: Math.round(sum / cnt) });
+      }
+      if (raw.length > 360) {
+        const step = Math.ceil(raw.length / 360);
+        powerTimeline = raw.filter((_, i) => i % step === 0);
+      } else {
+        powerTimeline = raw;
+      }
+    }
+  } catch(e) { console.warn('Power timeline:', e.message); }
+
+  let hrSummary = null;
+  try {
+    if (hrS?.data?.length) {
+      const hrArr = hrS.data;
+      hrSummary = {
+        avgHR: Math.round(hrArr.reduce((a, b) => a + b, 0) / hrArr.length),
+        maxHR: Math.max(...hrArr)
+      };
+    }
+  } catch(e) { console.warn('HR summary:', e.message); }
+
+  let avgCadence = null;
+  try {
+    if (cadS?.data?.length) {
+      const nz = cadS.data.filter(c => c > 0);
+      if (nz.length) avgCadence = Math.round(nz.reduce((a, b) => a + b, 0) / nz.length);
+    }
+  } catch(e) { console.warn('Cadence:', e.message); }
+
+  // Persist cache
+  try {
+    const freshData = await loadData();
+    freshData.activityStreams = freshData.activityStreams || {};
+    freshData.activityStreams[sid] = {
+      cachedAt: new Date().toISOString(),
+      zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null
+    };
+    await saveData(freshData);
+  } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
+
+  return {
+    activity:      activity ? buildMeta(activity) : null,
+    zoneBreakdown, powerTimeline, hrSummary,
+    avgCadence:    avgCadence || null,
+    ftp:           FTP,
+    plannedSession: activity ? findPlanned(actDate) : null
+  };
+}
+
+app.get('/api/activity/:stravaId/detail', async (req, res) => {
+  try {
+    const data     = await loadData();
+    const settings = data.settings || {};
+    const result   = await getActivityDetail(req.params.stravaId, data, settings);
+    if (!result.activity) return res.status(404).json({ error: 'Activiteit niet gevonden in cache' });
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/activity/:stravaId/analyse', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key niet ingesteld' });
+    const { stravaId } = req.params;
+    const data     = await loadData();
+    const settings = data.settings || {};
+
+    // 7-day cache
+    const cacheKey = 'activity_' + stravaId;
+    const cached   = data.aiInsights?.[cacheKey];
+    if (cached?.ts && (Date.now() - cached.ts) < 7 * 24 * 60 * 60 * 1000) {
+      return res.json({ text: cached.text });
+    }
+
+    const detail = await getActivityDetail(stravaId, data, settings);
+    if (!detail.activity) return res.status(404).json({ error: 'Activiteit niet gevonden in cache' });
+
+    const state = engine.computeFullState(
+      data.activityCache?.activities || [],
+      data.hevyWorkouts || [],
+      data.weight || {},
+      data.nutrition || {},
+      data.weekPlan || {},
+      settings
+    );
+
+    const a  = detail.activity;
+    const zb = detail.zoneBreakdown;
+    const ps = detail.plannedSession;
+
+    const lines = [
+      `Activiteit: ${a.name}, ${a.date}, ${a.duration_min} min, ${a.distance_km || '–'} km, ${a.elevation_m} hm`,
+      a.avg_watts
+        ? `Vermogen: gem. ${a.avg_watts}W, NP ${a.np || '–'}W, IF ${a.IF || '–'}, TSS ${a.tss}`
+        : 'Geen vermogensdata beschikbaar',
+      a.suffer_score ? `Suffer score: ${a.suffer_score}` : null,
+      zb && !zb.estimated
+        ? `Zone-verdeling: Z1 ${zb.z1Min}min | Z2 ${zb.z2Min}min | Z3 ${zb.z3Min}min | Z4 ${zb.z4Min}min | Z5 ${zb.z5Min}min — Low ${Math.round(zb.lowPct*100)}% Mid ${Math.round(zb.midPct*100)}% High ${Math.round(zb.highPct*100)}%`
+        : null,
+      ps ? `Gepland: ${ps.title || '–'}, target TSS ${ps.targetTSS}, ${ps.duration} min` : null,
+      ps ? `Geplande blokken: ${JSON.stringify(ps.blokken)}` : null,
+      ps ? `Werkelijke TSS: ${a.tss} (afwijking: ${a.tss - (ps.targetTSS || 0)})` : null,
+      `Huidige TSB: ${state.enduranceMetrics?.tsb ?? '–'}`,
+      `Fase: ${state.trainingPlan?.phase || 'onbekend'}`,
+      '',
+      'Analyseer in drie genummerde punten: (1) wat vertelt de uitvoering van deze rit — zone-verdeling, vermogensprofiel, vergelijking met plan als van toepassing. (2) Wat had anders gemoeten op basis van de data. (3) Wat betekent dit concreet voor de komende 48 uur training gezien huidige TSB en fase.'
+    ].filter(l => l !== null);
+
+    const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-sonnet-4-5', max_tokens: 400,
+      system: 'Je bent een evidence-based wielrencoach. Geef een directe, concrete analyse in maximaal 150 woorden in het Nederlands. Geen algemeenheden, geen complimenten als introductie.',
+      messages: [{ role: 'user', content: lines.join('\n') }]
+    }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
+
+    const responseText = aiResp.data.content?.[0]?.text || '';
+
+    const freshData = await loadData();
+    freshData.aiInsights = freshData.aiInsights || {};
+    freshData.aiInsights[cacheKey] = { text: responseText, ts: Date.now() };
+    await saveData(freshData);
+
+    res.json({ text: responseText });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/calibration', async (req, res) => {
   try {
     const data = await loadData();

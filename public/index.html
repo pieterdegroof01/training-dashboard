@@ -681,6 +681,45 @@
   </div>
 </div>
 
+<div id="activity-detail-modal" class="activity-modal-overlay">
+  <div class="activity-modal-content">
+    <div class="activity-modal-header">
+      <div>
+        <h2 id="adm-title"></h2>
+        <span id="adm-meta" style="font-size:12px;opacity:0.6"></span>
+      </div>
+      <button id="adm-close" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px">✕</button>
+    </div>
+    <div id="adm-metrics" class="activity-modal-metrics"></div>
+    <div class="activity-modal-section">
+      <h3 class="adm-section-title">Zoneverdeling</h3>
+      <div id="adm-zone-bar" style="display:none"></div>
+      <div id="adm-zone-labels" style="display:none"></div>
+      <div id="adm-planned-comparison" style="display:none">
+        <p style="font-size:11px;opacity:0.5;margin:8px 0 4px">Gepland vs werkelijk</p>
+        <div id="adm-planned-bar"></div>
+      </div>
+    </div>
+    <div id="adm-power-section" class="activity-modal-section" style="display:none">
+      <h3 class="adm-section-title">Vermogensprofiel</h3>
+      <svg id="adm-power-svg" width="100%" height="130" style="display:block;overflow:hidden"></svg>
+    </div>
+    <div id="adm-hr-row" class="activity-modal-section" style="display:none">
+      <span id="adm-hr-text" style="font-size:13px"></span>
+    </div>
+    <div id="adm-planned-section" class="activity-modal-section" style="display:none">
+      <h3 class="adm-section-title">Geplande sessie</h3>
+      <div id="adm-planned-blocks"></div>
+    </div>
+    <div class="activity-modal-section">
+      <h3 class="adm-section-title">AI-analyse</h3>
+      <div id="adm-ai-content">
+        <button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="/js/app.js"></script>
 </body>
 </html>
