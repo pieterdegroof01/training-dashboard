@@ -347,7 +347,7 @@ async function matchPlannedToActual(data) {
         session.completionScore   = computeSessionScore(session, actual, settings);
         session.actualTSS         = estimateLoad(actual, settings);
         session.actualDuration    = Math.round((actual.moving_time || 0) / 60);
-        session.matchedActivityId = actual.id;
+        session.matchedActivityId = session.matchedActivityId || actual.id;
         changed = true;
       } else {
         // End of day (UTC midnight next day) + 2 h grace period
