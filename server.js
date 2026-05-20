@@ -276,11 +276,51 @@ function computeSessionScore(planned, actual, settings) {
   return Math.min(10.0, Math.max(1.0, Math.round(score * 10) / 10));
 }
 
+function getISOWeekBounds() {
+  const now = new Date();
+  const dow = now.getDay(); // 0=Sun
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+  monday.setHours(12, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    monday: monday.toISOString().split('T')[0],
+    sunday: sunday.toISOString().split('T')[0],
+    today:  now.toISOString().split('T')[0]
+  };
+}
+
+function calcZoneBreakdown(timeArr, wattsArr, ftp) {
+  let z1Sec = 0, z2Sec = 0, z3Sec = 0, z4Sec = 0, z5Sec = 0;
+  for (let i = 0; i < timeArr.length - 1; i++) {
+    const dur = timeArr[i + 1] - timeArr[i];
+    if (dur <= 0) continue;
+    const IF = wattsArr[i] / ftp;
+    if      (IF < 0.55) z1Sec += dur;
+    else if (IF < 0.75) z2Sec += dur;
+    else if (IF < 0.90) z3Sec += dur;
+    else if (IF < 1.05) z4Sec += dur;
+    else                z5Sec += dur;
+  }
+  const totalSec = z1Sec + z2Sec + z3Sec + z4Sec + z5Sec;
+  const toMin = s => Math.round(s / 60 * 10) / 10;
+  return {
+    z1Min: toMin(z1Sec), z2Min: toMin(z2Sec), z3Min: toMin(z3Sec),
+    z4Min: toMin(z4Sec), z5Min: toMin(z5Sec),
+    lowPct:  totalSec > 0 ? Math.round((z1Sec + z2Sec) / totalSec * 100) / 100 : 0,
+    midPct:  totalSec > 0 ? Math.round(z3Sec             / totalSec * 100) / 100 : 0,
+    highPct: totalSec > 0 ? Math.round((z4Sec + z5Sec)  / totalSec * 100) / 100 : 0
+  };
+}
+
 async function matchPlannedToActual(data) {
   const activities = data.activityCache?.activities || [];
   const settings   = data.settings || {};
+  const ftp        = settings.ftp || 280;
   const now        = Date.now();
   const cutoffDate = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const { monday, today } = getISOWeekBounds();
 
   // Index rides by date
   const ridesByDate = {};
@@ -293,11 +333,13 @@ async function matchPlannedToActual(data) {
   });
 
   let changed = false;
-  Object.entries(data.weekPlan || {}).forEach(([date, sessions]) => {
-    if (date < cutoffDate) return;
-    sessions.forEach(session => {
-      if (session.type !== 'cycling') return;
-      if (session.completionScore !== undefined || session.missed) return;
+
+  // ── Match planned to actual ──────────────────────────────────────────────────
+  for (const [date, sessions] of Object.entries(data.weekPlan || {})) {
+    if (date < cutoffDate) continue;
+    for (const session of sessions) {
+      if (session.type !== 'cycling') continue;
+      if (session.completionScore !== undefined || session.missed) continue;
 
       const rides = ridesByDate[date] || [];
       if (rides.length > 0) {
@@ -315,10 +357,274 @@ async function matchPlannedToActual(data) {
           changed = true;
         }
       }
+    }
+  }
+
+  // ── Stream fetch & unplanned detection (current ISO week only) ───────────────
+  let token = null;
+  try { token = await getStravaToken(); } catch(e) {
+    console.warn('matchPlannedToActual: geen Strava token:', e.message);
+  }
+
+  if (token) {
+    // Zone fetch for matched planned sessions in current week
+    for (const [date, sessions] of Object.entries(data.weekPlan || {})) {
+      if (date < monday || date > today) continue;
+      for (const session of sessions) {
+        if (session.type !== 'cycling' || session.unplanned) continue;
+        if (session.completionScore === undefined || session.missed) continue;
+        if (session.actualZoneFetched || session.actualZoneEstimated) continue;
+
+        const actId = session.matchedActivityId;
+        if (!actId) continue;
+        const inUnreliable = date >= (settings.unreliablePowerStart || '2020-01-01') &&
+                             date <= (settings.unreliablePowerEnd   || '2020-12-31');
+        try {
+          const streamResp = await axios.get(
+            `https://www.strava.com/api/v3/activities/${actId}/streams?keys=watts,time&series_type=time`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          const wattsStream = streamResp.data.find(s => s.type === 'watts');
+          const timeStream  = streamResp.data.find(s => s.type === 'time');
+          if (wattsStream && timeStream && !inUnreliable) {
+            session.actualZoneBreakdown = calcZoneBreakdown(timeStream.data, wattsStream.data, ftp);
+            session.actualZoneFetched   = true;
+          } else {
+            const act = activities.find(a => a.id === actId);
+            const avgW = act ? (act.weighted_average_watts || act.average_watts || 0) : 0;
+            const IF   = avgW > 0 ? avgW / ftp : 0;
+            session.actualZoneBreakdown = { estimated: true, dominantZone: IF < 0.75 ? 'low' : IF < 0.90 ? 'mid' : 'high' };
+            session.actualZoneEstimated = true;
+          }
+          changed = true;
+        } catch(e) {
+          console.warn(`Stream fetch mislukt voor activiteit ${actId}:`, e.message);
+        }
+      }
+    }
+
+    // Unplanned session detection
+    const weekEnduranceActs = activities.filter(a => {
+      if (!ENDURANCE_TYPES.has(a.type)) return false;
+      const d = a.start_date?.split('T')[0];
+      return d && d >= monday && d <= today;
     });
-  });
+
+    for (const act of weekEnduranceActs) {
+      const date = act.start_date?.split('T')[0];
+      if (!date) continue;
+      const daySessions = data.weekPlan[date] || [];
+      const hasPlannedCycling = daySessions.some(s => s.type === 'cycling' && !s.unplanned);
+      if (hasPlannedCycling) continue;
+      const alreadyTracked = daySessions.some(s => s.unplanned && s.stravaId === act.id);
+      if (alreadyTracked) continue;
+
+      const unplanned = {
+        type: 'cycling', unplanned: true, stravaId: act.id,
+        actualTSS: estimateLoad(act, settings),
+        duration: Math.round((act.moving_time || 0) / 60),
+        title: act.name, date
+      };
+      if (!data.weekPlan[date]) data.weekPlan[date] = [];
+      data.weekPlan[date].push(unplanned);
+      changed = true;
+
+      const inUnreliable = date >= (settings.unreliablePowerStart || '2020-01-01') &&
+                           date <= (settings.unreliablePowerEnd   || '2020-12-31');
+      try {
+        const streamResp = await axios.get(
+          `https://www.strava.com/api/v3/activities/${act.id}/streams?keys=watts,time&series_type=time`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const wattsStream = streamResp.data.find(s => s.type === 'watts');
+        const timeStream  = streamResp.data.find(s => s.type === 'time');
+        if (wattsStream && timeStream && !inUnreliable) {
+          unplanned.actualZoneBreakdown = calcZoneBreakdown(timeStream.data, wattsStream.data, ftp);
+          unplanned.actualZoneFetched   = true;
+        } else {
+          const avgW = act.weighted_average_watts || act.average_watts || 0;
+          const IF   = avgW > 0 ? avgW / ftp : 0;
+          unplanned.actualZoneBreakdown = { estimated: true, dominantZone: IF < 0.75 ? 'low' : IF < 0.90 ? 'mid' : 'high' };
+          unplanned.actualZoneEstimated = true;
+        }
+      } catch(e) {
+        console.warn(`Stream fetch mislukt voor unplanned activiteit ${act.id}:`, e.message);
+      }
+    }
+  }
 
   if (changed) await saveData(data);
+}
+
+async function adjustCurrentWeek(data, state) {
+  if (!process.env.ANTHROPIC_API_KEY) return;
+
+  const { monday, sunday, today } = getISOWeekBounds();
+  const settings         = data.settings || {};
+  const ftp              = settings.ftp || 280;
+  const weekAvailability = data.weekAvailability || {};
+
+  const weekSessions = Object.entries(data.weekPlan || {})
+    .filter(([date]) => date >= monday && date <= sunday)
+    .flatMap(([date, sessions]) => (sessions || []).map(s => ({ ...s, date })));
+
+  const completedTSS = weekSessions
+    .filter(s => s.type === 'cycling' && !s.unplanned && s.completionScore !== undefined && !s.missed)
+    .reduce((sum, s) => sum + (s.actualTSS || 0), 0);
+  const unplannedTSS = weekSessions
+    .filter(s => s.unplanned)
+    .reduce((sum, s) => sum + (s.actualTSS || 0), 0);
+  const missedTSS = weekSessions
+    .filter(s => s.type === 'cycling' && s.missed)
+    .reduce((sum, s) => sum + (s.targetTSS || 0), 0);
+  const totalActualTSS = completedTSS + unplannedTSS;
+
+  const em          = state.enduranceMetrics || {};
+  const currentCTL  = em.ctl  || 0;
+  const currentTSB  = em.tsb  || 0;
+  const currentACWR = em.acwr || 0;
+
+  const weeklyTSSTarget = state.trainingPlan?.weeklyTSSTarget || Math.round(currentCTL * 7);
+  const tssDeviation    = weeklyTSSTarget > 0 ? (totalActualTSS - weeklyTSSTarget) / weeklyTSSTarget : 0;
+
+  // Remaining days: future cycling-available days this week
+  const remainingDays = [];
+  const cursor = new Date(today + 'T12:00:00');
+  cursor.setDate(cursor.getDate() + 1);
+  while (true) {
+    const ds = cursor.toISOString().split('T')[0];
+    if (ds > sunday) break;
+    if (weekAvailability[ds]?.cycling) remainingDays.push(ds);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const remainingPlannedTSS = weekSessions
+    .filter(s => s.type === 'cycling' && !s.unplanned && !s.missed &&
+                 s.completionScore === undefined && s.date > today)
+    .reduce((sum, s) => sum + (s.targetTSS || 0), 0);
+
+  const avgDailyRemaining = remainingDays.length > 0 ? remainingPlannedTSS / remainingDays.length : 0;
+  const projectedATL      = currentACWR * currentCTL + avgDailyRemaining;
+  const projectedACWR     = currentCTL > 0 ? projectedATL / currentCTL : 0;
+
+  // TID deviation — only sessions with exact stream data
+  const completedWithZones = weekSessions.filter(s =>
+    s.type === 'cycling' && !s.unplanned && s.completionScore !== undefined && !s.missed && s.actualZoneFetched
+  );
+  let weekHighPct = 0;
+  if (completedWithZones.length > 0) {
+    let totalHighSec = 0, totalSec = 0;
+    for (const s of completedWithZones) {
+      const bd = s.actualZoneBreakdown;
+      if (!bd) continue;
+      const sessTotalSec = (bd.z1Min + bd.z2Min + bd.z3Min + bd.z4Min + bd.z5Min) * 60;
+      totalSec     += sessTotalSec;
+      totalHighSec += (bd.z4Min + bd.z5Min) * 60;
+    }
+    weekHighPct = totalSec > 0 ? totalHighSec / totalSec : 0;
+  }
+
+  const tid            = state.trainingPlan?.tidMinutes || { low: 0, mid: 0, high: 0 };
+  const totalTidMin    = (tid.low || 0) + (tid.mid || 0) + (tid.high || 0);
+  const plannedHighPct = totalTidMin > 0 ? (tid.high || 0) / totalTidMin : 0;
+
+  const tssDeficit  = tssDeviation < -0.15;
+  const tssSurplus  = tssDeviation > 0.15;
+  const acwrRisk    = projectedACWR > 1.30;
+  const tsbOverride = currentTSB < -20;
+  const tidRisk     = completedWithZones.length >= 2 && weekHighPct > plannedHighPct + 0.10;
+
+  if (!tssDeficit && !tssSurplus && !acwrRisk && !tsbOverride && !tidRisk) return;
+  if (remainingDays.length === 0) return;
+
+  const tp        = state.trainingPlan;
+  const readiness = state.readiness || {};
+
+  const activeSignals = [];
+  if (tsbOverride) activeSignals.push(`tsbOverride: "TSB ${currentTSB}: verdere intensieve belasting vertraagt adaptatie (Coggan PMC)"`);
+  if (acwrRisk)    activeSignals.push(`acwrRisk: "Geprojecteerde ACWR ${projectedACWR.toFixed(2)}: blessurerisico neemt toe boven 1.3 (Gabbett 2016)"`);
+  if (tssDeficit)  activeSignals.push(`tssDeficit: "Weekload ${Math.round(tssDeviation * 100)}% onder target: CTL-opbouw stagneert"`);
+  if (tssSurplus)  activeSignals.push(`tssSurplus: "Weekload +${Math.round(tssDeviation * 100)}% boven target: surplus zonder herstel geeft geen extra adaptatie"`);
+  if (tidRisk)     activeSignals.push(`tidRisk: "High-zone ${Math.round(weekHighPct * 100)}% vs gepland ${Math.round(plannedHighPct * 100)}%: herstelcapaciteit aangetast"`);
+
+  const remainingDaysInfo = remainingDays.map(date => {
+    const avail    = weekAvailability[date] || {};
+    const dayIndex = new Date(date + 'T12:00:00').getDay();
+    const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex];
+    const maxZone  = tp?.cyclingRestrictions?.[dayName]?.maxZone ?? 5;
+    return { date, maxDuration: avail.maxDuration || 90, maxZone };
+  });
+
+  const userPrompt = `Fase: ${tp?.phase || 'onbekend'}, Mesocycle week: ${tp?.mesocycleWeek || '?'}, weeklyTSSTarget: ${weeklyTSSTarget}, FTP: ${ftp}W
+
+Wattage-zones: Z1 0-${Math.round(0.55*ftp)}W, Z2 ${Math.round(0.56*ftp)}-${Math.round(0.75*ftp)}W, Z3 ${Math.round(0.76*ftp)}-${Math.round(0.90*ftp)}W, Z4 ${Math.round(0.91*ftp)}-${Math.round(1.05*ftp)}W, Z5 >${Math.round(1.05*ftp)}W
+
+Gerealiseerde belasting:
+- completedTSS: ${completedTSS}
+- unplannedTSS: ${unplannedTSS}
+- missedTSS: ${missedTSS}
+- totalActualTSS: ${totalActualTSS}
+- tssDeviation: ${tssDeviation > 0 ? '+' : ''}${Math.round(tssDeviation * 100)}%
+
+TID: werkelijk ${Math.round(weekHighPct * 100)}% high-zone vs gepland ${Math.round(plannedHighPct * 100)}%
+TSB: ${currentTSB}, ACWR huidig: ${currentACWR}, ACWR geprojecteerd: ${projectedACWR.toFixed(2)}
+
+Actieve signalen:
+${activeSignals.join('\n')}
+
+Resterende beschikbare dagen:
+${JSON.stringify(remainingDaysInfo)}
+
+Readiness: ${readiness.total ?? '?'}/100
+
+Genereer bijgestuurde sessies ALLEEN voor remainingDays. Raak voltooide sessies niet aan.
+
+Prioriteitsregels in volgorde (hogere prioriteit overschrijft lagere):
+1. tsbOverride actief: forceer Z1-Z2 voor alle sessies, reduceer duur met 30%. Geen uitzonderingen.
+2. acwrRisk actief: reduceer totale resterende TSS totdat projectedACWR onder 1.25 valt.
+3. tidRisk actief: verlaag zone van alle resterende sessies één niveau naar beneden.
+4. tssDeficit actief (en tsbOverride niet): herverdeel ontbrekende TSS over remainingDays, respecteer maxZone en maxDuration per dag. Voeg alleen TSS toe die fysiologisch zinvol is (niet meer dan 20% van weeklyTSSTarget per dag).
+5. tssSurplus actief: verkort werkblokken in resterende sessies proportioneel, behoud wattages.
+
+Retourneer JSON array. Per sessie exact dit formaat:
+{"date":"YYYY-MM-DD","type":"cycling","aiGenerated":true,"adjustedAt":"ISO-timestamp","adjustedReason":"string max 100 tekens","title":"string","targetTSS":integer,"duration":integer,"blokken":[{"type":"string","duration":integer,"zone":"Z1"|"Z2"|"Z3"|"Z4"|"Z5","wattMin":integer,"wattMax":integer,"herhalingen":integer(optioneel),"herstelBlok":{"duration":integer,"zone":"Z1"|"Z2"|"Z3"|"Z4"|"Z5","wattMin":integer,"wattMax":integer}(optioneel)}]}`;
+
+  try {
+    const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-sonnet-4-5', max_tokens: 1000,
+      system: 'Je bent een evidence-based trainingssysteem. Retourneer uitsluitend valide JSON zonder markdown.',
+      messages: [{ role: 'user', content: userPrompt }]
+    }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
+
+    let rawText = aiResp.data.content?.[0]?.text || '[]';
+    rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+    let sessions;
+    try { sessions = JSON.parse(rawText); }
+    catch(e) { console.error('adjustCurrentWeek parse error:', e.message); return; }
+    if (!Array.isArray(sessions)) return;
+
+    const remainingSet = new Set(remainingDays);
+    const adjustedAt   = new Date().toISOString();
+    sessions.forEach(s => {
+      if (!s.date || !remainingSet.has(s.date)) return;
+      // Normalize integer zones to 'Z1'-'Z5' for frontend compatibility
+      (s.blokken || []).forEach(b => {
+        if (typeof b.zone === 'number') b.zone = `Z${b.zone}`;
+        if (b.herstelBlok && typeof b.herstelBlok.zone === 'number') b.herstelBlok.zone = `Z${b.herstelBlok.zone}`;
+      });
+      const existing = data.weekPlan[s.date] || [];
+      const kept     = existing.filter(x =>
+        x.type !== 'cycling' || x.unplanned || x.completionScore !== undefined || x.missed
+      );
+      data.weekPlan[s.date] = [...kept, { ...s, adjustedAt }];
+    });
+
+    await saveData(data);
+    console.log(`adjustCurrentWeek: ${sessions.length} sessie(s) bijgestuurd`);
+  } catch(e) {
+    console.error('adjustCurrentWeek API error:', e.message);
+  }
 }
 
 // ── API Routes ────────────────────────────────────────────────────────────────
@@ -371,6 +677,10 @@ app.post('/api/strava/sync-all', async (req, res) => {
 
     await saveData(data);
     await matchPlannedToActual(data);
+    try {
+      const syncState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
+      await adjustCurrentWeek(data, syncState);
+    } catch(e) { console.warn('adjustCurrentWeek (sync):', e.message); }
     res.json({ total: cache.activities.length, new: newActs?.length || 0, lastSync: cache.lastSync, calibration });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1436,6 +1746,10 @@ app.post('/webhook/strava', (req, res) => {
       data.calibration = calibration;
 
       await matchPlannedToActual(data);
+      try {
+        const wbState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
+        await adjustCurrentWeek(data, wbState);
+      } catch(e) { console.warn('adjustCurrentWeek (webhook):', e.message); }
       await saveData(data);
     } catch (err) {
       console.error('Webhook verwerking mislukt:', err.message);

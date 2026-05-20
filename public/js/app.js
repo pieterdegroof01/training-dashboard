@@ -466,13 +466,18 @@ function renderWeekGrid() {
 
     const sessHtml = sessions.map((s,si) => {
       if (s.type === 'cycling') {
-        const title = s.title || s.titel || 'Fietssessie';
+        const title = s.title || s.titel || (s.unplanned ? 'Ongepland' : 'Fietssessie');
         const dur   = s.duration || s.duur_min || '?';
-        const tss   = s.targetTSS || s.tss;
+        const tss   = s.targetTSS || s.tss || s.actualTSS;
         const tssLabel = tss ? ` · ~${tss} TSS` : '';
-        const aiClass  = s.aiGenerated ? ' ai-session' : '';
-        const aiIcon   = s.aiGenerated ? '<span class="ai-badge">✨</span>' : '';
-        const clickable = s.aiGenerated && s.blokken?.length;
+        const isAdjusted  = s.adjustedAt && !s.unplanned;
+        const isUnplanned = !!s.unplanned;
+        const aiClass       = s.aiGenerated && !isUnplanned ? ' ai-session' : '';
+        const unplannedClass = isUnplanned ? ' session-unplanned' : '';
+        const adjustedIcon  = isAdjusted
+          ? `<span class="session-adjusted" title="${(s.adjustedReason || '').replace(/"/g,'&quot;')}">↻</span>` : '';
+        const aiIcon  = s.aiGenerated && !isAdjusted && !isUnplanned ? '<span class="ai-badge">✨</span>' : '';
+        const clickable = s.aiGenerated && s.blokken?.length && !isUnplanned;
         const clickAttr = clickable ? `onclick="openAiSession('${date}',${si})"` : '';
         let scoreBadge = '';
         if (s.missed) {
@@ -481,10 +486,10 @@ function renderWeekGrid() {
           const cls = s.completionScore >= 8 ? 'score-good' : s.completionScore >= 6 ? 'score-ok' : 'score-poor';
           scoreBadge = `<span class="session-score-badge ${cls}">${s.completionScore}</span>`;
         }
-        return `<div class="planned-session session-cycling${aiClass}" ${clickAttr} style="padding:6px 8px${clickable ? ';cursor:pointer' : ''}">
-          <span class="ps-icon">🚴</span>
+        return `<div class="planned-session session-cycling${aiClass}${unplannedClass}" ${clickAttr} style="padding:6px 8px${clickable ? ';cursor:pointer' : ''}">
+          <span class="ps-icon">${isUnplanned ? '⚡' : '🚴'}</span>
           <div class="ps-info" style="flex:1;min-width:0">
-            <div class="ps-name" style="font-size:11px">${title}</div>
+            <div class="ps-name" style="font-size:11px">${title}${adjustedIcon}</div>
             <div class="ai-tss">${dur}min${tssLabel}</div>
           </div>
           ${aiIcon}
@@ -632,7 +637,8 @@ function renderAiModal() {
     document.getElementById('aiSessMeta').textContent  =
       `${date ? fmtD(date, true) : ''} · ${totalMin}min · ~${tss} TSS`;
     document.getElementById('aiSessTotals').textContent = '';
-    document.getElementById('aiSessReden').textContent  = '';
+    document.getElementById('aiSessReden').innerHTML = s.adjustedReason
+      ? `<span class="adjusted-reason-banner">↻ Bijgestuurd: ${s.adjustedReason}</span>` : '';
 
     // Workout-profile timeline (height = intensity, width = duration, bars from bottom)
     const bar = document.getElementById('aiBlockBar');

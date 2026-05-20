@@ -300,6 +300,9 @@ body { overflow-x: hidden; }
 .session-cycling { background:rgba(37,99,235,0.12) !important; border:1px solid rgba(59,130,246,0.28); }
 .session-cycling.ai-session { border:2px dashed rgba(59,130,246,0.60) !important; }
 .session-cycling.ai-session:hover { background:rgba(37,99,235,0.22) !important; }
+.session-adjusted { display:inline-block; margin-left:4px; font-size:11px; color:var(--accent); cursor:default; vertical-align:middle; }
+.session-unplanned { background:rgba(120,120,120,0.14) !important; border:1px solid rgba(140,140,140,0.30) !important; }
+.adjusted-reason-banner { font-size:10px; color:var(--accent); background:rgba(59,130,246,0.10); border-radius:4px; padding:2px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:inline-block; max-width:100%; }
 /* AI session modal — old-format editor */
 .block-bar { display:flex; height:28px; border-radius:6px; overflow:hidden; margin:10px 0; }
 .block-seg { height:100%; display:flex; align-items:center; justify-content:center; font-size:9px; color:rgba(255,255,255,0.85); font-weight:700; overflow:hidden; cursor:pointer; transition:opacity 0.15s; }
