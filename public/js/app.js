@@ -1597,7 +1597,7 @@ async function openActivityDetail(stravaId) {
     'adm-hr-row','adm-decoupling-section','adm-planned-section'];
   resetIds.forEach(id => {
     const el = document.getElementById(id);
-    if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+    if (el) el.style.display = 'none';
   });
   document.getElementById('adm-ai-content').innerHTML =
     '<button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>';
