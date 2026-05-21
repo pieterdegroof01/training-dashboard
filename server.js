@@ -991,6 +991,7 @@ async function getActivityDetail(stravaId, data, settings) {
 }
 
 app.get('/api/activity/:stravaId/detail', async (req, res) => {
+  console.log('Detail endpoint aangeroepen voor:', req.params.stravaId);
   try {
     const data     = await loadData();
     const settings = data.settings || {};
