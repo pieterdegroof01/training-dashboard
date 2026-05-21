@@ -1931,12 +1931,14 @@ async function loadActivityAnalysis(stravaId) {
   }
 }
 
-document.getElementById('adm-close').addEventListener('click', () => {
+const admCloseBtn = document.getElementById('adm-close');
+if (admCloseBtn) admCloseBtn.addEventListener('click', () => {
   document.getElementById('activity-detail-modal').style.display = 'none';
 });
-document.getElementById('activity-detail-modal').addEventListener('click', e => {
+const admModal = document.getElementById('activity-detail-modal');
+if (admModal) admModal.addEventListener('click', e => {
   if (e.target.id === 'activity-detail-modal')
-    document.getElementById('activity-detail-modal').style.display = 'none';
+    admModal.style.display = 'none';
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
