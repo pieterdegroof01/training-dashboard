@@ -1539,21 +1539,70 @@ function _zoneIdx(z) {
   return isNaN(n) ? 0 : Math.max(0, Math.min(4, n - 1));
 }
 
+function admSvgLine(pts, xS, yS, color, width) {
+  if (!pts || pts.length < 2) return '';
+  return '<polyline points="' + pts.map(p => xS(p[0]) + ',' + yS(p[1])).join(' ') +
+    '" fill="none" stroke="' + color + '" stroke-width="' + width + '" ' +
+    'stroke-linejoin="round"/>';
+}
+
+function admDrawHistogram(svgId, data, color, labelKey, valueKey, unitLabel) {
+  const svg = document.getElementById(svgId);
+  if (!svg || !data || !data.length) return;
+  const W = svg.getBoundingClientRect().width || 300;
+  const H = 100;
+  const pad = { top: 8, right: 8, bottom: 20, left: 36 };
+  const maxVal = Math.max(...data.map(d => d[valueKey]));
+  const barW = Math.max(1, (W - pad.left - pad.right) / data.length - 1);
+  const yS = v => H - pad.bottom - (v / (maxVal || 1)) * (H - pad.top - pad.bottom);
+
+  let html = '';
+  data.forEach((d, i) => {
+    const x = pad.left + i * (barW + 1);
+    const y = yS(d[valueKey]);
+    const h = H - pad.bottom - y;
+    html += '<rect x="' + x + '" y="' + y + '" width="' + barW +
+            '" height="' + h + '" fill="' + color + '" opacity="0.8" ' +
+            'title="' + d[labelKey] + unitLabel + ': ' +
+            Math.round(d[valueKey]*10)/10 + 'min"/>';
+  });
+
+  const step = Math.max(1, Math.ceil(data.length / 6));
+  data.forEach((d, i) => {
+    if (i % step !== 0) return;
+    const x = pad.left + i * (barW + 1) + barW / 2;
+    html += '<text x="' + x + '" y="' + (H - 5) +
+            '" fill="#4A5568" font-size="8" text-anchor="middle">' +
+            d[labelKey] + '</text>';
+  });
+
+  html += '<text x="' + (pad.left - 4) + '" y="' + (H - pad.bottom) +
+          '" fill="#4A5568" font-size="8" text-anchor="end">' +
+          Math.round(maxVal*10)/10 + 'm</text>';
+
+  svg.innerHTML = html;
+}
+
 async function openActivityDetail(stravaId) {
   const modal = document.getElementById('activity-detail-modal');
   modal.style.display = 'flex';
 
   document.getElementById('adm-title').textContent = 'Laden...';
-  document.getElementById('adm-meta').textContent  = '';
+  document.getElementById('adm-meta').textContent = '';
   document.getElementById('adm-metrics').innerHTML = '';
-  ['adm-zone-bar','adm-zone-labels','adm-planned-comparison',
-   'adm-power-section','adm-hr-row','adm-planned-section'].forEach(id => {
+
+  const resetIds = ['adm-derived-metrics','adm-main-chart-section',
+    'adm-zone-bar','adm-zone-labels','adm-planned-comparison',
+    'adm-mmp-section','adm-dist-section','adm-hr-dist',
+    'adm-hr-row','adm-decoupling-section','adm-planned-section'];
+  resetIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.innerHTML = ''; el.style.display = 'none'; }
   });
   document.getElementById('adm-ai-content').innerHTML =
     '<button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>';
-  document.getElementById('adm-ai-btn').onclick = () => loadActivityAnalysis(stravaId);
+  document.getElementById('adm-ai-btn').onclick = () =>
+    loadActivityAnalysis(stravaId);
 
   let d;
   try {
@@ -1565,140 +1614,305 @@ async function openActivityDetail(stravaId) {
     return;
   }
   const a = d.activity;
+  const FTP = d.ftp || 280;
 
   document.getElementById('adm-title').textContent = a.name;
-  document.getElementById('adm-meta').textContent  = a.date + ' · ' + a.type;
+  document.getElementById('adm-meta').textContent = a.date + ' · ' + a.type;
 
-  // Metrics
+  // ── Primaire metrics ──
   const metrics = [
-    ['Duur',    a.duration_min + ' min'],
-    a.distance_km  ? ['Afstand',  a.distance_km + ' km']  : null,
-    a.elevation_m  ? ['Stijging', a.elevation_m + ' hm']  : null,
-    a.avg_watts    ? ['Gem. watt', a.avg_watts + 'W']      : null,
-    a.np           ? ['NP',        a.np + 'W']             : null,
-    a.IF           ? ['IF',        a.IF]                   : null,
-    ['TSS',     a.tss],
-    a.suffer_score ? ['Suffer',    a.suffer_score]         : null,
+    ['Duur',    a.duration_str || a.duration_min + ' min'],
+    a.distance_km  ? ['Afstand',   a.distance_km + ' km']  : null,
+    a.elevation_m  ? ['Stijging',  a.elevation_m + ' hm']  : null,
+    a.avg_watts    ? ['Gem. watt', a.avg_watts + 'W']       : null,
+    a.np           ? ['NP',        a.np + 'W']              : null,
+    a.IF           ? ['IF',        a.IF]                    : null,
+    ['TSS', a.tss],
+    a.suffer_score ? ['Suffer',    a.suffer_score]          : null,
   ].filter(Boolean);
-  document.getElementById('adm-metrics').innerHTML = metrics.map(([label, val]) =>
-    '<div class="adm-metric"><span class="adm-metric-val">' + val +
-    '</span><span class="adm-metric-label">' + label + '</span></div>'
+  document.getElementById('adm-metrics').innerHTML = metrics.map(([l, v]) =>
+    '<div class="adm-metric"><span class="adm-metric-val">' + v +
+    '</span><span class="adm-metric-label">' + l + '</span></div>'
   ).join('');
 
-  // Zone bar
+  // ── Afgeleide metrics (VI, EF, decoupling) ──
+  const derived = [];
+  if (d.vi)  derived.push(['VI', d.vi,
+    d.vi < 1.05 ? 'Stabiel tempo' : d.vi < 1.10 ? 'Licht variabel' : 'Variabel']);
+  if (d.ef)  derived.push(['EF', d.ef, 'NP/gem.HR']);
+  if (d.aerobicDecoupling) {
+    const dc = d.aerobicDecoupling;
+    const pct = Math.round(dc.decoupling * 1000) / 10;
+    derived.push(['Koppeling', pct + '%',
+      dc.status === 'goed' ? '✓ Goed (<5%)' : '⚠ Drift (>5%)']);
+  }
+  if (derived.length) {
+    const el = document.getElementById('adm-derived-metrics');
+    el.style.display = 'flex';
+    el.innerHTML = derived.map(([l, v, sub]) =>
+      '<div class="adm-derived-metric"><span class="adm-derived-val">' +
+      v + '</span><span class="adm-derived-label">' + l + '</span>' +
+      '<span class="adm-derived-sub">' + sub + '</span></div>'
+    ).join('');
+  }
+
+  // ── Hoofdgrafiek: power + HR + altitude ──
+  const hasPower = d.powerTimeline?.length > 1;
+  const hasHR    = d.hrTimeline?.length > 1;
+  const hasAlt   = d.altitudeTimeline?.length > 1;
+
+  if (hasPower || hasHR || hasAlt) {
+    const section = document.getElementById('adm-main-chart-section');
+    section.style.display = 'block';
+    const svg = document.getElementById('adm-main-svg');
+    const W   = svg.getBoundingClientRect().width || 600;
+    const H   = 180;
+    const pad = { top: 12, right: 50, bottom: 24, left: 44 };
+    const drawW = W - pad.left - pad.right;
+    const drawH = H - pad.top - pad.bottom;
+
+    const allPts = [
+      ...(d.powerTimeline    || []).map(p => p.t),
+      ...(d.hrTimeline       || []).map(p => p.t),
+      ...(d.altitudeTimeline || []).map(p => p.t),
+    ];
+    const maxT = allPts.length ? Math.max(...allPts) : 1;
+    const xS = t => pad.left + (t / maxT) * drawW;
+
+    let svgHtml = '';
+    const legend = [];
+
+    if (hasAlt) {
+      const altH = Math.round(drawH * 0.25);
+      const altPts = d.altitudeTimeline;
+      const minAlt = Math.min(...altPts.map(p => p.alt));
+      const maxAlt = Math.max(...altPts.map(p => p.alt));
+      const altRange = maxAlt - minAlt || 1;
+      const altY = a => H - pad.bottom - (a - minAlt) / altRange * altH;
+      const altBase = H - pad.bottom;
+      const pts = altPts.map(p => xS(p.t) + ',' + altY(p.alt));
+      pts.unshift(xS(altPts[0].t) + ',' + altBase);
+      pts.push(xS(altPts[altPts.length-1].t) + ',' + altBase);
+      svgHtml += '<polygon points="' + pts.join(' ') +
+        '" fill="#6B7280" opacity="0.25"/>';
+      legend.push('<span class="adm-legend-item" style="color:#6B7280">▬ Hoogte</span>');
+    }
+
+    if (hasPower) {
+      const maxP = Math.max(...d.powerTimeline.map(p => p.w), FTP * 1.1);
+      const powY = w => pad.top + (1 - w / maxP) * drawH;
+      const ftpY = powY(FTP);
+
+      [[0,0.55],[0.55,0.75],[0.75,0.90],[0.90,1.05],[1.05,1.5]]
+        .forEach(([lo,hi], i) => {
+          const y1 = powY(Math.min(hi * FTP, maxP));
+          const y2 = powY(lo * FTP);
+          svgHtml += '<rect x="' + pad.left + '" y="' + y1 + '" width="' +
+            drawW + '" height="' + (y2-y1) + '" fill="' + ADM_ZONE_COLORS[i] +
+            '" opacity="0.08"/>';
+        });
+
+      svgHtml += '<line x1="' + pad.left + '" y1="' + ftpY + '" x2="' +
+        (pad.left+drawW) + '" y2="' + ftpY +
+        '" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>';
+      svgHtml += '<text x="' + (pad.left+4) + '" y="' + (ftpY-3) +
+        '" fill="#EF4444" font-size="9">FTP ' + FTP + 'W</text>';
+
+      svgHtml += admSvgLine(
+        d.powerTimeline.map(p => [p.t, p.w]), xS, powY, '#3B82F6', 1.5);
+
+      [0, Math.round(maxP*0.5), Math.round(maxP)].forEach(w => {
+        svgHtml += '<text x="' + (pad.left-4) + '" y="' + (powY(w)+3) +
+          '" fill="#4A5568" font-size="8" text-anchor="end">' + w + '</text>';
+      });
+
+      legend.push('<span class="adm-legend-item" style="color:#3B82F6">▬ Vermogen</span>');
+    }
+
+    if (hasHR) {
+      const allHR = d.hrTimeline.map(p => p.hr);
+      const minHR = Math.min(...allHR) - 5;
+      const maxHR = Math.max(...allHR) + 5;
+      const hrY   = hr => pad.top + (1 - (hr - minHR) / (maxHR - minHR)) * drawH;
+
+      svgHtml += admSvgLine(
+        d.hrTimeline.map(p => [p.t, p.hr]), xS, hrY, '#EF4444', 1.2);
+
+      [Math.round(minHR), Math.round((minHR+maxHR)/2), Math.round(maxHR)]
+        .forEach(hr => {
+          svgHtml += '<text x="' + (pad.left+drawW+4) + '" y="' +
+            (hrY(hr)+3) + '" fill="#4A5568" font-size="8">' + hr + '</text>';
+        });
+
+      legend.push('<span class="adm-legend-item" style="color:#EF4444">▬ Hartslag</span>');
+    }
+
+    const interval = maxT > 5400 ? 1800 : maxT > 2700 ? 900 : 600;
+    for (let t = 0; t <= maxT; t += interval) {
+      const x = xS(t);
+      const h = Math.floor(t/3600);
+      const m = Math.floor((t%3600)/60);
+      const label = h > 0 ? h+'u'+String(m).padStart(2,'0') : m+'min';
+      svgHtml += '<line x1="' + x + '" y1="' + pad.top + '" x2="' + x +
+        '" y2="' + (H-pad.bottom) + '" stroke="#374151" stroke-width="0.5" opacity="0.4"/>';
+      svgHtml += '<text x="' + x + '" y="' + (H-pad.bottom+12) +
+        '" fill="#4A5568" font-size="8" text-anchor="middle">' + label + '</text>';
+    }
+
+    svg.innerHTML = svgHtml;
+    document.getElementById('adm-chart-legend').innerHTML = legend.join('');
+  }
+
+  // ── Zone-balk ──
   if (d.zoneBreakdown && !d.zoneBreakdown.estimated) {
     const zb   = d.zoneBreakdown;
-    const mins = [zb.z1Min, zb.z2Min, zb.z3Min, zb.z4Min, zb.z5Min];
-    const tot  = mins.reduce((s, v) => s + v, 0);
-
+    const mins = [zb.z1Min,zb.z2Min,zb.z3Min,zb.z4Min,zb.z5Min];
+    const tot  = mins.reduce((s,v)=>s+v,0);
     const zBar = document.getElementById('adm-zone-bar');
     zBar.style.display = 'flex';
-    zBar.innerHTML = mins.map((m, i) => {
-      const pct = tot > 0 ? (m / tot * 100).toFixed(1) : 0;
-      return '<div style="width:' + pct + '%;background:' + ADM_ZONE_COLORS[i] +
-             ';height:28px;min-width:' + (pct > 0 ? '2px' : '0') +
-             '" title="Z' + (i+1) + ': ' + m + 'min"></div>';
+    zBar.innerHTML = mins.map((m,i) => {
+      const pct = tot>0?(m/tot*100).toFixed(1):0;
+      return '<div style="width:'+pct+'%;background:'+ADM_ZONE_COLORS[i]+
+        ';height:24px;min-width:'+(pct>0?'2px':'0')+
+        '" title="Z'+(i+1)+': '+m+'min ('+pct+'%)"></div>';
     }).join('');
-
     const zLabels = document.getElementById('adm-zone-labels');
     zLabels.style.display = 'flex';
-    zLabels.innerHTML = mins.map((m, i) =>
-      '<div class="adm-zone-label" style="color:' + ADM_ZONE_COLORS[i] +
-      '">Z' + (i+1) + '<br>' + m + 'min</div>'
+    zLabels.innerHTML = mins.map((m,i)=>
+      '<div class="adm-zone-label" style="color:'+ADM_ZONE_COLORS[i]+
+      '">Z'+(i+1)+'<br>'+m+'min</div>'
     ).join('');
 
-    // Gepland vs werkelijk
     if (d.plannedSession?.blokken?.length) {
-      const pz = [0, 0, 0, 0, 0];
+      const pz = [0,0,0,0,0];
       d.plannedSession.blokken.forEach(b => {
-        const reps = b.herhalingen || 1;
-        const zi   = _zoneIdx(b.zone);
-        pz[zi] += (b.duration || 0) * reps;
-        if (b.herstelBlok) {
-          const hi = _zoneIdx(b.herstelBlok.zone);
-          pz[hi] += (b.herstelBlok.duration || 0) * reps;
-        }
+        const reps=b.herhalingen||1, zi=_zoneIdx(b.zone);
+        pz[zi]+=(b.duration||0)*reps;
+        if(b.herstelBlok){pz[_zoneIdx(b.herstelBlok.zone)]+=(b.herstelBlok.duration||0)*reps;}
       });
-      const pTot = pz.reduce((s, v) => s + v, 0);
-      if (pTot > 0) {
-        const compEl = document.getElementById('adm-planned-comparison');
-        compEl.style.display = 'block';
-        const makeBar = (vals, t) =>
-          '<div style="display:flex;border-radius:4px;overflow:hidden;height:18px">' +
-          vals.map((m, i) => {
-            const p = t > 0 ? (m / t * 100).toFixed(1) : 0;
-            return '<div style="width:' + p + '%;background:' + ADM_ZONE_COLORS[i] +
-                   ';min-width:' + (p > 0 ? '2px' : '0') +
-                   '" title="Z' + (i+1) + ': ' + m + 'min"></div>';
-          }).join('') + '</div>';
-        document.getElementById('adm-planned-bar').innerHTML =
-          '<div class="adm-compare-row"><span>Gepland</span>' + makeBar(pz, pTot) + '</div>' +
-          '<div class="adm-compare-row"><span>Werkelijk</span>' + makeBar(mins, tot) + '</div>';
+      const pTot=pz.reduce((s,v)=>s+v,0);
+      if(pTot>0){
+        const comp=document.getElementById('adm-planned-comparison');
+        comp.style.display='block';
+        const mkBar=(vals,t)=>'<div style="display:flex;height:16px;border-radius:3px;overflow:hidden">'+
+          vals.map((m,i)=>{const p=t>0?(m/t*100).toFixed(1):0;
+            return '<div style="width:'+p+'%;background:'+ADM_ZONE_COLORS[i]+
+              ';min-width:'+(p>0?'2px':'0')+'" title="Z'+(i+1)+': '+m+'min"></div>';
+          }).join('')+'</div>';
+        document.getElementById('adm-planned-bar').innerHTML=
+          '<div class="adm-compare-row"><span>Gepland</span>'+mkBar(pz,pTot)+'</div>'+
+          '<div class="adm-compare-row"><span>Werkelijk</span>'+mkBar(mins,tot)+'</div>';
       }
     }
   }
 
-  // Power SVG
-  if (d.powerTimeline?.length > 1) {
-    const section = document.getElementById('adm-power-section');
-    section.style.display = 'block';
-    const svg  = document.getElementById('adm-power-svg');
-    const W    = svg.getBoundingClientRect().width || 600;
-    const H    = 130;
-    const pad  = { top: 10, right: 10, bottom: 20, left: 40 };
-    const pts  = d.powerTimeline;
-    const maxT = pts[pts.length - 1].t;
-    const maxW = Math.max(...pts.map(p => p.w), (d.ftp || 280) * 1.1);
-    const xS   = t => pad.left + (t / maxT) * (W - pad.left - pad.right);
-    const yS   = w => H - pad.bottom - (w / (maxW || 1)) * (H - pad.top - pad.bottom);
-    const ftpY = yS(d.ftp || 280);
+  // ── MMP curve ──
+  if (d.mmpCurve?.length > 1) {
+    const sec=document.getElementById('adm-mmp-section');
+    sec.style.display='block';
+    const svg=document.getElementById('adm-mmp-svg');
+    const W=svg.getBoundingClientRect().width||600;
+    const H=120;
+    const pad={top:10,right:10,bottom:20,left:40};
+    const dW=W-pad.left-pad.right, dH=H-pad.top-pad.bottom;
+    const labels=['5s','10s','30s','1m','2m','5m','10m','20m'];
+    const maxP=Math.max(...d.mmpCurve.map(p=>p.power),FTP);
+    const n=d.mmpCurve.length;
+    const xS=i=>pad.left+i/(n-1)*dW;
+    const yS=w=>pad.top+(1-w/(maxP||1))*dH;
 
-    const bands = [[0,0.55],[0.55,0.75],[0.75,0.90],[0.90,1.05],[1.05,1.5]].map(([lo,hi],i) => {
-      const y1 = yS(Math.min(hi * (d.ftp||280), maxW));
-      const y2 = yS(lo * (d.ftp||280));
-      return '<rect x="' + pad.left + '" y="' + y1 + '" width="' + (W-pad.left-pad.right) +
-             '" height="' + (y2-y1) + '" fill="' + ADM_ZONE_COLORS[i] + '" opacity="0.12"/>';
-    }).join('');
+    let html='';
+    const ftpY=yS(FTP);
+    html+='<line x1="'+pad.left+'" y1="'+ftpY+'" x2="'+(pad.left+dW)+'" y2="'+ftpY+
+      '" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>';
+    html+='<text x="'+(pad.left+4)+'" y="'+(ftpY-3)+
+      '" fill="#EF4444" font-size="9">FTP</text>';
 
-    const ftpLine = '<line x1="' + pad.left + '" y1="' + ftpY + '" x2="' + (W-pad.right) +
-      '" y2="' + ftpY + '" stroke="#EF4444" stroke-width="1" stroke-dasharray="4,3" opacity="0.7"/>' +
-      '<text x="' + (pad.left+4) + '" y="' + (ftpY-3) + '" fill="#EF4444" font-size="10">FTP ' + (d.ftp||280) + 'W</text>';
+    const pts=d.mmpCurve.map((p,i)=>xS(i)+','+yS(p.power)).join(' ');
+    html+='<polyline points="'+pts+'" fill="none" stroke="#F59E0B" stroke-width="2"/>';
 
-    const line = '<polyline points="' + pts.map(p => xS(p.t) + ',' + yS(p.w)).join(' ') +
-      '" fill="none" stroke="#3B82F6" stroke-width="1.5"/>';
+    d.mmpCurve.forEach((p,i)=>{
+      const x=xS(i), y=yS(p.power);
+      html+='<circle cx="'+x+'" cy="'+y+'" r="3" fill="#F59E0B"/>';
+      html+='<text x="'+x+'" y="'+(H-5)+'" fill="#4A5568" font-size="8" '+
+        'text-anchor="middle">'+(labels[i]||'')+'</text>';
+      html+='<text x="'+x+'" y="'+(y-6)+'" fill="#F59E0B" font-size="8" '+
+        'text-anchor="middle">'+p.power+'W</text>';
+    });
 
-    const interval = maxT > 5400 ? 1800 : 900;
-    const xLabels  = [];
-    for (let t = 0; t <= maxT; t += interval) {
-      xLabels.push('<text x="' + xS(t) + '" y="' + (H-5) +
-        '" fill="#4A5568" font-size="9" text-anchor="middle">' + Math.round(t/60) + 'min</text>');
+    [0,Math.round(maxP/2),maxP].forEach(w=>{
+      html+='<text x="'+(pad.left-4)+'" y="'+(yS(w)+3)+
+        '" fill="#4A5568" font-size="8" text-anchor="end">'+w+'</text>';
+    });
+
+    svg.innerHTML=html;
+  }
+
+  // ── Distributies ──
+  const hasPwrDist = d.powerHistogram?.length > 0;
+  const hasHrDist  = d.hrHistogram?.length > 0;
+  if (hasPwrDist || hasHrDist) {
+    const distSec=document.getElementById('adm-dist-section');
+    distSec.style.display='flex';
+    if (hasPwrDist) {
+      admDrawHistogram('adm-pdist-svg', d.powerHistogram,
+        '#3B82F6', 'wattMin', 'minutes', 'W');
     }
-    svg.innerHTML = bands + ftpLine + line + xLabels.join('');
+    if (hasHrDist) {
+      document.getElementById('adm-hr-dist').style.display='block';
+      admDrawHistogram('adm-hrdist-svg', d.hrHistogram,
+        '#EF4444', 'hrMin', 'minutes', 'bpm');
+    }
   }
 
-  // HR + cadence
+  // ── HR + cadence ──
   if (d.hrSummary?.avgHR) {
-    const hrRow = document.getElementById('adm-hr-row');
-    hrRow.style.display = 'block';
-    let txt = 'Hartslag: gem. ' + d.hrSummary.avgHR + ' bpm  max ' + d.hrSummary.maxHR + ' bpm';
-    if (d.avgCadence) txt += '  ·  Cadans: ' + d.avgCadence + ' rpm';
-    document.getElementById('adm-hr-text').textContent = txt;
+    const hrRow=document.getElementById('adm-hr-row');
+    hrRow.style.display='block';
+    let txt='Hartslag: gem. '+d.hrSummary.avgHR+' bpm  max '+d.hrSummary.maxHR+' bpm';
+    if (d.avgCadence) txt+='  ·  Cadans: '+d.avgCadence+' rpm';
+    document.getElementById('adm-hr-text').textContent=txt;
   }
 
-  // Planned session blocks
+  // ── Aerobic decoupling detail ──
+  if (d.aerobicDecoupling) {
+    const dc=d.aerobicDecoupling;
+    const sec=document.getElementById('adm-decoupling-section');
+    sec.style.display='block';
+    const pct=Math.round(dc.decoupling*1000)/10;
+    const kleur=dc.status==='goed'?'#10B981':'#F59E0B';
+    document.getElementById('adm-decoupling-content').innerHTML=
+      '<div class="adm-decoupling-row">'+
+      '<div class="adm-dc-block"><span class="adm-dc-val">'+
+        Math.round(dc.ef1*100)/100+'</span><span class="adm-dc-label">EF eerste helft</span></div>'+
+      '<div class="adm-dc-block"><span class="adm-dc-val">'+
+        Math.round(dc.ef2*100)/100+'</span><span class="adm-dc-label">EF tweede helft</span></div>'+
+      '<div class="adm-dc-block"><span class="adm-dc-val" style="color:'+kleur+'">'+
+        pct+'%</span><span class="adm-dc-label">Koppeling</span></div>'+
+      '<div class="adm-dc-desc">'+
+        (dc.status==='goed'
+          ?'Goede aerobe koppeling — cardiovasculair systeem stabiel gedurende de rit.'
+          :'HR-drift gedetecteerd — mogelijke oorzaak: glycogeenuitputting, dehydratie of te hoge '+
+           'intensiteit voor aerobe basis (Friel / Allen & Coggan).')+
+      '</div></div>';
+  }
+
+  // ── Geplande sessie blokken ──
   if (d.plannedSession) {
-    const ps = document.getElementById('adm-planned-section');
-    ps.style.display = 'block';
-    document.getElementById('adm-planned-blocks').innerHTML =
-      '<p style="margin:0 0 6px;font-size:12px;opacity:0.6">' +
-      (d.plannedSession.title || '–') + ' — target ' + d.plannedSession.targetTSS + ' TSS</p>' +
-      (d.plannedSession.blokken || []).map(b => {
-        const zi   = _zoneIdx(b.zone);
-        const reps = b.herhalingen > 1 ? b.herhalingen + '× ' : '';
-        const watt = (b.wattMin && b.wattMax) ? ' · ' + b.wattMin + '–' + b.wattMax + 'W' : '';
-        let txt = reps + (b.type || 'blok') + ' ' + b.duration + 'min · Z' + (zi+1) + watt;
-        if (b.herstelBlok) txt += ' | herstel ' + b.herstelBlok.duration + 'min Z' + (_zoneIdx(b.herstelBlok.zone)+1);
-        return '<div class="adm-block-row" style="border-left:3px solid ' + ADM_ZONE_COLORS[zi] + '">' + txt + '</div>';
+    const ps=document.getElementById('adm-planned-section');
+    ps.style.display='block';
+    document.getElementById('adm-planned-blocks').innerHTML=
+      '<p style="margin:0 0 6px;font-size:12px;opacity:0.6">'+
+      (d.plannedSession.title||'–')+' — target '+d.plannedSession.targetTSS+' TSS</p>'+
+      (d.plannedSession.blokken||[]).map(b=>{
+        const zi=_zoneIdx(b.zone);
+        const reps=b.herhalingen>1?b.herhalingen+'× ':'';
+        const watt=(b.wattMin&&b.wattMax)?' · '+b.wattMin+'–'+b.wattMax+'W':'';
+        let txt=reps+(b.type||'blok')+' '+b.duration+'min · Z'+(zi+1)+watt;
+        if(b.herstelBlok)txt+=' | herstel '+b.herstelBlok.duration+'min Z'+
+          (_zoneIdx(b.herstelBlok.zone)+1);
+        return '<div class="adm-block-row" style="border-left:3px solid '+
+          ADM_ZONE_COLORS[zi]+'">'+txt+'</div>';
       }).join('');
   }
 }

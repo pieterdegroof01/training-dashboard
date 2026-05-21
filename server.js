@@ -706,10 +706,14 @@ async function getActivityDetail(stravaId, data, settings) {
   const actDate  = activity?.start_date?.split('T')[0] || '';
 
   function buildMeta(act) {
+    const duration_min = Math.round((act.moving_time || 0) / 60);
+    const _h = Math.floor(duration_min / 60);
+    const _m = duration_min % 60;
     return {
       id: act.id, name: act.name, date: actDate, type: act.type,
       distance_km:  act.distance ? +(act.distance / 1000).toFixed(1) : null,
-      duration_min: Math.round((act.moving_time || 0) / 60),
+      duration_min,
+      duration_str: _h > 0 ? _h + 'u' + (_m > 0 ? String(_m).padStart(2,'0') : '') : _m + 'min',
       elevation_m:  Math.round(act.total_elevation_gain || 0),
       avg_watts:    act.average_watts          ? Math.round(act.average_watts)          : null,
       np:           act.weighted_average_watts ? Math.round(act.weighted_average_watts) : null,
@@ -734,13 +738,21 @@ async function getActivityDetail(stravaId, data, settings) {
   const cached = data.activityStreams?.[sid];
   if (cached?.cachedAt && (Date.now() - new Date(cached.cachedAt).getTime()) < 24 * 60 * 60 * 1000) {
     return {
-      activity:      activity ? buildMeta(activity) : null,
-      zoneBreakdown: cached.zoneBreakdown,
-      powerTimeline: cached.powerTimeline,
-      hrSummary:     cached.hrSummary,
-      avgCadence:    cached.avgCadence,
-      ftp:           FTP,
-      plannedSession: activity ? findPlanned(actDate) : null
+      activity:          activity ? buildMeta(activity) : null,
+      zoneBreakdown:     cached.zoneBreakdown,
+      powerTimeline:     cached.powerTimeline,
+      hrSummary:         cached.hrSummary,
+      avgCadence:        cached.avgCadence,
+      hrTimeline:        cached.hrTimeline        || null,
+      altitudeTimeline:  cached.altitudeTimeline  || null,
+      mmpCurve:          cached.mmpCurve          || null,
+      powerHistogram:    cached.powerHistogram     || null,
+      hrHistogram:       cached.hrHistogram        || null,
+      aerobicDecoupling: cached.aerobicDecoupling  || null,
+      vi:                cached.vi                 || null,
+      ef:                cached.ef                 || null,
+      ftp:               FTP,
+      plannedSession:    activity ? findPlanned(actDate) : null
     };
   }
 
@@ -761,6 +773,7 @@ async function getActivityDetail(stravaId, data, settings) {
   const timeS    = streams.find(s => s.type === 'time');
   const hrS      = streams.find(s => s.type === 'heartrate');
   const cadS     = streams.find(s => s.type === 'cadence');
+  const altS     = streams.find(s => s.type === 'altitude');
 
   let zoneBreakdown = null;
   try {
@@ -811,23 +824,169 @@ async function getActivityDetail(stravaId, data, settings) {
     }
   } catch(e) { console.warn('Cadence:', e.message); }
 
+  let hrTimeline = null;
+  try {
+    if (hrS && timeS) {
+      const tArr = timeS.data, hrArr = hrS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw = [];
+      let j = 0;
+      for (let ws = 0; ws < maxT; ws += 30) {
+        const we = ws + 30;
+        let sum = 0, cnt = 0;
+        while (j < tArr.length && tArr[j] < ws) j++;
+        let k = j;
+        while (k < tArr.length && tArr[k] < we) { sum += hrArr[k]; cnt++; k++; }
+        if (cnt > 0) raw.push({ t: ws, hr: Math.round(sum / cnt) });
+      }
+      if (raw.length > 1) hrTimeline = raw;
+    }
+  } catch(e) { console.warn('HR timeline:', e.message); }
+
+  let altitudeTimeline = null;
+  try {
+    if (altS && timeS) {
+      const tArr = timeS.data, altArr = altS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw = [];
+      let j = 0;
+      for (let ws = 0; ws < maxT; ws += 30) {
+        const we = ws + 30;
+        let sum = 0, cnt = 0;
+        while (j < tArr.length && tArr[j] < ws) j++;
+        let k = j;
+        while (k < tArr.length && tArr[k] < we) { sum += altArr[k]; cnt++; k++; }
+        if (cnt > 0) raw.push({ t: ws, alt: Math.round(sum / cnt) });
+      }
+      if (raw.length > 1) altitudeTimeline = raw;
+    }
+  } catch(e) { console.warn('Altitude timeline:', e.message); }
+
+  let mmpCurve = null;
+  try {
+    if (wattsS && timeS && !inUnreliable) {
+      const watts = wattsS.data, time = timeS.data;
+      const n = watts.length;
+      const maxTime = time[n - 1];
+      const durations = [5, 10, 30, 60, 120, 300, 600, 1200];
+      const prefixSum = new Array(n + 1);
+      prefixSum[0] = 0;
+      for (let i = 0; i < n; i++) prefixSum[i + 1] = prefixSum[i] + watts[i];
+      const curve = [];
+      for (const d of durations) {
+        if (d > maxTime) break;
+        let maxAvg = 0;
+        for (let i = 0; i + d <= n; i++) {
+          const avg = (prefixSum[i + d] - prefixSum[i]) / d;
+          if (avg > maxAvg) maxAvg = avg;
+        }
+        if (maxAvg > 0) curve.push({ duration: d, power: Math.round(maxAvg) });
+      }
+      if (curve.length > 1) mmpCurve = curve;
+    }
+  } catch(e) { console.warn('MMP curve:', e.message); }
+
+  let powerHistogram = null;
+  try {
+    if (wattsS && timeS) {
+      const watts = wattsS.data, time = timeS.data;
+      const bins = {};
+      for (let i = 0; i < time.length - 1; i++) {
+        const dur = time[i + 1] - time[i];
+        const bin = Math.floor(watts[i] / 25) * 25;
+        bins[bin] = (bins[bin] || 0) + dur;
+      }
+      powerHistogram = Object.entries(bins)
+        .map(([wattMin, secs]) => ({ wattMin: parseInt(wattMin), minutes: Math.round(secs / 60 * 10) / 10 }))
+        .filter(b => b.minutes > 0)
+        .sort((a, b) => a.wattMin - b.wattMin);
+    }
+  } catch(e) { console.warn('Power histogram:', e.message); }
+
+  let hrHistogram = null;
+  try {
+    if (hrS && timeS) {
+      const hr = hrS.data, time = timeS.data;
+      const bins = {};
+      for (let i = 0; i < time.length - 1; i++) {
+        const dur = time[i + 1] - time[i];
+        const bin = Math.floor(hr[i] / 5) * 5;
+        bins[bin] = (bins[bin] || 0) + dur;
+      }
+      hrHistogram = Object.entries(bins)
+        .map(([hrMin, secs]) => ({ hrMin: parseInt(hrMin), minutes: Math.round(secs / 60 * 10) / 10 }))
+        .filter(b => b.minutes > 0)
+        .sort((a, b) => a.hrMin - b.hrMin);
+    }
+  } catch(e) { console.warn('HR histogram:', e.message); }
+
+  let aerobicDecoupling = null;
+  try {
+    if (wattsS && hrS && timeS) {
+      const time = timeS.data, watts = wattsS.data, hr = hrS.data;
+      const totalTime = time[time.length - 1];
+      if (totalTime >= 1800) {
+        const halfTime = totalTime / 2;
+        let sumW1 = 0, sumHR1 = 0, cnt1 = 0;
+        let sumW2 = 0, sumHR2 = 0, cnt2 = 0;
+        for (let i = 0; i < time.length; i++) {
+          if (time[i] < halfTime) { sumW1 += watts[i]; sumHR1 += hr[i]; cnt1++; }
+          else                    { sumW2 += watts[i]; sumHR2 += hr[i]; cnt2++; }
+        }
+        if (cnt1 > 0 && cnt2 > 0 && sumHR1 > 0 && sumHR2 > 0) {
+          const ef1 = (sumW1 / cnt1) / (sumHR1 / cnt1);
+          const ef2 = (sumW2 / cnt2) / (sumHR2 / cnt2);
+          const decoupling = (ef1 - ef2) / ef1;
+          aerobicDecoupling = {
+            ef1: Math.round(ef1 * 100) / 100,
+            ef2: Math.round(ef2 * 100) / 100,
+            decoupling: Math.round(decoupling * 10000) / 10000,
+            status: Math.abs(decoupling) < 0.05 ? 'goed' : 'drift'
+          };
+        }
+      }
+    }
+  } catch(e) { console.warn('Aerobic decoupling:', e.message); }
+
+  let vi = null;
+  try {
+    if (activity?.weighted_average_watts && activity?.average_watts) {
+      const np   = Math.round(activity.weighted_average_watts);
+      const avgW = Math.round(activity.average_watts);
+      if (avgW > 0) vi = Math.round((np / avgW) * 100) / 100;
+    }
+  } catch(e) { console.warn('VI:', e.message); }
+
+  let ef = null;
+  try {
+    if (activity?.weighted_average_watts && hrSummary?.avgHR) {
+      const np = Math.round(activity.weighted_average_watts);
+      ef = Math.round((np / hrSummary.avgHR) * 100) / 100;
+    }
+  } catch(e) { console.warn('EF:', e.message); }
+
   // Persist cache
   try {
     const freshData = await loadData();
     freshData.activityStreams = freshData.activityStreams || {};
     freshData.activityStreams[sid] = {
       cachedAt: new Date().toISOString(),
-      zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null
+      zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null,
+      hrTimeline, altitudeTimeline, mmpCurve, powerHistogram,
+      hrHistogram, aerobicDecoupling, vi, ef
     };
     await saveData(freshData);
   } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
 
   return {
-    activity:      activity ? buildMeta(activity) : null,
-    zoneBreakdown, powerTimeline, hrSummary,
-    avgCadence:    avgCadence || null,
-    ftp:           FTP,
-    plannedSession: activity ? findPlanned(actDate) : null
+    activity:          activity ? buildMeta(activity) : null,
+    zoneBreakdown,     powerTimeline, hrSummary,
+    avgCadence:        avgCadence || null,
+    hrTimeline,        altitudeTimeline, mmpCurve,
+    powerHistogram,    hrHistogram, aerobicDecoupling,
+    vi, ef,
+    ftp:               FTP,
+    plannedSession:    activity ? findPlanned(actDate) : null
   };
 }
 
