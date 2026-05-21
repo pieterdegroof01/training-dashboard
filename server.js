@@ -13,6 +13,14 @@ const DATA_FILE = process.env.DATA_PATH || path.join(__dirname, 'data.json');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 app.use(express.json({ limit: '50mb' }));
+app.use((req, res, next) => {
+  if (req.path.endsWith('.html') || req.path === '/') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
 app.use(express.static('public'));
 
 // ── HTTP Basic Auth ───────────────────────────────────────────────────────────
