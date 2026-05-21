@@ -492,7 +492,7 @@ function renderWeekGrid() {
           const cls = s.completionScore >= 8 ? 'score-good' : s.completionScore >= 6 ? 'score-ok' : 'score-poor';
           scoreBadge = `<span class="session-score-badge ${cls}">${s.completionScore}</span>`;
         }
-        return `<div class="planned-session session-cycling${aiClass}${unplannedClass}" ${clickAttr} style="padding:6px 8px${clickable ? ';cursor:pointer' : ''}">
+        return `<div class="planned-session session-cycling${aiClass}${unplannedClass}" ${clickAttr} style="padding:6px 8px${isCursorPointer ? ';cursor:pointer' : ''}">
           <span class="ps-icon">${isUnplanned ? '⚡' : '🚴'}</span>
           <div class="ps-info" style="flex:1;min-width:0">
             <div class="ps-name" style="font-size:11px">${title}${adjustedIcon}</div>
