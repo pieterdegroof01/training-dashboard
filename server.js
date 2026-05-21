@@ -745,27 +745,7 @@ async function getActivityDetail(stravaId, data, settings) {
     return s ? { targetTSS: s.targetTSS, duration: s.duration, blokken: s.blokken, title: s.title } : null;
   }
 
-  // Cache check (24 h)
-  const cached = data.activityStreams?.[sid];
-  if (cached?.cachedAt && (Date.now() - new Date(cached.cachedAt).getTime()) < 24 * 60 * 60 * 1000) {
-    return {
-      activity:          activity ? buildMeta(activity) : null,
-      zoneBreakdown:     cached.zoneBreakdown,
-      powerTimeline:     cached.powerTimeline,
-      hrSummary:         cached.hrSummary,
-      avgCadence:        cached.avgCadence,
-      hrTimeline:        cached.hrTimeline        || null,
-      altitudeTimeline:  cached.altitudeTimeline  || null,
-      mmpCurve:          cached.mmpCurve          || null,
-      powerHistogram:    cached.powerHistogram     || null,
-      hrHistogram:       cached.hrHistogram        || null,
-      aerobicDecoupling: cached.aerobicDecoupling  || null,
-      vi:                cached.vi                 || null,
-      ef:                cached.ef                 || null,
-      ftp:               FTP,
-      plannedSession:    activity ? findPlanned(actDate) : null
-    };
-  }
+  // Cache check tijdelijk uitgeschakeld — altijd opnieuw fetchen
 
   const inUnreliable = actDate >= (settings.unreliablePowerStart || '2020-01-01') &&
                        actDate <= (settings.unreliablePowerEnd   || '2020-12-31');
