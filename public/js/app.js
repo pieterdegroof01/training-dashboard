@@ -1562,9 +1562,7 @@ function admDrawHistogram(svgId, data, color, labelKey, valueKey, unitLabel) {
     const y = yS(d[valueKey]);
     const h = H - pad.bottom - y;
     html += '<rect x="' + x + '" y="' + y + '" width="' + barW +
-            '" height="' + h + '" fill="' + color + '" opacity="0.8" ' +
-            'title="' + d[labelKey] + unitLabel + ': ' +
-            Math.round(d[valueKey]*10)/10 + 'min"/>';
+            '" height="' + h + '" fill="' + color + '" opacity="0.8"/>';
   });
 
   const step = Math.max(1, Math.ceil(data.length / 6));
@@ -1581,6 +1579,228 @@ function admDrawHistogram(svgId, data, color, labelKey, valueKey, unitLabel) {
           Math.round(maxVal*10)/10 + 'm</text>';
 
   svg.innerHTML = html;
+
+  svg.querySelectorAll('rect').forEach((rect, i) => {
+    if (i >= data.length) return;
+    const dp = data[i];
+    rect.style.cursor = 'pointer';
+    rect.addEventListener('mouseenter', e => {
+      const tip = document.getElementById('adm-tooltip');
+      if (!tip) return;
+      tip.innerHTML = '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:' +
+        color + '"></span>' + dp[labelKey] + unitLabel + ': <strong>' +
+        Math.round(dp[valueKey]*10)/10 + ' min</strong></div>';
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top = (e.clientY - 40) + 'px';
+    });
+    rect.addEventListener('mousemove', e => {
+      const tip = document.getElementById('adm-tooltip');
+      if (tip) { tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY - 40) + 'px'; }
+    });
+    rect.addEventListener('mouseleave', () => {
+      const tip = document.getElementById('adm-tooltip');
+      if (tip) tip.style.display = 'none';
+    });
+  });
+}
+
+const ADM_SERIES = [
+  { key:'power',    label:'Vermogen', color:'#3B82F6', dataKey:'powerTimeline',    valueKey:'w',   unit:'W',    axisPosition:'left',  yDomain: (data, ftp) => [0, Math.max(...data.map(p=>p.w), (ftp||280)*1.1)] },
+  { key:'hr',       label:'Hartslag', color:'#EF4444', dataKey:'hrTimeline',       valueKey:'hr',  unit:'bpm',  axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.hr))-5, Math.max(...data.map(p=>p.hr))+5] },
+  { key:'speed',    label:'Snelheid', color:'#10B981', dataKey:'velocityTimeline', valueKey:'v',   unit:'km/u', axisPosition:'right', yDomain: (data) => [0, Math.max(...data.map(p=>p.v))*1.1] },
+  { key:'cadence',  label:'Cadans',   color:'#F59E0B', dataKey:'cadenceTimeline',  valueKey:'c',   unit:'rpm',  axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.c))-5, Math.max(...data.map(p=>p.c))+5] },
+  { key:'gradient', label:'Helling',  color:'#8B5CF6', dataKey:'gradientTimeline', valueKey:'g',   unit:'%',    axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.g))-1, Math.max(...data.map(p=>p.g))+1] },
+  { key:'altitude', label:'Hoogte',   color:'#6B7280', dataKey:'altitudeTimeline', valueKey:'alt', unit:'m',    axisPosition:'left',  yDomain: (data) => [Math.min(...data.map(p=>p.alt)), Math.max(...data.map(p=>p.alt))] },
+];
+
+let admSeriesVisible = {};
+
+function admRenderMainChart(d, FTP) {
+  const svg = document.getElementById('adm-main-svg');
+  if (!svg) return;
+  const W = svg.getBoundingClientRect().width || 600;
+  const H = 180;
+  const pad = { top: 12, right: 50, bottom: 24, left: 44 };
+  const drawW = W - pad.left - pad.right;
+  const drawH = H - pad.top - pad.bottom;
+
+  const activeList = ADM_SERIES.filter(s => admSeriesVisible[s.key] && d[s.dataKey]?.length > 1);
+
+  const allT = activeList.flatMap(s => d[s.dataKey].map(p => p.t));
+  const altData = d.altitudeTimeline;
+  if (altData?.length > 1) altData.forEach(p => allT.push(p.t));
+  const maxT = allT.length ? Math.max(...allT) : 1;
+  const xS = t => pad.left + (t / maxT) * drawW;
+
+  let svgHtml = '';
+
+  // Altitude as filled background (altijd)
+  if (altData?.length > 1) {
+    const altH = Math.round(drawH * 0.25);
+    const minAlt = Math.min(...altData.map(p => p.alt));
+    const maxAlt = Math.max(...altData.map(p => p.alt));
+    const altRange = maxAlt - minAlt || 1;
+    const altYfn = v => H - pad.bottom - (v - minAlt) / altRange * altH;
+    const altBase = H - pad.bottom;
+    const altPts = altData.map(p => xS(p.t) + ',' + altYfn(p.alt));
+    altPts.unshift(xS(altData[0].t) + ',' + altBase);
+    altPts.push(xS(altData[altData.length-1].t) + ',' + altBase);
+    svgHtml += '<polygon points="' + altPts.join(' ') + '" fill="#6B7280" opacity="0.25"/>';
+  }
+
+  // Power zone bands (context, altijd als power data aanwezig)
+  const powerData = d.powerTimeline;
+  if (powerData?.length > 1) {
+    const maxP = Math.max(...powerData.map(p => p.w), FTP * 1.1);
+    const powYfn = w => pad.top + (1 - w / maxP) * drawH;
+    [[0,0.55],[0.55,0.75],[0.75,0.90],[0.90,1.05],[1.05,1.5]].forEach(([lo,hi], i) => {
+      const y1 = powYfn(Math.min(hi * FTP, maxP));
+      const y2 = powYfn(lo * FTP);
+      svgHtml += '<rect x="' + pad.left + '" y="' + y1 + '" width="' +
+        drawW + '" height="' + (y2-y1) + '" fill="' + ADM_ZONE_COLORS[i] + '" opacity="0.08"/>';
+    });
+  }
+
+  // Tijdgrid
+  const interval = maxT > 5400 ? 1800 : maxT > 2700 ? 900 : 600;
+  for (let t = 0; t <= maxT; t += interval) {
+    const x = xS(t);
+    const hh = Math.floor(t/3600), mm = Math.floor((t%3600)/60);
+    const label = hh > 0 ? hh+'u'+String(mm).padStart(2,'0') : mm+'min';
+    svgHtml += '<line x1="' + x + '" y1="' + pad.top + '" x2="' + x + '" y2="' + (H-pad.bottom) +
+      '" stroke="#374151" stroke-width="0.5" opacity="0.4"/>';
+    svgHtml += '<text x="' + x + '" y="' + (H-pad.bottom+12) +
+      '" fill="#4A5568" font-size="8" text-anchor="middle">' + label + '</text>';
+  }
+
+  // FTP-lijn (alleen als power zichtbaar)
+  if (admSeriesVisible['power'] && powerData?.length > 1) {
+    const maxP = Math.max(...powerData.map(p => p.w), FTP * 1.1);
+    const powYfn = w => pad.top + (1 - w / maxP) * drawH;
+    const ftpY = powYfn(FTP);
+    svgHtml += '<line x1="' + pad.left + '" y1="' + ftpY + '" x2="' + (pad.left+drawW) + '" y2="' + ftpY +
+      '" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>';
+    svgHtml += '<text x="' + (pad.left+4) + '" y="' + (ftpY-3) + '" fill="#EF4444" font-size="9">FTP ' + FTP + 'W</text>';
+  }
+
+  // Actieve series tekenen
+  let leftAxisDone = false, rightAxisDone = false;
+  activeList.forEach(s => {
+    const data = d[s.dataKey];
+    const [yMin, yMax] = s.yDomain(data, FTP);
+    const yRange = yMax - yMin || 1;
+    const yFn = v => pad.top + (1 - (v - yMin) / yRange) * drawH;
+    svgHtml += '<polyline points="' + data.map(p => xS(p.t) + ',' + yFn(p[s.valueKey])).join(' ') +
+      '" fill="none" stroke="' + s.color + '" stroke-width="1.5" stroke-linejoin="round" id="adm-line-' + s.key + '"/>';
+    if (s.axisPosition === 'left' && !leftAxisDone) {
+      leftAxisDone = true;
+      [yMin, (yMin+yMax)/2, yMax].forEach(v => {
+        svgHtml += '<text x="' + (pad.left-4) + '" y="' + (yFn(v)+3) +
+          '" fill="#4A5568" font-size="8" text-anchor="end">' + Math.round(v) + '</text>';
+      });
+    } else if (s.axisPosition === 'right' && !rightAxisDone) {
+      rightAxisDone = true;
+      [yMin, (yMin+yMax)/2, yMax].forEach(v => {
+        svgHtml += '<text x="' + (pad.left+drawW+4) + '" y="' + (yFn(v)+3) +
+          '" fill="#4A5568" font-size="8">' + Math.round(v) + '</text>';
+      });
+    }
+  });
+
+  svg.innerHTML = svgHtml;
+
+  // Tooltip aanmaken indien nog niet aanwezig
+  let admTooltip = document.getElementById('adm-tooltip');
+  if (!admTooltip) {
+    admTooltip = document.createElement('div');
+    admTooltip.id = 'adm-tooltip';
+    admTooltip.className = 'adm-tooltip';
+    document.body.appendChild(admTooltip);
+  }
+
+  const crosshair = document.createElementNS('http://www.w3.org/2000/svg','line');
+  crosshair.setAttribute('y1', pad.top);
+  crosshair.setAttribute('y2', H - pad.bottom);
+  crosshair.setAttribute('stroke','rgba(255,255,255,0.4)');
+  crosshair.setAttribute('stroke-width','1');
+  crosshair.setAttribute('stroke-dasharray','3,3');
+  crosshair.style.display = 'none';
+  svg.appendChild(crosshair);
+
+  const overlay = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  overlay.setAttribute('x', pad.left);
+  overlay.setAttribute('y', pad.top);
+  overlay.setAttribute('width', drawW);
+  overlay.setAttribute('height', drawH);
+  overlay.setAttribute('fill','transparent');
+  overlay.style.cursor = 'crosshair';
+  svg.appendChild(overlay);
+
+  svg._admParams = { pad, W, H, drawW, maxT, d, FTP, activeList };
+
+  overlay.addEventListener('mousemove', function(e) {
+    const params = svg._admParams;
+    if (!params) return;
+    const rect = svg.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const { pad: p, drawW: dw, maxT: mt, d: dd, activeList: al } = params;
+    if (mouseX < p.left || mouseX > p.left + dw) return;
+    const tCurrent = (mouseX - p.left) / dw * mt;
+    const hh = Math.floor(tCurrent/3600), mm = Math.floor((tCurrent%3600)/60);
+    const timeStr = hh>0 ? hh+'u'+String(mm).padStart(2,'0') : mm+'min';
+    function nearest(pts, vKey) {
+      if (!pts?.length) return null;
+      let best = pts[0], bestDist = Math.abs(pts[0].t - tCurrent);
+      for (const pt of pts) {
+        const dist = Math.abs(pt.t - tCurrent);
+        if (dist < bestDist) { best = pt; bestDist = dist; }
+      }
+      return best[vKey];
+    }
+    let html = '<div class="adm-tooltip-time">' + timeStr + '</div>';
+    al.forEach(s => {
+      const val = nearest(dd[s.dataKey], s.valueKey);
+      if (val !== null && val !== undefined)
+        html += '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:' +
+          s.color + '"></span>' + s.label + ': <strong>' + val + ' ' + s.unit + '</strong></div>';
+    });
+    const tip = document.getElementById('adm-tooltip');
+    if (!tip) return;
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const tipW = 150;
+    let tipX = e.clientX + 14;
+    if (tipX + tipW > window.innerWidth) tipX = e.clientX - tipW - 14;
+    tip.style.left = tipX + 'px';
+    tip.style.top = (e.clientY - 60) + 'px';
+    crosshair.setAttribute('x1', mouseX);
+    crosshair.setAttribute('x2', mouseX);
+    crosshair.style.display = '';
+  });
+
+  overlay.addEventListener('mouseleave', function() {
+    const tip = document.getElementById('adm-tooltip');
+    if (tip) tip.style.display = 'none';
+    crosshair.style.display = 'none';
+  });
+}
+
+function admToggleSeries(key) {
+  admSeriesVisible[key] = !admSeriesVisible[key];
+  const d = window._admCurrentDetail;
+  const FTP = window._admCurrentFTP;
+  const legendEl = document.getElementById('adm-chart-legend');
+  if (legendEl && d) {
+    legendEl.innerHTML = ADM_SERIES.filter(s => d[s.dataKey]?.length > 1).map(s => {
+      const active = admSeriesVisible[s.key];
+      return '<span class="adm-legend-pill ' + (active ? 'active' : 'inactive') + '" ' +
+        'onclick="admToggleSeries(\'' + s.key + '\')" ' +
+        'style="--pill-color:' + s.color + '">' +
+        '<span class="adm-pill-dot"></span>' + s.label + '</span>';
+    }).join('');
+  }
+  if (d && FTP) admRenderMainChart(d, FTP);
 }
 
 async function openActivityDetail(stravaId) {
@@ -1601,8 +1821,7 @@ async function openActivityDetail(stravaId) {
   });
   document.getElementById('adm-ai-content').innerHTML =
     '<button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>';
-  document.getElementById('adm-ai-btn').onclick = () =>
-    loadActivityAnalysis(stravaId);
+  document.getElementById('adm-ai-btn').onclick = () => loadActivityAnalysis(stravaId);
 
   let d;
   try {
@@ -1615,6 +1834,8 @@ async function openActivityDetail(stravaId) {
   }
   const a = d.activity;
   const FTP = d.ftp || 280;
+  window._admCurrentDetail = d;
+  window._admCurrentFTP = FTP;
 
   document.getElementById('adm-title').textContent = a.name;
   document.getElementById('adm-meta').textContent = a.date + ' · ' + a.type;
@@ -1635,7 +1856,7 @@ async function openActivityDetail(stravaId) {
     '</span><span class="adm-metric-label">' + l + '</span></div>'
   ).join('');
 
-  // ── Afgeleide metrics (VI, EF, decoupling) ──
+  // ── Afgeleide metrics ──
   const derived = [];
   if (d.vi)  derived.push(['VI', d.vi,
     d.vi < 1.05 ? 'Stabiel tempo' : d.vi < 1.10 ? 'Licht variabel' : 'Variabel']);
@@ -1656,111 +1877,28 @@ async function openActivityDetail(stravaId) {
     ).join('');
   }
 
-  // ── Hoofdgrafiek: power + HR + altitude ──
-  const hasPower = d.powerTimeline?.length > 1;
-  const hasHR    = d.hrTimeline?.length > 1;
-  const hasAlt   = d.altitudeTimeline?.length > 1;
-
-  if (hasPower || hasHR || hasAlt) {
-    const section = document.getElementById('adm-main-chart-section');
-    section.style.display = 'block';
-    const svg = document.getElementById('adm-main-svg');
-    const W   = svg.getBoundingClientRect().width || 600;
-    const H   = 180;
-    const pad = { top: 12, right: 50, bottom: 24, left: 44 };
-    const drawW = W - pad.left - pad.right;
-    const drawH = H - pad.top - pad.bottom;
-
-    const allPts = [
-      ...(d.powerTimeline    || []).map(p => p.t),
-      ...(d.hrTimeline       || []).map(p => p.t),
-      ...(d.altitudeTimeline || []).map(p => p.t),
-    ];
-    const maxT = allPts.length ? Math.max(...allPts) : 1;
-    const xS = t => pad.left + (t / maxT) * drawW;
-
-    let svgHtml = '';
-    const legend = [];
-
-    if (hasAlt) {
-      const altH = Math.round(drawH * 0.25);
-      const altPts = d.altitudeTimeline;
-      const minAlt = Math.min(...altPts.map(p => p.alt));
-      const maxAlt = Math.max(...altPts.map(p => p.alt));
-      const altRange = maxAlt - minAlt || 1;
-      const altY = a => H - pad.bottom - (a - minAlt) / altRange * altH;
-      const altBase = H - pad.bottom;
-      const pts = altPts.map(p => xS(p.t) + ',' + altY(p.alt));
-      pts.unshift(xS(altPts[0].t) + ',' + altBase);
-      pts.push(xS(altPts[altPts.length-1].t) + ',' + altBase);
-      svgHtml += '<polygon points="' + pts.join(' ') +
-        '" fill="#6B7280" opacity="0.25"/>';
-      legend.push('<span class="adm-legend-item" style="color:#6B7280">▬ Hoogte</span>');
-    }
-
-    if (hasPower) {
-      const maxP = Math.max(...d.powerTimeline.map(p => p.w), FTP * 1.1);
-      const powY = w => pad.top + (1 - w / maxP) * drawH;
-      const ftpY = powY(FTP);
-
-      [[0,0.55],[0.55,0.75],[0.75,0.90],[0.90,1.05],[1.05,1.5]]
-        .forEach(([lo,hi], i) => {
-          const y1 = powY(Math.min(hi * FTP, maxP));
-          const y2 = powY(lo * FTP);
-          svgHtml += '<rect x="' + pad.left + '" y="' + y1 + '" width="' +
-            drawW + '" height="' + (y2-y1) + '" fill="' + ADM_ZONE_COLORS[i] +
-            '" opacity="0.08"/>';
-        });
-
-      svgHtml += '<line x1="' + pad.left + '" y1="' + ftpY + '" x2="' +
-        (pad.left+drawW) + '" y2="' + ftpY +
-        '" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>';
-      svgHtml += '<text x="' + (pad.left+4) + '" y="' + (ftpY-3) +
-        '" fill="#EF4444" font-size="9">FTP ' + FTP + 'W</text>';
-
-      svgHtml += admSvgLine(
-        d.powerTimeline.map(p => [p.t, p.w]), xS, powY, '#3B82F6', 1.5);
-
-      [0, Math.round(maxP*0.5), Math.round(maxP)].forEach(w => {
-        svgHtml += '<text x="' + (pad.left-4) + '" y="' + (powY(w)+3) +
-          '" fill="#4A5568" font-size="8" text-anchor="end">' + w + '</text>';
-      });
-
-      legend.push('<span class="adm-legend-item" style="color:#3B82F6">▬ Vermogen</span>');
-    }
-
-    if (hasHR) {
-      const allHR = d.hrTimeline.map(p => p.hr);
-      const minHR = Math.min(...allHR) - 5;
-      const maxHR = Math.max(...allHR) + 5;
-      const hrY   = hr => pad.top + (1 - (hr - minHR) / (maxHR - minHR)) * drawH;
-
-      svgHtml += admSvgLine(
-        d.hrTimeline.map(p => [p.t, p.hr]), xS, hrY, '#EF4444', 1.2);
-
-      [Math.round(minHR), Math.round((minHR+maxHR)/2), Math.round(maxHR)]
-        .forEach(hr => {
-          svgHtml += '<text x="' + (pad.left+drawW+4) + '" y="' +
-            (hrY(hr)+3) + '" fill="#4A5568" font-size="8">' + hr + '</text>';
-        });
-
-      legend.push('<span class="adm-legend-item" style="color:#EF4444">▬ Hartslag</span>');
-    }
-
-    const interval = maxT > 5400 ? 1800 : maxT > 2700 ? 900 : 600;
-    for (let t = 0; t <= maxT; t += interval) {
-      const x = xS(t);
-      const h = Math.floor(t/3600);
-      const m = Math.floor((t%3600)/60);
-      const label = h > 0 ? h+'u'+String(m).padStart(2,'0') : m+'min';
-      svgHtml += '<line x1="' + x + '" y1="' + pad.top + '" x2="' + x +
-        '" y2="' + (H-pad.bottom) + '" stroke="#374151" stroke-width="0.5" opacity="0.4"/>';
-      svgHtml += '<text x="' + x + '" y="' + (H-pad.bottom+12) +
-        '" fill="#4A5568" font-size="8" text-anchor="middle">' + label + '</text>';
-    }
-
-    svg.innerHTML = svgHtml;
-    document.getElementById('adm-chart-legend').innerHTML = legend.join('');
+  // ── Hoofdgrafiek met klikbare legend pills ──
+  const hasAnyChart = ADM_SERIES.some(s => d[s.dataKey]?.length > 1);
+  if (hasAnyChart) {
+    ADM_SERIES.forEach(s => {
+      const data = d[s.dataKey];
+      if (data?.length > 1) {
+        if (admSeriesVisible[s.key] === undefined)
+          admSeriesVisible[s.key] = ['power','hr','altitude'].includes(s.key);
+      } else {
+        admSeriesVisible[s.key] = false;
+      }
+    });
+    document.getElementById('adm-main-chart-section').style.display = 'block';
+    document.getElementById('adm-chart-legend').innerHTML =
+      ADM_SERIES.filter(s => d[s.dataKey]?.length > 1).map(s => {
+        const active = admSeriesVisible[s.key];
+        return '<span class="adm-legend-pill ' + (active ? 'active' : 'inactive') + '" ' +
+          'onclick="admToggleSeries(\'' + s.key + '\')" ' +
+          'style="--pill-color:' + s.color + '">' +
+          '<span class="adm-pill-dot"></span>' + s.label + '</span>';
+      }).join('');
+    admRenderMainChart(d, FTP);
   }
 
   // ── Zone-balk ──
@@ -1782,7 +1920,6 @@ async function openActivityDetail(stravaId) {
       '<div class="adm-zone-label" style="color:'+ADM_ZONE_COLORS[i]+
       '">Z'+(i+1)+'<br>'+m+'min</div>'
     ).join('');
-
     if (d.plannedSession?.blokken?.length) {
       const pz = [0,0,0,0,0];
       d.plannedSession.blokken.forEach(b => {
@@ -1808,8 +1945,7 @@ async function openActivityDetail(stravaId) {
 
   // ── MMP curve ──
   if (d.mmpCurve?.length > 1) {
-    const sec=document.getElementById('adm-mmp-section');
-    sec.style.display='block';
+    document.getElementById('adm-mmp-section').style.display='block';
     const svg=document.getElementById('adm-mmp-svg');
     const W=svg.getBoundingClientRect().width||600;
     const H=120;
@@ -1818,57 +1954,72 @@ async function openActivityDetail(stravaId) {
     const labels=['5s','10s','30s','1m','2m','5m','10m','20m'];
     const maxP=Math.max(...d.mmpCurve.map(p=>p.power),FTP);
     const n=d.mmpCurve.length;
-    const xS=i=>pad.left+i/(n-1)*dW;
-    const yS=w=>pad.top+(1-w/(maxP||1))*dH;
-
+    const xSm=i=>pad.left+i/(n-1)*dW;
+    const ySm=w=>pad.top+(1-w/(maxP||1))*dH;
     let html='';
-    const ftpY=yS(FTP);
+    const ftpY=ySm(FTP);
     html+='<line x1="'+pad.left+'" y1="'+ftpY+'" x2="'+(pad.left+dW)+'" y2="'+ftpY+
       '" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>';
-    html+='<text x="'+(pad.left+4)+'" y="'+(ftpY-3)+
-      '" fill="#EF4444" font-size="9">FTP</text>';
-
-    const pts=d.mmpCurve.map((p,i)=>xS(i)+','+yS(p.power)).join(' ');
+    html+='<text x="'+(pad.left+4)+'" y="'+(ftpY-3)+'" fill="#EF4444" font-size="9">FTP</text>';
+    const pts=d.mmpCurve.map((p,i)=>xSm(i)+','+ySm(p.power)).join(' ');
     html+='<polyline points="'+pts+'" fill="none" stroke="#F59E0B" stroke-width="2"/>';
-
     d.mmpCurve.forEach((p,i)=>{
-      const x=xS(i), y=yS(p.power);
+      const x=xSm(i), y=ySm(p.power);
       html+='<circle cx="'+x+'" cy="'+y+'" r="3" fill="#F59E0B"/>';
-      html+='<text x="'+x+'" y="'+(H-5)+'" fill="#4A5568" font-size="8" '+
-        'text-anchor="middle">'+(labels[i]||'')+'</text>';
-      html+='<text x="'+x+'" y="'+(y-6)+'" fill="#F59E0B" font-size="8" '+
-        'text-anchor="middle">'+p.power+'W</text>';
+      html+='<text x="'+x+'" y="'+(H-5)+'" fill="#4A5568" font-size="8" text-anchor="middle">'+(labels[i]||'')+'</text>';
+      html+='<text x="'+x+'" y="'+(y-6)+'" fill="#F59E0B" font-size="8" text-anchor="middle">'+p.power+'W</text>';
     });
-
     [0,Math.round(maxP/2),maxP].forEach(w=>{
-      html+='<text x="'+(pad.left-4)+'" y="'+(yS(w)+3)+
-        '" fill="#4A5568" font-size="8" text-anchor="end">'+w+'</text>';
+      html+='<text x="'+(pad.left-4)+'" y="'+(ySm(w)+3)+'" fill="#4A5568" font-size="8" text-anchor="end">'+w+'</text>';
     });
-
     svg.innerHTML=html;
+    // MMP tooltip
+    if (!document.getElementById('adm-tooltip')) {
+      const tip = document.createElement('div');
+      tip.id = 'adm-tooltip'; tip.className = 'adm-tooltip';
+      document.body.appendChild(tip);
+    }
+    const mmpOverlay = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    mmpOverlay.setAttribute('x', pad.left); mmpOverlay.setAttribute('y', pad.top);
+    mmpOverlay.setAttribute('width', dW); mmpOverlay.setAttribute('height', dH);
+    mmpOverlay.setAttribute('fill','transparent'); mmpOverlay.style.cursor = 'crosshair';
+    svg.appendChild(mmpOverlay);
+    mmpOverlay.addEventListener('mousemove', e => {
+      const rect = svg.getBoundingClientRect();
+      const mx = e.clientX - rect.left - pad.left;
+      const idx = Math.max(0, Math.min(n-1, Math.round(mx / dW * (n-1))));
+      const pt = d.mmpCurve[idx];
+      if (!pt) return;
+      const tip = document.getElementById('adm-tooltip');
+      if (!tip) return;
+      tip.innerHTML = '<div class="adm-tooltip-time">'+(labels[idx]||'')+'</div>' +
+        '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:#F59E0B"></span>' +
+        'MMP: <strong>'+pt.power+' W</strong></div>';
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top = (e.clientY - 60) + 'px';
+    });
+    mmpOverlay.addEventListener('mouseleave', () => {
+      const tip = document.getElementById('adm-tooltip');
+      if (tip) tip.style.display = 'none';
+    });
   }
 
   // ── Distributies ──
   const hasPwrDist = d.powerHistogram?.length > 0;
   const hasHrDist  = d.hrHistogram?.length > 0;
   if (hasPwrDist || hasHrDist) {
-    const distSec=document.getElementById('adm-dist-section');
-    distSec.style.display='flex';
-    if (hasPwrDist) {
-      admDrawHistogram('adm-pdist-svg', d.powerHistogram,
-        '#3B82F6', 'wattMin', 'minutes', 'W');
-    }
+    document.getElementById('adm-dist-section').style.display='flex';
+    if (hasPwrDist) admDrawHistogram('adm-pdist-svg', d.powerHistogram, '#3B82F6', 'wattMin', 'minutes', 'W');
     if (hasHrDist) {
       document.getElementById('adm-hr-dist').style.display='block';
-      admDrawHistogram('adm-hrdist-svg', d.hrHistogram,
-        '#EF4444', 'hrMin', 'minutes', 'bpm');
+      admDrawHistogram('adm-hrdist-svg', d.hrHistogram, '#EF4444', 'hrMin', 'minutes', 'bpm');
     }
   }
 
   // ── HR + cadence ──
   if (d.hrSummary?.avgHR) {
-    const hrRow=document.getElementById('adm-hr-row');
-    hrRow.style.display='block';
+    document.getElementById('adm-hr-row').style.display='block';
     let txt='Hartslag: gem. '+d.hrSummary.avgHR+' bpm  max '+d.hrSummary.maxHR+' bpm';
     if (d.avgCadence) txt+='  ·  Cadans: '+d.avgCadence+' rpm';
     document.getElementById('adm-hr-text').textContent=txt;
@@ -1877,30 +2028,23 @@ async function openActivityDetail(stravaId) {
   // ── Aerobic decoupling detail ──
   if (d.aerobicDecoupling) {
     const dc=d.aerobicDecoupling;
-    const sec=document.getElementById('adm-decoupling-section');
-    sec.style.display='block';
+    document.getElementById('adm-decoupling-section').style.display='block';
     const pct=Math.round(dc.decoupling*1000)/10;
     const kleur=dc.status==='goed'?'#10B981':'#F59E0B';
     document.getElementById('adm-decoupling-content').innerHTML=
       '<div class="adm-decoupling-row">'+
-      '<div class="adm-dc-block"><span class="adm-dc-val">'+
-        Math.round(dc.ef1*100)/100+'</span><span class="adm-dc-label">EF eerste helft</span></div>'+
-      '<div class="adm-dc-block"><span class="adm-dc-val">'+
-        Math.round(dc.ef2*100)/100+'</span><span class="adm-dc-label">EF tweede helft</span></div>'+
-      '<div class="adm-dc-block"><span class="adm-dc-val" style="color:'+kleur+'">'+
-        pct+'%</span><span class="adm-dc-label">Koppeling</span></div>'+
-      '<div class="adm-dc-desc">'+
-        (dc.status==='goed'
-          ?'Goede aerobe koppeling — cardiovasculair systeem stabiel gedurende de rit.'
-          :'HR-drift gedetecteerd — mogelijke oorzaak: glycogeenuitputting, dehydratie of te hoge '+
-           'intensiteit voor aerobe basis (Friel / Allen & Coggan).')+
+      '<div class="adm-dc-block"><span class="adm-dc-val">'+Math.round(dc.ef1*100)/100+'</span><span class="adm-dc-label">EF eerste helft</span></div>'+
+      '<div class="adm-dc-block"><span class="adm-dc-val">'+Math.round(dc.ef2*100)/100+'</span><span class="adm-dc-label">EF tweede helft</span></div>'+
+      '<div class="adm-dc-block"><span class="adm-dc-val" style="color:'+kleur+'">'+pct+'%</span><span class="adm-dc-label">Koppeling</span></div>'+
+      '<div class="adm-dc-desc">'+(dc.status==='goed'
+        ?'Goede aerobe koppeling — cardiovasculair systeem stabiel gedurende de rit.'
+        :'HR-drift gedetecteerd — mogelijke oorzaak: glycogeenuitputting, dehydratie of te hoge intensiteit voor aerobe basis (Friel / Allen & Coggan).')+
       '</div></div>';
   }
 
   // ── Geplande sessie blokken ──
   if (d.plannedSession) {
-    const ps=document.getElementById('adm-planned-section');
-    ps.style.display='block';
+    document.getElementById('adm-planned-section').style.display='block';
     document.getElementById('adm-planned-blocks').innerHTML=
       '<p style="margin:0 0 6px;font-size:12px;opacity:0.6">'+
       (d.plannedSession.title||'–')+' — target '+d.plannedSession.targetTSS+' TSS</p>'+
@@ -1909,10 +2053,8 @@ async function openActivityDetail(stravaId) {
         const reps=b.herhalingen>1?b.herhalingen+'× ':'';
         const watt=(b.wattMin&&b.wattMax)?' · '+b.wattMin+'–'+b.wattMax+'W':'';
         let txt=reps+(b.type||'blok')+' '+b.duration+'min · Z'+(zi+1)+watt;
-        if(b.herstelBlok)txt+=' | herstel '+b.herstelBlok.duration+'min Z'+
-          (_zoneIdx(b.herstelBlok.zone)+1);
-        return '<div class="adm-block-row" style="border-left:3px solid '+
-          ADM_ZONE_COLORS[zi]+'">'+txt+'</div>';
+        if(b.herstelBlok)txt+=' | herstel '+b.herstelBlok.duration+'min Z'+(_zoneIdx(b.herstelBlok.zone)+1);
+        return '<div class="adm-block-row" style="border-left:3px solid '+ADM_ZONE_COLORS[zi]+'">'+txt+'</div>';
       }).join('');
   }
 }

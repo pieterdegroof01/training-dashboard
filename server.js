@@ -754,7 +754,7 @@ async function getActivityDetail(stravaId, data, settings) {
   try {
     const token = await getStravaToken();
     const resp  = await axios.get(
-      `https://www.strava.com/api/v3/activities/${sid}/streams?keys=watts,time,heartrate,cadence,altitude,distance&series_type=time`,
+      `https://www.strava.com/api/v3/activities/${sid}/streams?keys=watts,time,heartrate,cadence,altitude,distance,velocity_smooth,grade_smooth&series_type=time`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     streams = resp.data || [];
@@ -765,6 +765,9 @@ async function getActivityDetail(stravaId, data, settings) {
   const hrS      = streams.find(s => s.type === 'heartrate');
   const cadS     = streams.find(s => s.type === 'cadence');
   const altS     = streams.find(s => s.type === 'altitude');
+  const velS     = streams.find(s => s.type === 'velocity_smooth');
+  const distS    = streams.find(s => s.type === 'distance');
+  const gradeS   = streams.find(s => s.type === 'grade_smooth');
 
   let zoneBreakdown = null;
   try {
@@ -956,6 +959,86 @@ async function getActivityDetail(stravaId, data, settings) {
     }
   } catch(e) { console.warn('EF:', e.message); }
 
+  let velocityTimeline = null;
+  try {
+    if (timeS) {
+      const tArr = timeS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw = [];
+      if (velS) {
+        const vArr = velS.data;
+        let j = 0;
+        for (let ws = 0; ws < maxT; ws += 30) {
+          const we = ws + 30;
+          let sum = 0, cnt = 0;
+          while (j < tArr.length && tArr[j] < ws) j++;
+          let k = j;
+          while (k < tArr.length && tArr[k] < we) { sum += vArr[k]; cnt++; k++; }
+          if (cnt > 0) raw.push({ t: ws, v: Math.round(sum / cnt * 3.6 * 10) / 10 });
+        }
+      } else if (distS) {
+        const dArr = distS.data;
+        let j = 0;
+        for (let ws = 0; ws < maxT; ws += 30) {
+          const we = ws + 30;
+          while (j < tArr.length && tArr[j] < ws) j++;
+          const jStart = j;
+          let k = jStart;
+          while (k < tArr.length && tArr[k] < we) k++;
+          if (k > jStart) {
+            const dt = tArr[k-1] - tArr[jStart];
+            if (dt > 0) {
+              const dd = dArr[k-1] - dArr[jStart];
+              raw.push({ t: ws, v: Math.round(dd / dt * 3.6 * 10) / 10 });
+            }
+          }
+        }
+      }
+      if (raw.length > 1) velocityTimeline = raw;
+    }
+  } catch(e) { console.warn('Velocity timeline:', e.message); }
+
+  let cadenceTimeline = null;
+  try {
+    if (cadS && timeS) {
+      const tArr = timeS.data, cArr = cadS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw = [];
+      let j = 0;
+      for (let ws = 0; ws < maxT; ws += 30) {
+        const we = ws + 30;
+        let sum = 0, cnt = 0;
+        while (j < tArr.length && tArr[j] < ws) j++;
+        let k = j;
+        while (k < tArr.length && tArr[k] < we) {
+          if (cArr[k] > 0) { sum += cArr[k]; cnt++; }
+          k++;
+        }
+        if (cnt > 0) raw.push({ t: ws, c: Math.round(sum / cnt) });
+      }
+      if (raw.length > 1) cadenceTimeline = raw;
+    }
+  } catch(e) { console.warn('Cadence timeline:', e.message); }
+
+  let gradientTimeline = null;
+  try {
+    if (gradeS && timeS) {
+      const tArr = timeS.data, gArr = gradeS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw = [];
+      let j = 0;
+      for (let ws = 0; ws < maxT; ws += 30) {
+        const we = ws + 30;
+        let sum = 0, cnt = 0;
+        while (j < tArr.length && tArr[j] < ws) j++;
+        let k = j;
+        while (k < tArr.length && tArr[k] < we) { sum += gArr[k]; cnt++; k++; }
+        if (cnt > 0) raw.push({ t: ws, g: Math.round(sum / cnt * 10) / 10 });
+      }
+      if (raw.length > 1) gradientTimeline = raw;
+    }
+  } catch(e) { console.warn('Gradient timeline:', e.message); }
+
   // Persist cache
   try {
     const freshData = await loadData();
@@ -964,7 +1047,8 @@ async function getActivityDetail(stravaId, data, settings) {
       cachedAt: new Date().toISOString(),
       zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null,
       hrTimeline, altitudeTimeline, mmpCurve, powerHistogram,
-      hrHistogram, aerobicDecoupling, vi, ef
+      hrHistogram, aerobicDecoupling, vi, ef,
+      velocityTimeline, cadenceTimeline, gradientTimeline
     };
     await saveData(freshData);
   } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
@@ -976,6 +1060,7 @@ async function getActivityDetail(stravaId, data, settings) {
     hrTimeline,        altitudeTimeline, mmpCurve,
     powerHistogram,    hrHistogram, aerobicDecoupling,
     vi, ef,
+    velocityTimeline,  cadenceTimeline, gradientTimeline,
     ftp:               FTP,
     plannedSession:    activity ? findPlanned(actDate) : null
   };
