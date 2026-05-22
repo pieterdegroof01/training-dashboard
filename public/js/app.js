@@ -1631,6 +1631,12 @@ function nearestGpsPoint(gpsTrack, tCurrent) {
   return best;
 }
 
+function renderSample(pts, maxPts) {
+  if (!pts || pts.length <= maxPts) return pts || [];
+  const step = Math.ceil(pts.length / maxPts);
+  return pts.filter((_, i) => i % step === 0);
+}
+
 function admRenderMainChart(d, FTP) {
   const svg = document.getElementById('adm-main-svg');
   if (!svg) return;
@@ -1667,6 +1673,7 @@ function admRenderMainChart(d, FTP) {
 
   // Hoogte als gevulde achtergrond (altijd, niet togglebaar)
   const altClipped = clip(altData);
+  const altRender = renderSample(altClipped, Math.max(drawW, 300));
   if (altClipped.length > 1) {
     const altH = Math.round(drawH * 0.3);
     const minAlt = Math.min(...altClipped.map(p => p.alt));
@@ -1674,9 +1681,9 @@ function admRenderMainChart(d, FTP) {
     const altRange = maxAlt - minAlt || 1;
     const altYfn = v => H - pad.bottom - (v - minAlt) / altRange * altH;
     const altBase = H - pad.bottom;
-    const pts = altClipped.map(p => xS(p.t) + ',' + altYfn(p.alt));
-    pts.unshift(xS(altClipped[0].t) + ',' + altBase);
-    pts.push(xS(altClipped[altClipped.length-1].t) + ',' + altBase);
+    const pts = altRender.map(p => xS(p.t) + ',' + altYfn(p.alt));
+    pts.unshift(xS(altRender[0].t) + ',' + altBase);
+    pts.push(xS(altRender[altRender.length-1].t) + ',' + altBase);
     svgHtml += '<polygon points="' + pts.join(' ') + '" fill="#6B7280" opacity="0.2"/>';
   }
 
@@ -1725,7 +1732,8 @@ function admRenderMainChart(d, FTP) {
   // Actieve series
   let leftAxisDone = false, rightAxisDone = false;
   activeList.forEach(s => {
-    const data = clip(d[s.dataKey]);
+    const clipped = clip(d[s.dataKey]);
+    const data = renderSample(clipped, Math.max(drawW, 300));
     if (data.length < 2) return;
     const [yMin, yMax] = s.yDomain(data, FTP);
     const yRange = yMax - yMin || 1;
@@ -1943,6 +1951,43 @@ function admRenderMainChart(d, FTP) {
     window._admZoomAverages = {};
     admRenderMainChart(window._admCurrentDetail, window._admCurrentFTP);
     admUpdateMapZoom(null, null, window._admCurrentDetail?.gpsTrack);
+  });
+
+  overlay.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+  }, { passive: false });
+
+  overlay.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const svgRect = svg.getBoundingClientRect();
+    const mouseX = touch.clientX - svgRect.left;
+    const params = svg._admParams;
+    if (!params) return;
+    const { pad: p, drawW: dw, tMin: tm, tRange: tr, d: dd, activeList: al } = params;
+    if (mouseX < p.left || mouseX > p.left + dw) return;
+    const tCurrent = tm + ((mouseX - p.left) / dw) * tr;
+
+    const gpsPoint = nearestGpsPoint(dd.gpsTrack, tCurrent);
+    if (gpsPoint && admLeafletMap) {
+      if (!admCursorMarker) {
+        admCursorMarker = L.circleMarker([gpsPoint.lat, gpsPoint.lng], {
+          radius: 8, color: '#ffffff', fillColor: '#3B82F6',
+          fillOpacity: 1, weight: 2
+        }).addTo(admLeafletMap);
+      } else {
+        admCursorMarker.setLatLng([gpsPoint.lat, gpsPoint.lng]);
+      }
+    }
+
+    crosshair.setAttribute('x1', mouseX);
+    crosshair.setAttribute('x2', mouseX);
+    crosshair.style.display = '';
+  }, { passive: false });
+
+  overlay.addEventListener('touchend', function() {
+    crosshair.style.display = 'none';
+    if (admCursorMarker) { admCursorMarker.remove(); admCursorMarker = null; }
   });
 }
 
@@ -2271,14 +2316,21 @@ async function loadActivityAnalysis(stravaId) {
   }
 }
 
+function closeActivityDetailModal() {
+  const modal = document.getElementById('activity-detail-modal');
+  if (modal) modal.style.display = 'none';
+  if (admCursorMarker) { admCursorMarker.remove(); admCursorMarker = null; }
+  if (admLeafletMap) { admLeafletMap.remove(); admLeafletMap = null;
+                       admRouteLayer = null; admSegmentLayer = null; }
+  window._admZoomAverages = {};
+  admZoomState = { active: false, tStart: null, tEnd: null };
+}
+
 const admCloseBtn = document.getElementById('adm-close');
-if (admCloseBtn) admCloseBtn.addEventListener('click', () => {
-  document.getElementById('activity-detail-modal').style.display = 'none';
-});
+if (admCloseBtn) admCloseBtn.addEventListener('click', closeActivityDetailModal);
 const admModal = document.getElementById('activity-detail-modal');
 if (admModal) admModal.addEventListener('click', e => {
-  if (e.target.id === 'activity-detail-modal')
-    admModal.style.display = 'none';
+  if (e.target.id === 'activity-detail-modal') closeActivityDetailModal();
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
