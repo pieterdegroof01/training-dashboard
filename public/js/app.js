@@ -1611,106 +1611,159 @@ const ADM_SERIES = [
   { key:'speed',    label:'Snelheid', color:'#10B981', dataKey:'velocityTimeline', valueKey:'v',   unit:'km/u', axisPosition:'right', yDomain: (data) => [0, Math.max(...data.map(p=>p.v))*1.1] },
   { key:'cadence',  label:'Cadans',   color:'#F59E0B', dataKey:'cadenceTimeline',  valueKey:'c',   unit:'rpm',  axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.c))-5, Math.max(...data.map(p=>p.c))+5] },
   { key:'gradient', label:'Helling',  color:'#8B5CF6', dataKey:'gradientTimeline', valueKey:'g',   unit:'%',    axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.g))-1, Math.max(...data.map(p=>p.g))+1] },
-  { key:'altitude', label:'Hoogte',   color:'#6B7280', dataKey:'altitudeTimeline', valueKey:'alt', unit:'m',    axisPosition:'left',  yDomain: (data) => [Math.min(...data.map(p=>p.alt)), Math.max(...data.map(p=>p.alt))] },
 ];
 
 let admSeriesVisible = {};
+let admZoomState = { active: false, tStart: null, tEnd: null };
+let admLeafletMap = null;
+let admRouteLayer = null;
+let admSegmentLayer = null;
 
 function admRenderMainChart(d, FTP) {
   const svg = document.getElementById('adm-main-svg');
   if (!svg) return;
+
   const W = svg.getBoundingClientRect().width || 600;
-  const H = 180;
-  const pad = { top: 12, right: 50, bottom: 24, left: 44 };
+  const H = 200;
+  const pad = { top: 14, right: 55, bottom: 26, left: 48 };
   const drawW = W - pad.left - pad.right;
   const drawH = H - pad.top - pad.bottom;
 
+  // Bepaal tijdsbereik op basis van zoom
   const activeList = ADM_SERIES.filter(s => admSeriesVisible[s.key] && d[s.dataKey]?.length > 1);
-
-  const allT = activeList.flatMap(s => d[s.dataKey].map(p => p.t));
   const altData = d.altitudeTimeline;
-  if (altData?.length > 1) altData.forEach(p => allT.push(p.t));
-  const maxT = allT.length ? Math.max(...allT) : 1;
-  const xS = t => pad.left + (t / maxT) * drawW;
+
+  // Bepaal maxT uit alle beschikbare data
+  const allT = [];
+  ADM_SERIES.forEach(s => { if (d[s.dataKey]?.length) allT.push(d[s.dataKey][d[s.dataKey].length-1].t); });
+  if (altData?.length) allT.push(altData[altData.length-1].t);
+  const fullMaxT = allT.length ? Math.max(...allT) : 1;
+
+  const tMin = admZoomState.active ? admZoomState.tStart : 0;
+  const tMax = admZoomState.active ? admZoomState.tEnd : fullMaxT;
+  const tRange = tMax - tMin || 1;
+
+  const xS = t => pad.left + ((t - tMin) / tRange) * drawW;
+
+  // Filter helper: clip data to current time window
+  function clip(pts) {
+    if (!pts?.length) return [];
+    return pts.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1);
+  }
 
   let svgHtml = '';
 
-  // Altitude as filled background (altijd)
-  if (altData?.length > 1) {
-    const altH = Math.round(drawH * 0.25);
-    const minAlt = Math.min(...altData.map(p => p.alt));
-    const maxAlt = Math.max(...altData.map(p => p.alt));
+  // Hoogte als gevulde achtergrond (altijd, niet togglebaar)
+  const altClipped = clip(altData);
+  if (altClipped.length > 1) {
+    const altH = Math.round(drawH * 0.3);
+    const minAlt = Math.min(...altClipped.map(p => p.alt));
+    const maxAlt = Math.max(...altClipped.map(p => p.alt));
     const altRange = maxAlt - minAlt || 1;
     const altYfn = v => H - pad.bottom - (v - minAlt) / altRange * altH;
     const altBase = H - pad.bottom;
-    const altPts = altData.map(p => xS(p.t) + ',' + altYfn(p.alt));
-    altPts.unshift(xS(altData[0].t) + ',' + altBase);
-    altPts.push(xS(altData[altData.length-1].t) + ',' + altBase);
-    svgHtml += '<polygon points="' + altPts.join(' ') + '" fill="#6B7280" opacity="0.25"/>';
+    const pts = altClipped.map(p => xS(p.t) + ',' + altYfn(p.alt));
+    pts.unshift(xS(altClipped[0].t) + ',' + altBase);
+    pts.push(xS(altClipped[altClipped.length-1].t) + ',' + altBase);
+    svgHtml += '<polygon points="' + pts.join(' ') + '" fill="#6B7280" opacity="0.2"/>';
   }
 
-  // Power zone bands (context, altijd als power data aanwezig)
-  const powerData = d.powerTimeline;
-  if (powerData?.length > 1) {
-    const maxP = Math.max(...powerData.map(p => p.w), FTP * 1.1);
+  // Power zone-bands als achtergrond (context)
+  const powerData = clip(d.powerTimeline);
+  if (powerData.length > 1) {
+    const maxP = Math.max(...powerData.map(p => p.w), FTP * 1.1) || 1;
     const powYfn = w => pad.top + (1 - w / maxP) * drawH;
     [[0,0.55],[0.55,0.75],[0.75,0.90],[0.90,1.05],[1.05,1.5]].forEach(([lo,hi], i) => {
       const y1 = powYfn(Math.min(hi * FTP, maxP));
       const y2 = powYfn(lo * FTP);
-      svgHtml += '<rect x="' + pad.left + '" y="' + y1 + '" width="' +
-        drawW + '" height="' + (y2-y1) + '" fill="' + ADM_ZONE_COLORS[i] + '" opacity="0.08"/>';
+      svgHtml += '<rect x="' + pad.left + '" y="' + y1 + '" width="' + drawW +
+        '" height="' + (y2-y1) + '" fill="' + ADM_ZONE_COLORS[i] + '" opacity="0.07"/>';
     });
   }
 
   // Tijdgrid
-  const interval = maxT > 5400 ? 1800 : maxT > 2700 ? 900 : 600;
-  for (let t = 0; t <= maxT; t += interval) {
+  const rawDuration = tRange;
+  const interval = rawDuration > 7200 ? 1800 : rawDuration > 3600 ? 900 :
+                   rawDuration > 1800 ? 600 : rawDuration > 600 ? 300 :
+                   rawDuration > 300 ? 60 : 30;
+  const firstTick = Math.ceil(tMin / interval) * interval;
+  for (let t = firstTick; t <= tMax; t += interval) {
     const x = xS(t);
-    const hh = Math.floor(t/3600), mm = Math.floor((t%3600)/60);
-    const label = hh > 0 ? hh+'u'+String(mm).padStart(2,'0') : mm+'min';
-    svgHtml += '<line x1="' + x + '" y1="' + pad.top + '" x2="' + x + '" y2="' + (H-pad.bottom) +
+    const absT = t;
+    const hh = Math.floor(absT/3600), mm = Math.floor((absT%3600)/60), ss = absT%60;
+    const label = hh>0 ? hh+'u'+String(mm).padStart(2,'0') :
+                  rawDuration > 300 ? mm+'min' :
+                  mm+'m'+String(ss).padStart(2,'0')+'s';
+    svgHtml += '<line x1="'+x+'" y1="'+pad.top+'" x2="'+x+'" y2="'+(H-pad.bottom)+
       '" stroke="#374151" stroke-width="0.5" opacity="0.4"/>';
-    svgHtml += '<text x="' + x + '" y="' + (H-pad.bottom+12) +
-      '" fill="#4A5568" font-size="8" text-anchor="middle">' + label + '</text>';
+    svgHtml += '<text x="'+x+'" y="'+(H-pad.bottom+12)+
+      '" fill="#4A5568" font-size="8" text-anchor="middle">'+label+'</text>';
   }
 
-  // FTP-lijn (alleen als power zichtbaar)
-  if (admSeriesVisible['power'] && powerData?.length > 1) {
-    const maxP = Math.max(...powerData.map(p => p.w), FTP * 1.1);
+  // FTP-lijn
+  if (admSeriesVisible['power'] && powerData.length > 1) {
+    const maxP = Math.max(...powerData.map(p => p.w), FTP * 1.1) || 1;
     const powYfn = w => pad.top + (1 - w / maxP) * drawH;
     const ftpY = powYfn(FTP);
-    svgHtml += '<line x1="' + pad.left + '" y1="' + ftpY + '" x2="' + (pad.left+drawW) + '" y2="' + ftpY +
+    svgHtml += '<line x1="'+pad.left+'" y1="'+ftpY+'" x2="'+(pad.left+drawW)+'" y2="'+ftpY+
       '" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>';
-    svgHtml += '<text x="' + (pad.left+4) + '" y="' + (ftpY-3) + '" fill="#EF4444" font-size="9">FTP ' + FTP + 'W</text>';
+    svgHtml += '<text x="'+(pad.left+4)+'" y="'+(ftpY-3)+'" fill="#EF4444" font-size="9">FTP '+FTP+'W</text>';
   }
 
-  // Actieve series tekenen
+  // Actieve series
   let leftAxisDone = false, rightAxisDone = false;
   activeList.forEach(s => {
-    const data = d[s.dataKey];
+    const data = clip(d[s.dataKey]);
+    if (data.length < 2) return;
     const [yMin, yMax] = s.yDomain(data, FTP);
     const yRange = yMax - yMin || 1;
     const yFn = v => pad.top + (1 - (v - yMin) / yRange) * drawH;
-    svgHtml += '<polyline points="' + data.map(p => xS(p.t) + ',' + yFn(p[s.valueKey])).join(' ') +
-      '" fill="none" stroke="' + s.color + '" stroke-width="1.5" stroke-linejoin="round" id="adm-line-' + s.key + '"/>';
+    svgHtml += '<polyline points="' + data.map(p => xS(p.t)+','+yFn(p[s.valueKey])).join(' ') +
+      '" fill="none" stroke="'+s.color+'" stroke-width="1.5" stroke-linejoin="round" id="adm-line-'+s.key+'"/>';
     if (s.axisPosition === 'left' && !leftAxisDone) {
       leftAxisDone = true;
       [yMin, (yMin+yMax)/2, yMax].forEach(v => {
-        svgHtml += '<text x="' + (pad.left-4) + '" y="' + (yFn(v)+3) +
-          '" fill="#4A5568" font-size="8" text-anchor="end">' + Math.round(v) + '</text>';
+        svgHtml += '<text x="'+(pad.left-4)+'" y="'+(yFn(v)+3)+
+          '" fill="#4A5568" font-size="8" text-anchor="end">'+Math.round(v)+'</text>';
       });
     } else if (s.axisPosition === 'right' && !rightAxisDone) {
       rightAxisDone = true;
       [yMin, (yMin+yMax)/2, yMax].forEach(v => {
-        svgHtml += '<text x="' + (pad.left+drawW+4) + '" y="' + (yFn(v)+3) +
-          '" fill="#4A5568" font-size="8">' + Math.round(v) + '</text>';
+        svgHtml += '<text x="'+(pad.left+drawW+4)+'" y="'+(yFn(v)+3)+
+          '" fill="#4A5568" font-size="8">'+Math.round(v)+'</text>';
       });
     }
   });
 
   svg.innerHTML = svgHtml;
 
-  // Tooltip aanmaken indien nog niet aanwezig
+  // Zoom-info tonen
+  const zoomInfoEl = document.getElementById('adm-zoom-info');
+  if (zoomInfoEl) {
+    if (admZoomState.active) {
+      const dur = tMax - tMin;
+      const hh = Math.floor(dur/3600), mm = Math.floor((dur%3600)/60), ss = Math.round(dur%60);
+      const durStr = hh>0 ? hh+'u'+String(mm).padStart(2,'0')+'m' :
+                     mm>0 ? mm+'m'+String(ss).padStart(2,'0')+'s' : ss+'s';
+      let distStr = '';
+      if (d.distanceTimeline?.length) {
+        function nearestD(t) {
+          let best = d.distanceTimeline[0];
+          for (const p of d.distanceTimeline) if (Math.abs(p.t-t)<Math.abs(best.t-t)) best = p;
+          return best.d;
+        }
+        const km = Math.abs(nearestD(tMax) - nearestD(tMin));
+        distStr = ' · ' + km.toFixed(2) + ' km';
+      }
+      zoomInfoEl.innerHTML = '🔍 <strong>' + durStr + distStr + '</strong>' +
+        ' <span style="opacity:0.5;font-size:11px">— dubbelklik om te resetten</span>';
+      zoomInfoEl.style.display = 'block';
+    } else {
+      zoomInfoEl.style.display = 'none';
+    }
+  }
+
+  // Tooltip
   let admTooltip = document.getElementById('adm-tooltip');
   if (!admTooltip) {
     admTooltip = document.createElement('div');
@@ -1719,70 +1772,132 @@ function admRenderMainChart(d, FTP) {
     document.body.appendChild(admTooltip);
   }
 
+  // Crosshair
   const crosshair = document.createElementNS('http://www.w3.org/2000/svg','line');
-  crosshair.setAttribute('y1', pad.top);
-  crosshair.setAttribute('y2', H - pad.bottom);
+  crosshair.setAttribute('y1', pad.top); crosshair.setAttribute('y2', H - pad.bottom);
   crosshair.setAttribute('stroke','rgba(255,255,255,0.4)');
   crosshair.setAttribute('stroke-width','1');
   crosshair.setAttribute('stroke-dasharray','3,3');
   crosshair.style.display = 'none';
   svg.appendChild(crosshair);
 
+  // Selectierechthoek voor drag-zoom
+  const selRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  selRect.setAttribute('y', pad.top);
+  selRect.setAttribute('height', drawH);
+  selRect.setAttribute('fill','rgba(255,255,255,0.12)');
+  selRect.setAttribute('stroke','rgba(255,255,255,0.5)');
+  selRect.setAttribute('stroke-width','1');
+  selRect.style.display = 'none';
+  selRect.style.pointerEvents = 'none';
+  svg.appendChild(selRect);
+
+  // Overlay voor muisgebeurtenissen
   const overlay = document.createElementNS('http://www.w3.org/2000/svg','rect');
-  overlay.setAttribute('x', pad.left);
-  overlay.setAttribute('y', pad.top);
-  overlay.setAttribute('width', drawW);
-  overlay.setAttribute('height', drawH);
+  overlay.setAttribute('x', pad.left); overlay.setAttribute('y', pad.top);
+  overlay.setAttribute('width', drawW); overlay.setAttribute('height', drawH);
   overlay.setAttribute('fill','transparent');
   overlay.style.cursor = 'crosshair';
   svg.appendChild(overlay);
 
-  svg._admParams = { pad, W, H, drawW, maxT, d, FTP, activeList };
+  svg._admParams = { pad, W, H, drawW, tMin, tMax, tRange, d, FTP, activeList };
+
+  let dragStartX = null;
+  let isDragging = false;
+
+  function nearest(pts, vKey, tCurrent) {
+    if (!pts?.length) return null;
+    let best = pts[0], bestDist = Math.abs(pts[0].t - tCurrent);
+    for (const p of pts) {
+      const dist = Math.abs(p.t - tCurrent);
+      if (dist < bestDist) { best = p; bestDist = dist; }
+    }
+    return best[vKey];
+  }
+
+  overlay.addEventListener('mousedown', function(e) {
+    const rect = svg.getBoundingClientRect();
+    dragStartX = e.clientX - rect.left;
+    isDragging = false;
+    e.preventDefault();
+  });
 
   overlay.addEventListener('mousemove', function(e) {
     const params = svg._admParams;
     if (!params) return;
-    const rect = svg.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const { pad: p, drawW: dw, maxT: mt, d: dd, activeList: al } = params;
-    if (mouseX < p.left || mouseX > p.left + dw) return;
-    const tCurrent = (mouseX - p.left) / dw * mt;
-    const hh = Math.floor(tCurrent/3600), mm = Math.floor((tCurrent%3600)/60);
-    const timeStr = hh>0 ? hh+'u'+String(mm).padStart(2,'0') : mm+'min';
-    function nearest(pts, vKey) {
-      if (!pts?.length) return null;
-      let best = pts[0], bestDist = Math.abs(pts[0].t - tCurrent);
-      for (const pt of pts) {
-        const dist = Math.abs(pt.t - tCurrent);
-        if (dist < bestDist) { best = pt; bestDist = dist; }
+    const svgRect = svg.getBoundingClientRect();
+    const mouseX = e.clientX - svgRect.left;
+
+    if (dragStartX !== null) {
+      const dx = Math.abs(mouseX - dragStartX);
+      if (dx > 4) {
+        isDragging = true;
+        crosshair.style.display = 'none';
+        admTooltip.style.display = 'none';
+        const x1 = Math.min(dragStartX, mouseX);
+        const x2 = Math.max(dragStartX, mouseX);
+        selRect.setAttribute('x', x1);
+        selRect.setAttribute('width', x2 - x1);
+        selRect.style.display = '';
       }
-      return best[vKey];
+      return;
     }
-    let html = '<div class="adm-tooltip-time">' + timeStr + '</div>';
+
+    // Tooltip
+    const { pad: p, drawW: dw, tMin: tm, tRange: tr, d: dd, activeList: al } = params;
+    if (mouseX < p.left || mouseX > p.left + dw) return;
+    const tCurrent = tm + ((mouseX - p.left) / dw) * tr;
+    const hh = Math.floor(tCurrent/3600), mm = Math.floor((tCurrent%3600)/60), ss = Math.round(tCurrent%60);
+    const timeStr = hh>0 ? hh+'u'+String(mm).padStart(2,'0') :
+                    tr > 300 ? mm+'min' : mm+'m'+String(ss).padStart(2,'0')+'s';
+    let html = '<div class="adm-tooltip-time">'+timeStr+'</div>';
     al.forEach(s => {
-      const val = nearest(dd[s.dataKey], s.valueKey);
+      const data = clip(dd[s.dataKey]);
+      const val = nearest(data, s.valueKey, tCurrent);
       if (val !== null && val !== undefined)
-        html += '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:' +
-          s.color + '"></span>' + s.label + ': <strong>' + val + ' ' + s.unit + '</strong></div>';
+        html += '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:'+s.color+'"></span>'+
+          s.label+': <strong>'+val+' '+s.unit+'</strong></div>';
     });
-    const tip = document.getElementById('adm-tooltip');
-    if (!tip) return;
-    tip.innerHTML = html;
-    tip.style.display = 'block';
+    admTooltip.innerHTML = html;
+    admTooltip.style.display = 'block';
     const tipW = 150;
     let tipX = e.clientX + 14;
     if (tipX + tipW > window.innerWidth) tipX = e.clientX - tipW - 14;
-    tip.style.left = tipX + 'px';
-    tip.style.top = (e.clientY - 60) + 'px';
-    crosshair.setAttribute('x1', mouseX);
-    crosshair.setAttribute('x2', mouseX);
+    admTooltip.style.left = tipX + 'px';
+    admTooltip.style.top = (e.clientY - 60) + 'px';
+    crosshair.setAttribute('x1', mouseX); crosshair.setAttribute('x2', mouseX);
     crosshair.style.display = '';
   });
 
+  overlay.addEventListener('mouseup', function(e) {
+    selRect.style.display = 'none';
+    if (!isDragging || dragStartX === null) { dragStartX = null; isDragging = false; return; }
+    const svgRect = svg.getBoundingClientRect();
+    const mouseX = e.clientX - svgRect.left;
+    const params = svg._admParams;
+    const { pad: p, drawW: dw, tMin: tm, tRange: tr } = params;
+    const x1 = Math.min(dragStartX, mouseX);
+    const x2 = Math.max(dragStartX, mouseX);
+    if (x2 - x1 < 8) { dragStartX = null; isDragging = false; return; }
+    const newTStart = tm + Math.max(0, (x1 - p.left) / dw) * tr;
+    const newTEnd   = tm + Math.min(1, (x2 - p.left) / dw) * tr;
+    dragStartX = null; isDragging = false;
+    admZoomState = { active: true, tStart: newTStart, tEnd: newTEnd };
+    admRenderMainChart(window._admCurrentDetail, window._admCurrentFTP);
+    admUpdateMapZoom(newTStart, newTEnd, window._admCurrentDetail?.gpsTrack);
+  });
+
   overlay.addEventListener('mouseleave', function() {
-    const tip = document.getElementById('adm-tooltip');
-    if (tip) tip.style.display = 'none';
-    crosshair.style.display = 'none';
+    if (!isDragging) {
+      admTooltip.style.display = 'none';
+      crosshair.style.display = 'none';
+    }
+  });
+
+  overlay.addEventListener('dblclick', function() {
+    admZoomState = { active: false, tStart: null, tEnd: null };
+    admRenderMainChart(window._admCurrentDetail, window._admCurrentFTP);
+    admUpdateMapZoom(null, null, window._admCurrentDetail?.gpsTrack);
   });
 }
 
@@ -1803,6 +1918,54 @@ function admToggleSeries(key) {
   if (d && FTP) admRenderMainChart(d, FTP);
 }
 
+function admInitMap(gpsTrack) {
+  const section = document.getElementById('adm-map-section');
+  const container = document.getElementById('adm-map');
+  if (!container || !gpsTrack?.length || !window.L) {
+    if (section) section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  if (admLeafletMap) {
+    admLeafletMap.remove();
+    admLeafletMap = null;
+    admRouteLayer = null;
+    admSegmentLayer = null;
+  }
+
+  admLeafletMap = L.map('adm-map', { zoomControl: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    maxZoom: 19
+  }).addTo(admLeafletMap);
+
+  const latlngs = gpsTrack.map(p => [p.lat, p.lng]);
+  admRouteLayer = L.polyline(latlngs, {
+    color: '#3B82F6', weight: 3, opacity: 0.85
+  }).addTo(admLeafletMap);
+  admLeafletMap.fitBounds(admRouteLayer.getBounds(), { padding: [20, 20] });
+}
+
+function admUpdateMapZoom(tStart, tEnd, gpsTrack) {
+  if (!admLeafletMap || !gpsTrack?.length) return;
+  if (admSegmentLayer) {
+    admLeafletMap.removeLayer(admSegmentLayer);
+    admSegmentLayer = null;
+  }
+  if (tStart === null || tEnd === null) {
+    if (admRouteLayer) admLeafletMap.fitBounds(admRouteLayer.getBounds(), { padding: [20,20] });
+    return;
+  }
+  const segment = gpsTrack.filter(p => p.t >= tStart && p.t <= tEnd);
+  if (segment.length < 2) return;
+  const latlngs = segment.map(p => [p.lat, p.lng]);
+  admSegmentLayer = L.polyline(latlngs, {
+    color: '#F59E0B', weight: 6, opacity: 0.95
+  }).addTo(admLeafletMap);
+  admLeafletMap.fitBounds(admSegmentLayer.getBounds(), { padding: [30,30] });
+}
+
 async function openActivityDetail(stravaId) {
   const modal = document.getElementById('activity-detail-modal');
   modal.style.display = 'flex';
@@ -1811,10 +1974,9 @@ async function openActivityDetail(stravaId) {
   document.getElementById('adm-meta').textContent = '';
   document.getElementById('adm-metrics').innerHTML = '';
 
-  const resetIds = ['adm-derived-metrics','adm-main-chart-section',
+  const resetIds = ['adm-derived-metrics','adm-map-section','adm-main-chart-section',
     'adm-zone-bar','adm-zone-labels','adm-planned-comparison',
-    'adm-mmp-section','adm-dist-section','adm-hr-dist',
-    'adm-hr-row','adm-decoupling-section','adm-planned-section'];
+    'adm-mmp-section','adm-hr-row','adm-decoupling-section','adm-planned-section'];
   resetIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -1836,6 +1998,8 @@ async function openActivityDetail(stravaId) {
   const FTP = d.ftp || 280;
   window._admCurrentDetail = d;
   window._admCurrentFTP = FTP;
+  admZoomState = { active: false, tStart: null, tEnd: null };
+  setTimeout(() => admInitMap(d.gpsTrack), 50);
 
   document.getElementById('adm-title').textContent = a.name;
   document.getElementById('adm-meta').textContent = a.date + ' · ' + a.type;
@@ -1884,7 +2048,7 @@ async function openActivityDetail(stravaId) {
       const data = d[s.dataKey];
       if (data?.length > 1) {
         if (admSeriesVisible[s.key] === undefined)
-          admSeriesVisible[s.key] = ['power','hr','altitude'].includes(s.key);
+          admSeriesVisible[s.key] = ['power','hr'].includes(s.key);
       } else {
         admSeriesVisible[s.key] = false;
       }
@@ -2003,18 +2167,6 @@ async function openActivityDetail(stravaId) {
       const tip = document.getElementById('adm-tooltip');
       if (tip) tip.style.display = 'none';
     });
-  }
-
-  // ── Distributies ──
-  const hasPwrDist = d.powerHistogram?.length > 0;
-  const hasHrDist  = d.hrHistogram?.length > 0;
-  if (hasPwrDist || hasHrDist) {
-    document.getElementById('adm-dist-section').style.display='flex';
-    if (hasPwrDist) admDrawHistogram('adm-pdist-svg', d.powerHistogram, '#3B82F6', 'wattMin', 'minutes', 'W');
-    if (hasHrDist) {
-      document.getElementById('adm-hr-dist').style.display='block';
-      admDrawHistogram('adm-hrdist-svg', d.hrHistogram, '#EF4444', 'hrMin', 'minutes', 'bpm');
-    }
   }
 
   // ── HR + cadence ──

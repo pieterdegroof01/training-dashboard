@@ -759,7 +759,7 @@ async function getActivityDetail(stravaId, data, settings) {
   try {
     const token = await getStravaToken();
     const resp  = await axios.get(
-      `https://www.strava.com/api/v3/activities/${sid}/streams?keys=watts,time,heartrate,cadence,altitude,distance,velocity_smooth,grade_smooth&series_type=time`,
+      `https://www.strava.com/api/v3/activities/${sid}/streams?keys=watts,time,heartrate,cadence,altitude,distance,velocity_smooth,grade_smooth,latlng&series_type=time`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     streams = resp.data || [];
@@ -773,6 +773,7 @@ async function getActivityDetail(stravaId, data, settings) {
   const velS     = streams.find(s => s.type === 'velocity_smooth');
   const distS    = streams.find(s => s.type === 'distance');
   const gradeS   = streams.find(s => s.type === 'grade_smooth');
+  const latlngS  = streams.find(s => s.type === 'latlng');
 
   let zoneBreakdown = null;
   try {
@@ -782,25 +783,10 @@ async function getActivityDetail(stravaId, data, settings) {
 
   let powerTimeline = null;
   try {
-    if (wattsS && timeS) {
-      const tArr = timeS.data, wArr = wattsS.data;
-      const maxT = tArr[tArr.length - 1];
-      const raw  = [];
-      let j = 0;
-      for (let ws = 0; ws < maxT; ws += 30) {
-        const we = ws + 30;
-        let sum = 0, cnt = 0;
-        while (j < tArr.length && tArr[j] < ws) j++;
-        let k = j;
-        while (k < tArr.length && tArr[k] < we) { sum += wArr[k]; cnt++; k++; }
-        if (cnt > 0) raw.push({ t: ws, w: Math.round(sum / cnt) });
-      }
-      if (raw.length > 360) {
-        const step = Math.ceil(raw.length / 360);
-        powerTimeline = raw.filter((_, i) => i % step === 0);
-      } else {
-        powerTimeline = raw;
-      }
+    if (wattsS && timeS && !inUnreliable) {
+      const wattsArr = wattsS.data;
+      const raw = timeS.data.map((t, i) => ({ t, w: Math.max(0, wattsArr[i] || 0) }));
+      powerTimeline = raw.slice(0, 10800);
     }
   } catch(e) { console.warn('Power timeline:', e.message); }
 
@@ -830,12 +816,12 @@ async function getActivityDetail(stravaId, data, settings) {
       const maxT = tArr[tArr.length - 1];
       const raw = [];
       let j = 0;
-      for (let ws = 0; ws < maxT; ws += 30) {
-        const we = ws + 30;
+      for (let ws = 0; ws < maxT; ws += 5) {
+        const we = ws + 5;
         let sum = 0, cnt = 0;
         while (j < tArr.length && tArr[j] < ws) j++;
         let k = j;
-        while (k < tArr.length && tArr[k] < we) { sum += hrArr[k]; cnt++; k++; }
+        while (k < tArr.length && tArr[k] < we) { if (hrArr[k] > 0) { sum += hrArr[k]; cnt++; } k++; }
         if (cnt > 0) raw.push({ t: ws, hr: Math.round(sum / cnt) });
       }
       if (raw.length > 1) hrTimeline = raw;
@@ -849,8 +835,8 @@ async function getActivityDetail(stravaId, data, settings) {
       const maxT = tArr[tArr.length - 1];
       const raw = [];
       let j = 0;
-      for (let ws = 0; ws < maxT; ws += 30) {
-        const we = ws + 30;
+      for (let ws = 0; ws < maxT; ws += 5) {
+        const we = ws + 5;
         let sum = 0, cnt = 0;
         while (j < tArr.length && tArr[j] < ws) j++;
         let k = j;
@@ -885,39 +871,43 @@ async function getActivityDetail(stravaId, data, settings) {
     }
   } catch(e) { console.warn('MMP curve:', e.message); }
 
-  let powerHistogram = null;
+  let distanceTimeline = null;
   try {
-    if (wattsS && timeS) {
-      const watts = wattsS.data, time = timeS.data;
-      const bins = {};
-      for (let i = 0; i < time.length - 1; i++) {
-        const dur = time[i + 1] - time[i];
-        const bin = Math.floor(watts[i] / 25) * 25;
-        bins[bin] = (bins[bin] || 0) + dur;
+    if (distS && timeS) {
+      const tArr = timeS.data, dArr = distS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw = [];
+      for (let ws = 0; ws < maxT; ws += 5) {
+        let j = 0, bestDiff = Math.abs(tArr[0] - ws);
+        for (let k = 1; k < tArr.length; k++) {
+          const diff = Math.abs(tArr[k] - ws);
+          if (diff < bestDiff) { bestDiff = diff; j = k; }
+          if (tArr[k] > ws + 5) break;
+        }
+        raw.push({ t: ws, d: Math.round(dArr[j] / 10) / 100 });
       }
-      powerHistogram = Object.entries(bins)
-        .map(([wattMin, secs]) => ({ wattMin: parseInt(wattMin), minutes: Math.round(secs / 60 * 10) / 10 }))
-        .filter(b => b.minutes > 0)
-        .sort((a, b) => a.wattMin - b.wattMin);
+      if (raw.length > 1) distanceTimeline = raw;
     }
-  } catch(e) { console.warn('Power histogram:', e.message); }
+  } catch(e) { console.warn('Distance timeline:', e.message); }
 
-  let hrHistogram = null;
+  let gpsTrack = null;
   try {
-    if (hrS && timeS) {
-      const hr = hrS.data, time = timeS.data;
-      const bins = {};
-      for (let i = 0; i < time.length - 1; i++) {
-        const dur = time[i + 1] - time[i];
-        const bin = Math.floor(hr[i] / 5) * 5;
-        bins[bin] = (bins[bin] || 0) + dur;
+    if (latlngS && timeS) {
+      const tArr = timeS.data;
+      const maxT = tArr[tArr.length - 1];
+      const raw = [];
+      for (let ws = 0; ws < maxT; ws += 5) {
+        let j = 0, bestDiff = Math.abs(tArr[0] - ws);
+        for (let k = 1; k < tArr.length; k++) {
+          const diff = Math.abs(tArr[k] - ws);
+          if (diff < bestDiff) { bestDiff = diff; j = k; }
+          if (tArr[k] > ws + 5) break;
+        }
+        raw.push({ t: ws, lat: latlngS.data[j][0], lng: latlngS.data[j][1] });
       }
-      hrHistogram = Object.entries(bins)
-        .map(([hrMin, secs]) => ({ hrMin: parseInt(hrMin), minutes: Math.round(secs / 60 * 10) / 10 }))
-        .filter(b => b.minutes > 0)
-        .sort((a, b) => a.hrMin - b.hrMin);
+      if (raw.length > 1) gpsTrack = raw;
     }
-  } catch(e) { console.warn('HR histogram:', e.message); }
+  } catch(e) { console.warn('GPS track:', e.message); }
 
   let aerobicDecoupling = null;
   try {
@@ -966,40 +956,16 @@ async function getActivityDetail(stravaId, data, settings) {
 
   let velocityTimeline = null;
   try {
-    if (timeS) {
-      const tArr = timeS.data;
-      const maxT = tArr[tArr.length - 1];
-      const raw = [];
-      if (velS) {
-        const vArr = velS.data;
-        let j = 0;
-        for (let ws = 0; ws < maxT; ws += 30) {
-          const we = ws + 30;
-          let sum = 0, cnt = 0;
-          while (j < tArr.length && tArr[j] < ws) j++;
-          let k = j;
-          while (k < tArr.length && tArr[k] < we) { sum += vArr[k]; cnt++; k++; }
-          if (cnt > 0) raw.push({ t: ws, v: Math.round(sum / cnt * 3.6 * 10) / 10 });
-        }
-      } else if (distS) {
-        const dArr = distS.data;
-        let j = 0;
-        for (let ws = 0; ws < maxT; ws += 30) {
-          const we = ws + 30;
-          while (j < tArr.length && tArr[j] < ws) j++;
-          const jStart = j;
-          let k = jStart;
-          while (k < tArr.length && tArr[k] < we) k++;
-          if (k > jStart) {
-            const dt = tArr[k-1] - tArr[jStart];
-            if (dt > 0) {
-              const dd = dArr[k-1] - dArr[jStart];
-              raw.push({ t: ws, v: Math.round(dd / dt * 3.6 * 10) / 10 });
-            }
-          }
-        }
+    if (velS && timeS) {
+      velocityTimeline = timeS.data.map((t, i) => ({ t, v: Math.round(velS.data[i] * 3.6 * 10) / 10 }));
+    } else if (distS && timeS) {
+      const result = [];
+      for (let i = 1; i < timeS.data.length; i++) {
+        const dt = timeS.data[i] - timeS.data[i - 1];
+        const dd = distS.data[i] - distS.data[i - 1];
+        result.push({ t: timeS.data[i], v: dt > 0 ? Math.round(dd / dt * 3.6 * 10) / 10 : 0 });
       }
-      if (raw.length > 1) velocityTimeline = raw;
+      if (result.length > 1) velocityTimeline = result;
     }
   } catch(e) { console.warn('Velocity timeline:', e.message); }
 
@@ -1010,8 +976,8 @@ async function getActivityDetail(stravaId, data, settings) {
       const maxT = tArr[tArr.length - 1];
       const raw = [];
       let j = 0;
-      for (let ws = 0; ws < maxT; ws += 30) {
-        const we = ws + 30;
+      for (let ws = 0; ws < maxT; ws += 5) {
+        const we = ws + 5;
         let sum = 0, cnt = 0;
         while (j < tArr.length && tArr[j] < ws) j++;
         let k = j;
@@ -1032,8 +998,8 @@ async function getActivityDetail(stravaId, data, settings) {
       const maxT = tArr[tArr.length - 1];
       const raw = [];
       let j = 0;
-      for (let ws = 0; ws < maxT; ws += 30) {
-        const we = ws + 30;
+      for (let ws = 0; ws < maxT; ws += 5) {
+        const we = ws + 5;
         let sum = 0, cnt = 0;
         while (j < tArr.length && tArr[j] < ws) j++;
         let k = j;
@@ -1051,9 +1017,10 @@ async function getActivityDetail(stravaId, data, settings) {
     freshData.activityStreams[sid] = {
       cachedAt: new Date().toISOString(),
       zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null,
-      hrTimeline, altitudeTimeline, mmpCurve, powerHistogram,
-      hrHistogram, aerobicDecoupling, vi, ef,
-      velocityTimeline, cadenceTimeline, gradientTimeline
+      hrTimeline, altitudeTimeline, mmpCurve,
+      aerobicDecoupling, vi, ef,
+      velocityTimeline, cadenceTimeline, gradientTimeline,
+      distanceTimeline, gpsTrack
     };
     await saveData(freshData);
   } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
@@ -1063,9 +1030,9 @@ async function getActivityDetail(stravaId, data, settings) {
     zoneBreakdown,     powerTimeline, hrSummary,
     avgCadence:        avgCadence || null,
     hrTimeline,        altitudeTimeline, mmpCurve,
-    powerHistogram,    hrHistogram, aerobicDecoupling,
-    vi, ef,
+    aerobicDecoupling, vi, ef,
     velocityTimeline,  cadenceTimeline, gradientTimeline,
+    distanceTimeline,  gpsTrack,
     ftp:               FTP,
     plannedSession:    activity ? findPlanned(actDate) : null
   };

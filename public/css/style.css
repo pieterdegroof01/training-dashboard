@@ -373,3 +373,8 @@ body { overflow-x: hidden; }
 .adm-legend-pill.inactive { background:transparent;border-color:rgba(255,255,255,0.15);color:rgba(255,255,255,0.3); }
 .adm-legend-pill.inactive .adm-pill-dot { background:rgba(255,255,255,0.2) !important; }
 .adm-pill-dot { width:7px;height:7px;border-radius:50%;background:var(--pill-color);flex-shrink:0; }
+.adm-zoom-info {
+  font-size: 12px; padding: 5px 10px; margin-bottom: 6px;
+  background: rgba(255,255,255,0.06); border-radius: 6px;
+  border-left: 3px solid rgba(255,255,255,0.2);
+}
