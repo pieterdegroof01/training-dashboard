@@ -661,6 +661,7 @@ app.get('/api/strava/activities', async (req, res) => {
 });
 
 app.post('/api/strava/sync-all', async (req, res) => {
+  console.log('Sync-all gestart');
   try {
     const token = await getStravaToken();
     const data = await loadData();
@@ -692,8 +693,12 @@ app.post('/api/strava/sync-all', async (req, res) => {
       const syncState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
       await adjustCurrentWeek(data, syncState);
     } catch(e) { console.warn('adjustCurrentWeek (sync):', e.message); }
+    console.log('Sync-all klaar, totaal:', cache.activities.length);
     res.json({ total: cache.activities.length, new: newActs?.length || 0, lastSync: cache.lastSync, calibration });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('Sync-all fout:', err.message, err.stack);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/strava/history-summary', async (req, res) => {
