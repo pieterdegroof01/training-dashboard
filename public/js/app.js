@@ -1618,6 +1618,18 @@ let admZoomState = { active: false, tStart: null, tEnd: null };
 let admLeafletMap = null;
 let admRouteLayer = null;
 let admSegmentLayer = null;
+let admCursorMarker = null;
+
+function nearestGpsPoint(gpsTrack, tCurrent) {
+  if (!gpsTrack?.length) return null;
+  let best = gpsTrack[0], bestDiff = Math.abs(gpsTrack[0].t - tCurrent);
+  for (const p of gpsTrack) {
+    const diff = Math.abs(p.t - tCurrent);
+    if (diff < bestDiff) { best = p; bestDiff = diff; }
+    if (p.t > tCurrent + 10) break;
+  }
+  return best;
+}
 
 function admRenderMainChart(d, FTP) {
   const svg = document.getElementById('adm-main-svg');
@@ -1755,7 +1767,13 @@ function admRenderMainChart(d, FTP) {
         const km = Math.abs(nearestD(tMax) - nearestD(tMin));
         distStr = ' · ' + km.toFixed(2) + ' km';
       }
-      zoomInfoEl.innerHTML = '🔍 <strong>' + durStr + distStr + '</strong>' +
+      let avgStr = '';
+      const avgs = window._admZoomAverages || {};
+      Object.values(avgs).forEach(a => {
+        avgStr += ' · <span style="color:' + a.color + '">' +
+                  a.label + ': <strong>' + a.avg + ' ' + a.unit + '</strong></span>';
+      });
+      zoomInfoEl.innerHTML = '🔍 <strong>' + durStr + distStr + '</strong>' + avgStr +
         ' <span style="opacity:0.5;font-size:11px">— dubbelklik om te resetten</span>';
       zoomInfoEl.style.display = 'block';
     } else {
@@ -1847,6 +1865,17 @@ function admRenderMainChart(d, FTP) {
     const { pad: p, drawW: dw, tMin: tm, tRange: tr, d: dd, activeList: al } = params;
     if (mouseX < p.left || mouseX > p.left + dw) return;
     const tCurrent = tm + ((mouseX - p.left) / dw) * tr;
+    const gpsPoint = nearestGpsPoint(dd.gpsTrack, tCurrent);
+    if (gpsPoint && admLeafletMap) {
+      if (!admCursorMarker) {
+        admCursorMarker = L.circleMarker([gpsPoint.lat, gpsPoint.lng], {
+          radius: 8, color: '#ffffff', fillColor: '#3B82F6',
+          fillOpacity: 1, weight: 2
+        }).addTo(admLeafletMap);
+      } else {
+        admCursorMarker.setLatLng([gpsPoint.lat, gpsPoint.lng]);
+      }
+    }
     const hh = Math.floor(tCurrent/3600), mm = Math.floor((tCurrent%3600)/60), ss = Math.round(tCurrent%60);
     const timeStr = hh>0 ? hh+'u'+String(mm).padStart(2,'0') :
                     tr > 300 ? mm+'min' : mm+'m'+String(ss).padStart(2,'0')+'s';
@@ -1883,6 +1912,17 @@ function admRenderMainChart(d, FTP) {
     const newTEnd   = tm + Math.min(1, (x2 - p.left) / dw) * tr;
     dragStartX = null; isDragging = false;
     admZoomState = { active: true, tStart: newTStart, tEnd: newTEnd };
+    const _d = window._admCurrentDetail;
+    const zoomAverages = {};
+    ADM_SERIES.forEach(s => {
+      if (!admSeriesVisible[s.key]) return;
+      const pts = (_d[s.dataKey] || []).filter(p => p.t >= newTStart && p.t <= newTEnd);
+      if (pts.length < 2) return;
+      const sum = pts.reduce((acc, p) => acc + p[s.valueKey], 0);
+      zoomAverages[s.key] = { avg: Math.round(sum / pts.length * 10) / 10,
+                              label: s.label, unit: s.unit, color: s.color };
+    });
+    window._admZoomAverages = zoomAverages;
     admRenderMainChart(window._admCurrentDetail, window._admCurrentFTP);
     admUpdateMapZoom(newTStart, newTEnd, window._admCurrentDetail?.gpsTrack);
   });
@@ -1891,11 +1931,16 @@ function admRenderMainChart(d, FTP) {
     if (!isDragging) {
       admTooltip.style.display = 'none';
       crosshair.style.display = 'none';
+      if (admCursorMarker) {
+        admCursorMarker.remove();
+        admCursorMarker = null;
+      }
     }
   });
 
   overlay.addEventListener('dblclick', function() {
     admZoomState = { active: false, tStart: null, tEnd: null };
+    window._admZoomAverages = {};
     admRenderMainChart(window._admCurrentDetail, window._admCurrentFTP);
     admUpdateMapZoom(null, null, window._admCurrentDetail?.gpsTrack);
   });
@@ -1932,6 +1977,7 @@ function admInitMap(gpsTrack) {
     admLeafletMap = null;
     admRouteLayer = null;
     admSegmentLayer = null;
+    admCursorMarker = null;
   }
 
   admLeafletMap = L.map('adm-map', { zoomControl: true });
