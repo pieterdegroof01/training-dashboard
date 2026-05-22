@@ -79,6 +79,7 @@ async function loadUserData() {
     document.getElementById('gTimeline').value = g.timeline||'';
     document.getElementById('gNotes').value = g.notes||'';
     const cfg = S.data.settings||{};
+    window._admSettings = cfg;
     document.getElementById('sPwrStart').value = cfg.unreliablePowerStart||'2020-01-01';
     document.getElementById('sPwrEnd').value = cfg.unreliablePowerEnd||'2020-12-31';
     document.getElementById('sFtp').value = cfg.ftp||280;
@@ -88,6 +89,11 @@ async function loadUserData() {
     if (document.getElementById('sZ3')) document.getElementById('sZ3').value = z.z3||90;
     if (document.getElementById('sZ4')) document.getElementById('sZ4').value = z.z4||105;
     if (document.getElementById('sHrMax')) document.getElementById('sHrMax').value = cfg.hrMax||'';
+    const hz = cfg.hrZones || [60, 70, 80, 90];
+    ['sHrZ1','sHrZ2','sHrZ3','sHrZ4'].forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (el) el.value = hz[i];
+    });
     if (document.getElementById('sWeightLoss')) document.getElementById('sWeightLoss').value = cfg.targetWeightLossPerWeek||'';
     if (document.getElementById('sDefaultRPE')) document.getElementById('sDefaultRPE').value = cfg.defaultRPE||7.5;
     const al = cfg.alerts||{};
@@ -936,8 +942,11 @@ async function saveSettingsZones() {
 
 async function saveSettingsFysiologie() {
   const existing = S.data.settings || {};
-  const settings = { ...existing, hrMax: parseInt(document.getElementById('sHrMax').value)||185, targetWeightLossPerWeek: parseFloat(document.getElementById('sWeightLoss').value)||0.3 };
+  const hrZones = ['sHrZ1','sHrZ2','sHrZ3','sHrZ4']
+    .map((id, i) => parseInt(document.getElementById(id)?.value) || [60,70,80,90][i]);
+  const settings = { ...existing, hrMax: parseInt(document.getElementById('sHrMax').value)||185, targetWeightLossPerWeek: parseFloat(document.getElementById('sWeightLoss').value)||0.3, hrZones };
   await saveDataPartial({ settings });
+  window._admSettings = { ...(window._admSettings || {}), ...settings };
   showSaved('btnSaveFys', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
 }
 
@@ -2417,22 +2426,30 @@ function admRenderDistributies(d, FTP) {
   if (noData) noData.style.display = (!hasPower && !hasHR && !hasCad && !hasSpd) ? '' : 'none';
   if (!hasPower && !hasHR && !hasCad && !hasSpd) return;
 
-  const hrMax = window._admHrMax || 197;
+  const z = window._admSettings?.zones || {};
+  const pZ = [
+    (z.z1 || 55) / 100,
+    (z.z2 || 75) / 100,
+    (z.z3 || 90) / 100,
+    (z.z4 || 105) / 100,
+  ];
   const pwrZones = [
-    { label:'Z1', lo:0,                    hi:Math.round(0.55*ftp), color:ADM_ZONE_COLORS[0] },
-    { label:'Z2', lo:Math.round(0.55*ftp), hi:Math.round(0.75*ftp), color:ADM_ZONE_COLORS[1] },
-    { label:'Z3', lo:Math.round(0.75*ftp), hi:Math.round(0.90*ftp), color:ADM_ZONE_COLORS[2] },
-    { label:'Z4', lo:Math.round(0.90*ftp), hi:Math.round(1.05*ftp), color:ADM_ZONE_COLORS[3] },
-    { label:'Z5', lo:Math.round(1.05*ftp), hi:null,                 color:ADM_ZONE_COLORS[4] },
+    { label:'Z1', lo:0,                     hi:Math.round(pZ[0]*ftp), color:ADM_ZONE_COLORS[0] },
+    { label:'Z2', lo:Math.round(pZ[0]*ftp), hi:Math.round(pZ[1]*ftp), color:ADM_ZONE_COLORS[1] },
+    { label:'Z3', lo:Math.round(pZ[1]*ftp), hi:Math.round(pZ[2]*ftp), color:ADM_ZONE_COLORS[2] },
+    { label:'Z4', lo:Math.round(pZ[2]*ftp), hi:Math.round(pZ[3]*ftp), color:ADM_ZONE_COLORS[3] },
+    { label:'Z5', lo:Math.round(pZ[3]*ftp), hi:null,                  color:ADM_ZONE_COLORS[4] },
   ];
+  const hrMax = window._admSettings?.hrMax || 197;
+  const hZ = window._admSettings?.hrZones || [60, 70, 80, 90];
   const hrZones = [
-    { label:'Z1', lo:0,                      hi:Math.round(0.60*hrMax), color:ADM_ZONE_COLORS[0] },
-    { label:'Z2', lo:Math.round(0.60*hrMax), hi:Math.round(0.70*hrMax), color:ADM_ZONE_COLORS[1] },
-    { label:'Z3', lo:Math.round(0.70*hrMax), hi:Math.round(0.80*hrMax), color:ADM_ZONE_COLORS[2] },
-    { label:'Z4', lo:Math.round(0.80*hrMax), hi:Math.round(0.90*hrMax), color:ADM_ZONE_COLORS[3] },
-    { label:'Z5', lo:Math.round(0.90*hrMax), hi:null,                   color:ADM_ZONE_COLORS[4] },
+    { label:'Z1', lo:0,                           hi:Math.round(hZ[0]/100*hrMax), color:ADM_ZONE_COLORS[0] },
+    { label:'Z2', lo:Math.round(hZ[0]/100*hrMax), hi:Math.round(hZ[1]/100*hrMax), color:ADM_ZONE_COLORS[1] },
+    { label:'Z3', lo:Math.round(hZ[1]/100*hrMax), hi:Math.round(hZ[2]/100*hrMax), color:ADM_ZONE_COLORS[2] },
+    { label:'Z4', lo:Math.round(hZ[2]/100*hrMax), hi:Math.round(hZ[3]/100*hrMax), color:ADM_ZONE_COLORS[3] },
+    { label:'Z5', lo:Math.round(hZ[3]/100*hrMax), hi:null,                        color:ADM_ZONE_COLORS[4] },
   ];
-  const zonePctThresh = [0.55, 0.75, 0.90, 1.05];
+  const zonePctThresh = pZ;
 
   if (hasPower) {
     const powerSvg = document.getElementById('adm-power-hist');
@@ -2451,7 +2468,7 @@ function admRenderDistributies(d, FTP) {
 
   if (hasHR) {
     const hrSvg = document.getElementById('adm-hr-hist');
-    const hrThresh = [0.60, 0.70, 0.80, 0.90];
+    const hrThresh = hZ.map(v => v / 100);
     const counts = [0, 0, 0, 0, 0];
     d.hrTimeline.forEach(p => {
       const r = p.hr / hrMax;

@@ -411,6 +411,30 @@
       <div class="form-grid">
         <div class="fg"><label>Max hartslag (slagen/min)</label><input type="number" id="sHrMax" placeholder="185"></div>
         <div class="fg"><label>Gewichtsverlies doel (kg/week)</label><input type="number" step="0.1" id="sWeightLoss" placeholder="0.3"></div>
+        <div class="fg full">
+          <label>HR-zones (% van max hartslag)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div class="fg" style="flex:1;min-width:80px">
+              <label style="font-size:11px">Z1/Z2 grens (%)</label>
+              <input type="number" step="1" id="sHrZ1" placeholder="60">
+            </div>
+            <div class="fg" style="flex:1;min-width:80px">
+              <label style="font-size:11px">Z2/Z3 grens (%)</label>
+              <input type="number" step="1" id="sHrZ2" placeholder="70">
+            </div>
+            <div class="fg" style="flex:1;min-width:80px">
+              <label style="font-size:11px">Z3/Z4 grens (%)</label>
+              <input type="number" step="1" id="sHrZ3" placeholder="80">
+            </div>
+            <div class="fg" style="flex:1;min-width:80px">
+              <label style="font-size:11px">Z4/Z5 grens (%)</label>
+              <input type="number" step="1" id="sHrZ4" placeholder="90">
+            </div>
+          </div>
+          <p style="font-size:11px;color:var(--muted);margin-top:4px">
+            Voorbeeld: 60 / 70 / 80 / 90 → Z2 = 60–70% van max hartslag
+          </p>
+        </div>
       </div>
       <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsFysiologie()" id="btnSaveFys">Opslaan</button>
     </div>
