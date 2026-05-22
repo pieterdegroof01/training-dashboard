@@ -698,45 +698,89 @@
     </div>
     <div id="adm-metrics" class="activity-modal-metrics"></div>
     <div id="adm-derived-metrics" class="adm-derived-row" style="display:none"></div>
-    <div id="adm-map-section" class="activity-modal-section" style="display:none">
-      <h3 class="adm-section-title">Route</h3>
-      <div id="adm-map" style="height:220px;border-radius:8px;overflow:hidden"></div>
+    <div class="adm-tab-bar">
+      <button class="adm-tab active" data-tab="profiel" onclick="admSwitchTab('profiel')">Profiel</button>
+      <button class="adm-tab" data-tab="distributies" onclick="admSwitchTab('distributies')">Distributies</button>
+      <button class="adm-tab" data-tab="analyse" onclick="admSwitchTab('analyse')">Analyse</button>
+      <button class="adm-tab" data-tab="ai" onclick="admSwitchTab('ai')">AI</button>
     </div>
-    <div id="adm-main-chart-section" class="activity-modal-section" style="display:none">
-      <h3 class="adm-section-title">Ritprofiel</h3>
-      <div class="adm-chart-legend" id="adm-chart-legend"></div>
-      <div id="adm-zoom-info" class="adm-zoom-info" style="display:none"></div>
-      <svg id="adm-main-svg" width="100%" height="200" style="display:block;overflow:visible"></svg>
-    </div>
-    <div class="activity-modal-section">
-      <h3 class="adm-section-title">Zoneverdeling</h3>
-      <div id="adm-zone-bar" style="display:none"></div>
-      <div id="adm-zone-labels" style="display:none"></div>
-      <div id="adm-planned-comparison" style="display:none">
-        <p style="font-size:11px;opacity:0.5;margin:8px 0 4px">Gepland vs werkelijk</p>
-        <div id="adm-planned-bar"></div>
+    <div class="adm-tab-panel" id="adm-panel-profiel">
+      <div id="adm-map-section" class="activity-modal-section" style="display:none">
+        <h3 class="adm-section-title">Route</h3>
+        <div id="adm-map" style="height:220px;border-radius:8px;overflow:hidden"></div>
+      </div>
+      <div id="adm-main-chart-section" class="activity-modal-section" style="display:none">
+        <h3 class="adm-section-title">Ritprofiel</h3>
+        <div class="adm-chart-legend" id="adm-chart-legend"></div>
+        <div id="adm-zoom-info" class="adm-zoom-info" style="display:none"></div>
+        <svg id="adm-main-svg" width="100%" height="200" style="display:block;overflow:visible"></svg>
+      </div>
+      <div class="activity-modal-section">
+        <h3 class="adm-section-title">Zoneverdeling</h3>
+        <div id="adm-zone-bar" style="display:none"></div>
+        <div id="adm-zone-labels" style="display:none"></div>
+        <div id="adm-planned-comparison" style="display:none">
+          <p style="font-size:11px;opacity:0.5;margin:8px 0 4px">Gepland vs werkelijk</p>
+          <div id="adm-planned-bar"></div>
+        </div>
+      </div>
+      <div id="adm-mmp-section" class="activity-modal-section" style="display:none">
+        <h3 class="adm-section-title">Mean Maximal Power</h3>
+        <p class="adm-section-sub">Beste gemiddeld vermogen per duur deze rit</p>
+        <svg id="adm-mmp-svg" width="100%" height="120" style="display:block;overflow:visible"></svg>
+      </div>
+      <div id="adm-hr-row" class="activity-modal-section" style="display:none">
+        <span id="adm-hr-text" style="font-size:13px"></span>
+      </div>
+      <div id="adm-decoupling-section" class="activity-modal-section" style="display:none">
+        <h3 class="adm-section-title">Aerobe koppeling</h3>
+        <div id="adm-decoupling-content"></div>
+      </div>
+      <div id="adm-planned-section" class="activity-modal-section" style="display:none">
+        <h3 class="adm-section-title">Geplande sessie</h3>
+        <div id="adm-planned-blocks"></div>
       </div>
     </div>
-    <div id="adm-mmp-section" class="activity-modal-section" style="display:none">
-      <h3 class="adm-section-title">Mean Maximal Power</h3>
-      <p class="adm-section-sub">Beste gemiddeld vermogen per duur deze rit</p>
-      <svg id="adm-mmp-svg" width="100%" height="120" style="display:block;overflow:visible"></svg>
+    <div class="adm-tab-panel" id="adm-panel-distributies" style="display:none">
+      <div class="adm-dist-grid">
+        <div>
+          <h3 class="adm-section-title">Vermogen</h3>
+          <svg id="adm-dist-power-svg" width="100%" height="130" style="display:block"></svg>
+        </div>
+        <div>
+          <h3 class="adm-section-title">Hartslag</h3>
+          <svg id="adm-dist-hr-svg" width="100%" height="130" style="display:block"></svg>
+        </div>
+        <div>
+          <h3 class="adm-section-title">Cadans</h3>
+          <svg id="adm-dist-cadence-svg" width="100%" height="130" style="display:block"></svg>
+        </div>
+        <div>
+          <h3 class="adm-section-title">Snelheid</h3>
+          <svg id="adm-dist-speed-svg" width="100%" height="130" style="display:block"></svg>
+        </div>
+      </div>
     </div>
-    <div id="adm-hr-row" class="activity-modal-section" style="display:none">
-      <span id="adm-hr-text" style="font-size:13px"></span>
+    <div class="adm-tab-panel" id="adm-panel-analyse" style="display:none">
+      <div class="activity-modal-section">
+        <h3 class="adm-section-title">Vermogen–Hartslag scatter</h3>
+        <canvas id="adm-scatter-canvas" height="200" style="width:100%;display:block"></canvas>
+      </div>
+      <div class="activity-modal-section">
+        <h3 class="adm-section-title">HR drift</h3>
+        <svg id="adm-drift-svg" width="100%" height="120" style="display:block;overflow:visible"></svg>
+      </div>
+      <div class="activity-modal-section">
+        <h3 class="adm-section-title">Vermogenskwadranten (vermogen × cadans)</h3>
+        <canvas id="adm-quadrant-canvas" height="200" style="width:100%;display:block"></canvas>
+      </div>
     </div>
-    <div id="adm-decoupling-section" class="activity-modal-section" style="display:none">
-      <h3 class="adm-section-title">Aerobe koppeling</h3>
-      <div id="adm-decoupling-content"></div>
-    </div>
-    <div id="adm-planned-section" class="activity-modal-section" style="display:none">
-      <h3 class="adm-section-title">Geplande sessie</h3>
-      <div id="adm-planned-blocks"></div>
-    </div>
-    <div class="activity-modal-section">
-      <h3 class="adm-section-title">AI-analyse</h3>
-      <div id="adm-ai-content">
-        <button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>
+    <div class="adm-tab-panel" id="adm-panel-ai" style="display:none">
+      <div class="activity-modal-section">
+        <h3 class="adm-section-title">AI-analyse</h3>
+        <div id="adm-ai-content">
+          <button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>
+        </div>
       </div>
     </div>
   </div>

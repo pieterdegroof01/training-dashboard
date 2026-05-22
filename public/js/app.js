@@ -1610,8 +1610,22 @@ const ADM_SERIES = [
   { key:'hr',       label:'Hartslag', color:'#EF4444', dataKey:'hrTimeline',       valueKey:'hr',  unit:'bpm',  axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.hr))-5, Math.max(...data.map(p=>p.hr))+5] },
   { key:'speed',    label:'Snelheid', color:'#10B981', dataKey:'velocityTimeline', valueKey:'v',   unit:'km/u', axisPosition:'right', yDomain: (data) => [0, Math.max(...data.map(p=>p.v))*1.1] },
   { key:'cadence',  label:'Cadans',   color:'#F59E0B', dataKey:'cadenceTimeline',  valueKey:'c',   unit:'rpm',  axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.c))-5, Math.max(...data.map(p=>p.c))+5] },
-  { key:'gradient', label:'Helling',  color:'#8B5CF6', dataKey:'gradientTimeline', valueKey:'g',   unit:'%',    axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.g))-1, Math.max(...data.map(p=>p.g))+1] },
+  { key:'gradient',     label:'Helling',  color:'#8B5CF6', dataKey:'gradientTimeline',     valueKey:'g', unit:'%',   axisPosition:'right', yDomain: (data) => [Math.min(...data.map(p=>p.g))-1, Math.max(...data.map(p=>p.g))+1] },
+  { key:'rollingpower', label:'Gem. 30s', color:'#FBBF24', dataKey:'rollingPowerTimeline', valueKey:'w', unit:'W',   axisPosition:'left',  yDomain: (data, ftp) => [0, Math.max(...data.map(p=>p.w), (ftp||280)*1.1)] },
 ];
+
+function admSwitchTab(tab) {
+  document.querySelectorAll('.adm-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.adm-tab-panel').forEach(panel => {
+    panel.style.display = panel.id === 'adm-panel-' + tab ? 'block' : 'none';
+  });
+  const d = window._admCurrentDetail;
+  if (!d) return;
+  if (tab === 'distributies') setTimeout(() => admRenderDistributies(d, window._admCurrentFTP), 0);
+  if (tab === 'analyse')     setTimeout(() => admRenderAnalyse(d, window._admCurrentFTP), 0);
+}
 
 let admSeriesVisible = {};
 let admZoomState = { active: false, tStart: null, tEnd: null };
@@ -2060,6 +2074,7 @@ function admUpdateMapZoom(tStart, tEnd, gpsTrack) {
 async function openActivityDetail(stravaId) {
   const modal = document.getElementById('activity-detail-modal');
   modal.style.display = 'flex';
+  admSwitchTab('profiel');
 
   document.getElementById('adm-title').textContent = 'Laden...';
   document.getElementById('adm-meta').textContent = '';
@@ -2091,6 +2106,29 @@ async function openActivityDetail(stravaId) {
   window._admCurrentFTP = FTP;
   admZoomState = { active: false, tStart: null, tEnd: null };
   setTimeout(() => admInitMap(d.gpsTrack), 50);
+
+  if (d.powerTimeline?.length) {
+    const WIN = 30;
+    d.rollingPowerTimeline = d.powerTimeline.map((p, i) => {
+      let sum = 0, cnt = 0, j = i;
+      while (j >= 0 && p.t - d.powerTimeline[j].t < WIN) { sum += d.powerTimeline[j].w; cnt++; j--; }
+      return { t: p.t, w: cnt ? Math.round(sum / cnt) : p.w };
+    });
+  }
+  window._admComputedMetrics = {};
+  if (d.powerTimeline?.length) {
+    const pts = d.powerTimeline;
+    window._admComputedMetrics.avgPower = Math.round(pts.reduce((s, p) => s + p.w, 0) / pts.length);
+    window._admComputedMetrics.maxPower = Math.max(...pts.map(p => p.w));
+  }
+  if (d.hrTimeline?.length) {
+    const pts = d.hrTimeline;
+    window._admComputedMetrics.avgHR = Math.round(pts.reduce((s, p) => s + p.hr, 0) / pts.length);
+    window._admComputedMetrics.maxHR = Math.max(...pts.map(p => p.hr));
+  }
+  if (d.rollingPowerTimeline?.length) {
+    window._admComputedMetrics.maxRolling30 = Math.max(...d.rollingPowerTimeline.map(p => p.w));
+  }
 
   document.getElementById('adm-title').textContent = a.name;
   document.getElementById('adm-meta').textContent = a.date + ' · ' + a.type;
@@ -2302,11 +2340,240 @@ async function openActivityDetail(stravaId) {
   }
 }
 
+function admDrawHistBar(svgEl, bins, colorFn, labelFn) {
+  const W = svgEl.getBoundingClientRect().width || svgEl.parentElement?.offsetWidth || 320;
+  const H = 130;
+  svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgEl.innerHTML = '';
+  const maxVal = Math.max(...bins.map(b => b.count), 1);
+  const padL = 6, padR = 6, padT = 6, padB = 22;
+  const dW = W - padL - padR;
+  const dH = H - padT - padB;
+  const bw = dW / bins.length;
+  bins.forEach((bin, i) => {
+    const barH = (bin.count / maxVal) * dH;
+    const x = padL + i * bw;
+    const y = padT + dH - barH;
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', x + 1); rect.setAttribute('y', y);
+    rect.setAttribute('width', Math.max(bw - 2, 1)); rect.setAttribute('height', barH);
+    rect.setAttribute('fill', colorFn(bin, i)); rect.setAttribute('rx', 2);
+    svgEl.appendChild(rect);
+    if (i % Math.max(1, Math.ceil(bins.length / 6)) === 0 || i === bins.length - 1) {
+      const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      t.setAttribute('x', x + bw / 2); t.setAttribute('y', H - 4);
+      t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-size', '9');
+      t.setAttribute('fill', '#6B7280'); t.textContent = labelFn(bin, i);
+      svgEl.appendChild(t);
+    }
+  });
+}
+
+function admRenderDistributies(d, FTP) {
+  const ftp = FTP || 280;
+  const zonePctThresh = [0.55, 0.75, 0.90, 1.05];
+
+  const powerSvg = document.getElementById('adm-dist-power-svg');
+  if (powerSvg && d.powerTimeline?.length) {
+    const counts = [0, 0, 0, 0, 0];
+    d.powerTimeline.forEach(p => {
+      const r = p.w / ftp;
+      const zi = r < zonePctThresh[0] ? 0 : r < zonePctThresh[1] ? 1 : r < zonePctThresh[2] ? 2 : r < zonePctThresh[3] ? 3 : 4;
+      counts[zi]++;
+    });
+    admDrawHistBar(powerSvg, counts.map((c, i) => ({ count: c, label: 'Z' + (i + 1) })),
+      (_, i) => ADM_ZONE_COLORS[i], b => b.label);
+  }
+
+  const hrSvg = document.getElementById('adm-dist-hr-svg');
+  if (hrSvg && d.hrTimeline?.length) {
+    const hrMax = window._admComputedMetrics?.maxHR || Math.max(...d.hrTimeline.map(p => p.hr));
+    const hrThresh = [0.60, 0.70, 0.80, 0.90];
+    const counts = [0, 0, 0, 0, 0];
+    d.hrTimeline.forEach(p => {
+      const r = p.hr / hrMax;
+      const zi = r < hrThresh[0] ? 0 : r < hrThresh[1] ? 1 : r < hrThresh[2] ? 2 : r < hrThresh[3] ? 3 : 4;
+      counts[zi]++;
+    });
+    admDrawHistBar(hrSvg, counts.map((c, i) => ({ count: c, label: 'Z' + (i + 1) })),
+      (_, i) => ADM_ZONE_COLORS[i], b => b.label);
+  }
+
+  const cadSvg = document.getElementById('adm-dist-cadence-svg');
+  if (cadSvg && d.cadenceTimeline?.length) {
+    const vals = d.cadenceTimeline.map(p => p.c).filter(c => c > 20 && c < 200);
+    if (vals.length) {
+      const lo = Math.floor(Math.min(...vals) / 5) * 5;
+      const hi = Math.ceil(Math.max(...vals) / 5) * 5;
+      const n = Math.max(1, Math.min(20, Math.ceil((hi - lo) / 5)));
+      const step = (hi - lo) / n || 1;
+      const bins = Array.from({ length: n }, (_, i) => ({ lo: lo + i * step, count: 0 }));
+      vals.forEach(v => { const i = Math.min(n - 1, Math.floor((v - lo) / step)); if (i >= 0) bins[i].count++; });
+      admDrawHistBar(cadSvg, bins, () => '#F59E0B', b => Math.round(b.lo));
+    }
+  }
+
+  const spdSvg = document.getElementById('adm-dist-speed-svg');
+  if (spdSvg && d.velocityTimeline?.length) {
+    const vals = d.velocityTimeline.map(p => p.v).filter(v => v > 0);
+    if (vals.length) {
+      const lo = Math.floor(Math.min(...vals));
+      const hi = Math.ceil(Math.max(...vals));
+      const n = Math.max(1, Math.min(20, hi - lo + 1));
+      const step = (hi - lo) / n || 1;
+      const bins = Array.from({ length: n }, (_, i) => ({ lo: lo + i * step, count: 0 }));
+      vals.forEach(v => { const i = Math.min(n - 1, Math.floor((v - lo) / step)); if (i >= 0) bins[i].count++; });
+      admDrawHistBar(spdSvg, bins, () => '#10B981', b => Math.round(b.lo));
+    }
+  }
+}
+
+function admRenderAnalyse(d, FTP) {
+  const ftp = FTP || 280;
+
+  // Power–HR scatter
+  const scatterCanvas = document.getElementById('adm-scatter-canvas');
+  if (scatterCanvas && d.powerTimeline?.length && d.hrTimeline?.length) {
+    const cw = scatterCanvas.clientWidth || 400;
+    scatterCanvas.width = cw; scatterCanvas.height = 200;
+    const ctx = scatterCanvas.getContext('2d');
+    ctx.clearRect(0, 0, cw, 200);
+    const pL = 36, pR = 16, pT = 12, pB = 28;
+    const dW = cw - pL - pR, dH = 200 - pT - pB;
+    const pairs = [];
+    let j = 0;
+    for (const p of d.powerTimeline) {
+      while (j + 1 < d.hrTimeline.length && Math.abs(d.hrTimeline[j + 1].t - p.t) <= Math.abs(d.hrTimeline[j].t - p.t)) j++;
+      if (d.hrTimeline[j] && Math.abs(d.hrTimeline[j].t - p.t) < 60) pairs.push({ w: p.w, hr: d.hrTimeline[j].hr });
+    }
+    if (pairs.length) {
+      const maxW = Math.max(...pairs.map(p => p.w), ftp * 1.1);
+      const minHR = Math.min(...pairs.map(p => p.hr)) - 5;
+      const maxHR = Math.max(...pairs.map(p => p.hr)) + 5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = pT + (i / 4) * dH;
+        ctx.beginPath(); ctx.moveTo(pL, y); ctx.lineTo(pL + dW, y); ctx.stroke();
+        ctx.fillStyle = '#6B7280'; ctx.font = '8px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxHR - (i / 4) * (maxHR - minHR)), pL - 2, y + 3);
+      }
+      const ftpX = pL + (ftp / maxW) * dW;
+      ctx.strokeStyle = 'rgba(239,68,68,0.3)'; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(ftpX, pT); ctx.lineTo(ftpX, pT + dH); ctx.stroke();
+      ctx.setLineDash([]);
+      pairs.forEach(p => {
+        const x = pL + (p.w / maxW) * dW;
+        const y = pT + ((maxHR - p.hr) / (maxHR - minHR)) * dH;
+        const r = p.w / ftp;
+        const zi = r < 0.55 ? 0 : r < 0.75 ? 1 : r < 0.90 ? 2 : r < 1.05 ? 3 : 4;
+        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fillStyle = ADM_ZONE_COLORS[zi] + '99'; ctx.fill();
+      });
+      ctx.fillStyle = '#6B7280'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+      [0, 0.25, 0.5, 0.75, 1.0].forEach(pct => {
+        ctx.fillText(Math.round(pct * maxW) + 'W', pL + pct * dW, pT + dH + 14);
+      });
+    }
+  }
+
+  // HR drift
+  const driftSvg = document.getElementById('adm-drift-svg');
+  if (driftSvg && d.hrTimeline?.length > 10) {
+    const W = driftSvg.getBoundingClientRect().width || driftSvg.parentElement?.offsetWidth || 400;
+    const H = 120;
+    driftSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    driftSvg.innerHTML = '';
+    const pts = d.hrTimeline;
+    const minHR = Math.min(...pts.map(p => p.hr));
+    const maxHR = Math.max(...pts.map(p => p.hr));
+    const maxT = pts[pts.length - 1].t;
+    const pL = 32, pR = 8, pT = 8, pB = 20;
+    const dW = W - pL - pR, dH = H - pT - pB;
+    const toX = t => pL + (t / maxT) * dW;
+    const toY = hr => pT + ((maxHR - hr) / Math.max(maxHR - minHR, 1)) * dH;
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', renderSample(pts, dW).map(p => toX(p.t) + ',' + toY(p.hr)).join(' '));
+    poly.setAttribute('fill', 'none'); poly.setAttribute('stroke', '#EF4444');
+    poly.setAttribute('stroke-width', '1.5'); poly.setAttribute('opacity', '0.8');
+    driftSvg.appendChild(poly);
+    const half = Math.floor(pts.length / 2);
+    const avgF = Math.round(pts.slice(0, half).reduce((s, p) => s + p.hr, 0) / half);
+    const avgS = Math.round(pts.slice(half).reduce((s, p) => s + p.hr, 0) / (pts.length - half));
+    const tl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    tl.setAttribute('x1', toX(0)); tl.setAttribute('y1', toY(avgF));
+    tl.setAttribute('x2', toX(maxT)); tl.setAttribute('y2', toY(avgS));
+    tl.setAttribute('stroke', 'rgba(239,68,68,0.4)'); tl.setAttribute('stroke-width', '1');
+    tl.setAttribute('stroke-dasharray', '4,4');
+    driftSvg.appendChild(tl);
+    const lbl = (txt, x, y, anchor) => {
+      const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      t.setAttribute('x', x); t.setAttribute('y', y);
+      t.setAttribute('text-anchor', anchor || 'start');
+      t.setAttribute('font-size', '9'); t.setAttribute('fill', '#9CA3AF');
+      t.textContent = txt; driftSvg.appendChild(t);
+    };
+    lbl(avgF + ' bpm', pL + 2, toY(avgF) - 3);
+    lbl(avgS + ' bpm', W - pR - 2, toY(avgS) - 3, 'end');
+    lbl(maxHR + '', pL - 2, pT + 8, 'end');
+    lbl(minHR + '', pL - 2, pT + dH, 'end');
+  }
+
+  // Power × cadence density heatmap
+  const quadCanvas = document.getElementById('adm-quadrant-canvas');
+  if (quadCanvas && d.powerTimeline?.length && d.cadenceTimeline?.length) {
+    const cw = quadCanvas.clientWidth || 400;
+    quadCanvas.width = cw; quadCanvas.height = 200;
+    const ctx = quadCanvas.getContext('2d');
+    ctx.clearRect(0, 0, cw, 200);
+    const pL = 36, pR = 16, pT = 12, pB = 28;
+    const dW = cw - pL - pR, dH = 200 - pT - pB;
+    const pairs = [];
+    let j = 0;
+    for (const p of d.powerTimeline) {
+      while (j + 1 < d.cadenceTimeline.length && Math.abs(d.cadenceTimeline[j + 1].t - p.t) <= Math.abs(d.cadenceTimeline[j].t - p.t)) j++;
+      if (d.cadenceTimeline[j] && Math.abs(d.cadenceTimeline[j].t - p.t) < 60) pairs.push({ w: p.w, c: d.cadenceTimeline[j].c });
+    }
+    const valid = pairs.filter(p => p.c > 20 && p.c < 200);
+    if (valid.length) {
+      const maxW = Math.max(...valid.map(p => p.w), ftp * 1.1);
+      const minC = Math.min(...valid.map(p => p.c));
+      const maxC = Math.max(...valid.map(p => p.c));
+      const GRID = 20;
+      const density = Array.from({ length: GRID }, () => new Array(GRID).fill(0));
+      valid.forEach(p => {
+        const xi = Math.min(GRID - 1, Math.floor((p.w / maxW) * GRID));
+        const yi = Math.min(GRID - 1, Math.floor(((maxC - p.c) / Math.max(maxC - minC, 1)) * GRID));
+        density[yi][xi]++;
+      });
+      const maxD = Math.max(...density.flat(), 1);
+      const cw2 = dW / GRID, ch2 = dH / GRID;
+      density.forEach((row, yi) => row.forEach((val, xi) => {
+        if (!val) return;
+        ctx.fillStyle = `rgba(59,130,246,${Math.min(0.9, val / maxD)})`;
+        ctx.fillRect(pL + xi * cw2, pT + yi * ch2, cw2, ch2);
+      }));
+      const ftpX = pL + (ftp / maxW) * dW;
+      ctx.strokeStyle = 'rgba(239,68,68,0.5)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ftpX, pT); ctx.lineTo(ftpX, pT + dH); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#6B7280'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+      [0, 0.5, 1.0].forEach(pct => ctx.fillText(Math.round(pct * maxW) + 'W', pL + pct * dW, pT + dH + 14));
+      ctx.textAlign = 'right';
+      ctx.fillText(maxC + ' rpm', pL - 2, pT + 10);
+      ctx.fillText(minC + ' rpm', pL - 2, pT + dH);
+    }
+  }
+}
+
 async function loadActivityAnalysis(stravaId) {
   document.getElementById('adm-ai-content').innerHTML =
     '<span style="font-size:13px;opacity:0.6">Analyseren...</span>';
   try {
-    const resp = await fetch('/api/activity/' + stravaId + '/analyse', { method: 'POST' });
+    const resp = await fetch('/api/activity/' + stravaId + '/analyse', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ computed: window._admComputedMetrics || {} })
+    });
     const d    = await resp.json();
     document.getElementById('adm-ai-content').innerHTML =
       '<div class="adm-ai-text">' + (d.text || 'Analyse niet beschikbaar.') + '</div>';

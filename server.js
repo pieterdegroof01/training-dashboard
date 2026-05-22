@@ -1066,6 +1066,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
   try {
     if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key niet ingesteld' });
     const { stravaId } = req.params;
+    const computed  = req.body?.computed || {};
     const data     = await loadData();
     const settings = data.settings || {};
 
@@ -1104,6 +1105,9 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
       ps ? `Gepland: ${ps.title || '–'}, target TSS ${ps.targetTSS}, ${ps.duration} min` : null,
       ps ? `Geplande blokken: ${JSON.stringify(ps.blokken)}` : null,
       ps ? `Werkelijke TSS: ${a.tss} (afwijking: ${a.tss - (ps.targetTSS || 0)})` : null,
+      computed.maxRolling30 ? `Max 30s gem. vermogen: ${computed.maxRolling30}W`    : null,
+      computed.maxPower     ? `Max momentaan vermogen: ${computed.maxPower}W`        : null,
+      computed.maxHR        ? `Max hartslag: ${computed.maxHR} bpm`                 : null,
       `Huidige TSB: ${state.enduranceMetrics?.tsb ?? '–'}`,
       `Fase: ${state.trainingPlan?.phase || 'onbekend'}`,
       '',
