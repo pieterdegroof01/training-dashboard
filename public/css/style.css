@@ -395,3 +395,6 @@ body { overflow-x: hidden; }
 .adm-tab-panel { min-height:100px; }
 .adm-dist-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px; }
 @media (max-width:480px) { .adm-dist-grid { grid-template-columns:1fr; } }
+.adm-zone-legend-row { display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;margin-bottom:4px; }
+.adm-zone-legend-item { display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted); }
+.adm-no-data { font-size:13px;color:var(--muted);padding:16px 0;text-align:center; }

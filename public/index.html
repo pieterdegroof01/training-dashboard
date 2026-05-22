@@ -742,35 +742,37 @@
       </div>
     </div>
     <div class="adm-tab-panel" id="adm-panel-distributies" style="display:none">
+      <p id="adm-dist-nodata" class="adm-no-data" style="display:none">Geen data beschikbaar.</p>
       <div class="adm-dist-grid">
-        <div>
+        <div id="adm-sect-power-hist">
           <h3 class="adm-section-title">Vermogen</h3>
-          <svg id="adm-dist-power-svg" width="100%" height="130" style="display:block"></svg>
+          <svg id="adm-power-hist" width="100%" height="130" style="display:block"></svg>
         </div>
-        <div>
+        <div id="adm-sect-hr-hist">
           <h3 class="adm-section-title">Hartslag</h3>
-          <svg id="adm-dist-hr-svg" width="100%" height="130" style="display:block"></svg>
+          <svg id="adm-hr-hist" width="100%" height="130" style="display:block"></svg>
         </div>
-        <div>
+        <div id="adm-sect-cad-hist">
           <h3 class="adm-section-title">Cadans</h3>
           <svg id="adm-dist-cadence-svg" width="100%" height="130" style="display:block"></svg>
         </div>
-        <div>
+        <div id="adm-sect-spd-hist">
           <h3 class="adm-section-title">Snelheid</h3>
           <svg id="adm-dist-speed-svg" width="100%" height="130" style="display:block"></svg>
         </div>
       </div>
     </div>
     <div class="adm-tab-panel" id="adm-panel-analyse" style="display:none">
-      <div class="activity-modal-section">
+      <p id="adm-analyse-nodata" class="adm-no-data" style="display:none">Geen data beschikbaar voor analyse.</p>
+      <div id="adm-sect-scatter" class="activity-modal-section">
         <h3 class="adm-section-title">Vermogen–Hartslag scatter</h3>
         <canvas id="adm-scatter-canvas" height="200" style="width:100%;display:block"></canvas>
       </div>
-      <div class="activity-modal-section">
+      <div id="adm-sect-drift" class="activity-modal-section">
         <h3 class="adm-section-title">HR drift</h3>
         <svg id="adm-drift-svg" width="100%" height="120" style="display:block;overflow:visible"></svg>
       </div>
-      <div class="activity-modal-section">
+      <div id="adm-sect-quadrant" class="activity-modal-section">
         <h3 class="adm-section-title">Vermogenskwadranten (vermogen × cadans)</h3>
         <canvas id="adm-quadrant-canvas" height="200" style="width:100%;display:block"></canvas>
       </div>

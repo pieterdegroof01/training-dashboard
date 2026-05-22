@@ -2359,6 +2359,13 @@ function admDrawHistBar(svgEl, bins, colorFn, labelFn) {
     rect.setAttribute('width', Math.max(bw - 2, 1)); rect.setAttribute('height', barH);
     rect.setAttribute('fill', colorFn(bin, i)); rect.setAttribute('rx', 2);
     svgEl.appendChild(rect);
+    if (bin.secs !== undefined && barH >= 8) {
+      const tl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      tl.setAttribute('x', x + bw / 2); tl.setAttribute('y', y - 3);
+      tl.setAttribute('text-anchor', 'middle'); tl.setAttribute('font-size', '9');
+      tl.setAttribute('fill', 'rgba(255,255,255,0.6)'); tl.textContent = admFmtSecs(bin.secs);
+      svgEl.appendChild(tl);
+    }
     if (i % Math.max(1, Math.ceil(bins.length / 6)) === 0 || i === bins.length - 1) {
       const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       t.setAttribute('x', x + bw / 2); t.setAttribute('y', H - 4);
@@ -2369,25 +2376,81 @@ function admDrawHistBar(svgEl, bins, colorFn, labelFn) {
   });
 }
 
+function admFmtSecs(s) {
+  if (s < 60) return Math.round(s) + 's';
+  const m = Math.floor(s / 60), sec = Math.round(s % 60);
+  return sec > 0 ? m + 'm' + String(sec).padStart(2, '0') + 's' : m + 'min';
+}
+
+function admZoneLegend(svgId, zones, unit, pctPerZone) {
+  const el = document.getElementById(svgId);
+  if (!el) return;
+  const existing = el.nextElementSibling;
+  if (existing?.classList.contains('adm-zone-legend-row')) existing.remove();
+  const row = document.createElement('div');
+  row.className = 'adm-zone-legend-row';
+  zones.forEach((z, i) => {
+    const hiStr = z.hi !== null ? z.hi : '∞';
+    const pct = pctPerZone ? ' · ' + pctPerZone[i] + '%' : '';
+    const span = document.createElement('span');
+    span.className = 'adm-zone-legend-item';
+    span.innerHTML = '<span class="adm-pill-dot" style="--pill-color:' +
+      z.color + '"></span>' + z.label + ' ' + z.lo + '–' + hiStr + unit + pct;
+    row.appendChild(span);
+  });
+  el.after(row);
+}
+
 function admRenderDistributies(d, FTP) {
   const ftp = FTP || 280;
+  const hasPower = d.powerTimeline?.length > 1;
+  const hasHR    = d.hrTimeline?.length > 1;
+  const hasCad   = d.cadenceTimeline?.length > 1;
+  const hasSpd   = d.velocityTimeline?.length > 1;
+
+  document.getElementById('adm-sect-power-hist').style.display = hasPower ? '' : 'none';
+  document.getElementById('adm-sect-hr-hist').style.display    = hasHR    ? '' : 'none';
+  document.getElementById('adm-sect-cad-hist').style.display   = hasCad   ? '' : 'none';
+  document.getElementById('adm-sect-spd-hist').style.display   = hasSpd   ? '' : 'none';
+
+  const noData = document.getElementById('adm-dist-nodata');
+  if (noData) noData.style.display = (!hasPower && !hasHR && !hasCad && !hasSpd) ? '' : 'none';
+  if (!hasPower && !hasHR && !hasCad && !hasSpd) return;
+
+  const hrMax = window._admHrMax || 197;
+  const pwrZones = [
+    { label:'Z1', lo:0,                    hi:Math.round(0.55*ftp), color:ADM_ZONE_COLORS[0] },
+    { label:'Z2', lo:Math.round(0.55*ftp), hi:Math.round(0.75*ftp), color:ADM_ZONE_COLORS[1] },
+    { label:'Z3', lo:Math.round(0.75*ftp), hi:Math.round(0.90*ftp), color:ADM_ZONE_COLORS[2] },
+    { label:'Z4', lo:Math.round(0.90*ftp), hi:Math.round(1.05*ftp), color:ADM_ZONE_COLORS[3] },
+    { label:'Z5', lo:Math.round(1.05*ftp), hi:null,                 color:ADM_ZONE_COLORS[4] },
+  ];
+  const hrZones = [
+    { label:'Z1', lo:0,                      hi:Math.round(0.60*hrMax), color:ADM_ZONE_COLORS[0] },
+    { label:'Z2', lo:Math.round(0.60*hrMax), hi:Math.round(0.70*hrMax), color:ADM_ZONE_COLORS[1] },
+    { label:'Z3', lo:Math.round(0.70*hrMax), hi:Math.round(0.80*hrMax), color:ADM_ZONE_COLORS[2] },
+    { label:'Z4', lo:Math.round(0.80*hrMax), hi:Math.round(0.90*hrMax), color:ADM_ZONE_COLORS[3] },
+    { label:'Z5', lo:Math.round(0.90*hrMax), hi:null,                   color:ADM_ZONE_COLORS[4] },
+  ];
   const zonePctThresh = [0.55, 0.75, 0.90, 1.05];
 
-  const powerSvg = document.getElementById('adm-dist-power-svg');
-  if (powerSvg && d.powerTimeline?.length) {
+  if (hasPower) {
+    const powerSvg = document.getElementById('adm-power-hist');
     const counts = [0, 0, 0, 0, 0];
     d.powerTimeline.forEach(p => {
       const r = p.w / ftp;
       const zi = r < zonePctThresh[0] ? 0 : r < zonePctThresh[1] ? 1 : r < zonePctThresh[2] ? 2 : r < zonePctThresh[3] ? 3 : 4;
       counts[zi]++;
     });
-    admDrawHistBar(powerSvg, counts.map((c, i) => ({ count: c, label: 'Z' + (i + 1) })),
+    const total = counts.reduce((s, c) => s + c, 0) || 1;
+    const powerZonePct = counts.map(c => Math.round(c / total * 1000) / 10);
+    admDrawHistBar(powerSvg, counts.map((c, i) => ({ count: c, label: 'Z' + (i + 1), secs: c * 1 })),
       (_, i) => ADM_ZONE_COLORS[i], b => b.label);
+    admZoneLegend('adm-power-hist', pwrZones, 'W', powerZonePct);
   }
 
-  const hrSvg = document.getElementById('adm-dist-hr-svg');
-  if (hrSvg && d.hrTimeline?.length) {
-    const hrMax = window._admComputedMetrics?.maxHR || Math.max(...d.hrTimeline.map(p => p.hr));
+  if (hasHR) {
+    const hrSvg = document.getElementById('adm-hr-hist');
     const hrThresh = [0.60, 0.70, 0.80, 0.90];
     const counts = [0, 0, 0, 0, 0];
     d.hrTimeline.forEach(p => {
@@ -2395,12 +2458,15 @@ function admRenderDistributies(d, FTP) {
       const zi = r < hrThresh[0] ? 0 : r < hrThresh[1] ? 1 : r < hrThresh[2] ? 2 : r < hrThresh[3] ? 3 : 4;
       counts[zi]++;
     });
-    admDrawHistBar(hrSvg, counts.map((c, i) => ({ count: c, label: 'Z' + (i + 1) })),
+    const total = counts.reduce((s, c) => s + c, 0) || 1;
+    const hrZonePct = counts.map(c => Math.round(c / total * 1000) / 10);
+    admDrawHistBar(hrSvg, counts.map((c, i) => ({ count: c, label: 'Z' + (i + 1), secs: c * 5 })),
       (_, i) => ADM_ZONE_COLORS[i], b => b.label);
+    admZoneLegend('adm-hr-hist', hrZones, 'bpm', hrZonePct);
   }
 
-  const cadSvg = document.getElementById('adm-dist-cadence-svg');
-  if (cadSvg && d.cadenceTimeline?.length) {
+  if (hasCad) {
+    const cadSvg = document.getElementById('adm-dist-cadence-svg');
     const vals = d.cadenceTimeline.map(p => p.c).filter(c => c > 20 && c < 200);
     if (vals.length) {
       const lo = Math.floor(Math.min(...vals) / 5) * 5;
@@ -2409,12 +2475,13 @@ function admRenderDistributies(d, FTP) {
       const step = (hi - lo) / n || 1;
       const bins = Array.from({ length: n }, (_, i) => ({ lo: lo + i * step, count: 0 }));
       vals.forEach(v => { const i = Math.min(n - 1, Math.floor((v - lo) / step)); if (i >= 0) bins[i].count++; });
+      bins.forEach(b => { b.secs = b.count * 5; });
       admDrawHistBar(cadSvg, bins, () => '#F59E0B', b => Math.round(b.lo));
     }
   }
 
-  const spdSvg = document.getElementById('adm-dist-speed-svg');
-  if (spdSvg && d.velocityTimeline?.length) {
+  if (hasSpd) {
+    const spdSvg = document.getElementById('adm-dist-speed-svg');
     const vals = d.velocityTimeline.map(p => p.v).filter(v => v > 0);
     if (vals.length) {
       const lo = Math.floor(Math.min(...vals));
@@ -2423,6 +2490,7 @@ function admRenderDistributies(d, FTP) {
       const step = (hi - lo) / n || 1;
       const bins = Array.from({ length: n }, (_, i) => ({ lo: lo + i * step, count: 0 }));
       vals.forEach(v => { const i = Math.min(n - 1, Math.floor((v - lo) / step)); if (i >= 0) bins[i].count++; });
+      bins.forEach(b => { b.secs = b.count * 1; });
       admDrawHistBar(spdSvg, bins, () => '#10B981', b => Math.round(b.lo));
     }
   }
@@ -2430,6 +2498,18 @@ function admRenderDistributies(d, FTP) {
 
 function admRenderAnalyse(d, FTP) {
   const ftp = FTP || 280;
+
+  const hasScatter  = d.powerTimeline?.length > 1 && d.hrTimeline?.length > 1;
+  const hasDrift    = d.powerTimeline?.length > 1 && d.hrTimeline?.length > 1;
+  const hasQuadrant = d.powerTimeline?.length > 1 && d.cadenceTimeline?.length > 1;
+
+  document.getElementById('adm-sect-scatter').style.display  = hasScatter  ? '' : 'none';
+  document.getElementById('adm-sect-drift').style.display    = hasDrift    ? '' : 'none';
+  document.getElementById('adm-sect-quadrant').style.display = hasQuadrant ? '' : 'none';
+
+  const noData2 = document.getElementById('adm-analyse-nodata');
+  if (noData2) noData2.style.display = (!hasScatter && !hasDrift && !hasQuadrant) ? '' : 'none';
+  if (!hasScatter && !hasDrift && !hasQuadrant) return;
 
   // Power–HR scatter
   const scatterCanvas = document.getElementById('adm-scatter-canvas');
