@@ -685,14 +685,16 @@
 
 <script src="/js/app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<div id="activity-detail-modal" class="activity-modal-overlay">
+<div id="activity-detail-modal" class="activity-modal-overlay"
+     onclick="if(event.target===this) closeActivityDetailModal()">
   <div class="activity-modal-content">
     <div class="activity-modal-header">
       <div>
         <h2 id="adm-title"></h2>
         <span id="adm-meta" style="font-size:12px;opacity:0.6"></span>
       </div>
-      <button id="adm-close" class="adm-close-btn">✕</button>
+      <button id="adm-close" class="adm-close-btn"
+              onclick="closeActivityDetailModal()">✕</button>
     </div>
     <div id="adm-metrics" class="activity-modal-metrics"></div>
     <div id="adm-derived-metrics" class="adm-derived-row" style="display:none"></div>

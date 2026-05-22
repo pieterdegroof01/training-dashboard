@@ -346,8 +346,18 @@ body { overflow-x: hidden; }
 .adm-compare-row span { font-size:11px; width:58px; opacity:0.5; flex-shrink:0; }
 .adm-block-row { padding:5px 10px; margin-bottom:4px; font-size:13px; border-radius:0 6px 6px 0; background:rgba(255,255,255,0.06); }
 .adm-ai-text { font-size:14px; line-height:1.65; background:rgba(255,255,255,0.06); padding:12px; border-radius:8px; white-space:pre-wrap; }
-.adm-close-btn { background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;opacity:0.7; }
-.adm-close-btn:hover { opacity:1; }
+.adm-close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: var(--text);
+  opacity: 0.6;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.adm-close-btn:hover { opacity: 1; color: #ffffff; }
 .adm-derived-row { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
 .adm-derived-metric { display:flex;flex-direction:column;align-items:center;background:var(--bg-secondary,rgba(255,255,255,0.06));border-radius:8px;padding:6px 12px;min-width:80px; }
 .adm-derived-val { font-size:15px;font-weight:600; }

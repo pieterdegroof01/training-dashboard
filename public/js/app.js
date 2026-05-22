@@ -2326,13 +2326,6 @@ function closeActivityDetailModal() {
   admZoomState = { active: false, tStart: null, tEnd: null };
 }
 
-const admCloseBtn = document.getElementById('adm-close');
-if (admCloseBtn) admCloseBtn.addEventListener('click', closeActivityDetailModal);
-const admModal = document.getElementById('activity-detail-modal');
-if (admModal) admModal.addEventListener('click', e => {
-  if (e.target.id === 'activity-detail-modal') closeActivityDetailModal();
-});
-
 // ── Init ──────────────────────────────────────────────────────────────────────
 syncAll();
 (TAB_INSIGHTS['overview'] || []).forEach(p => loadInsight(p));
