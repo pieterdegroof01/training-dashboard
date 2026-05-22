@@ -781,12 +781,19 @@ async function getActivityDetail(stravaId, data, settings) {
       zoneBreakdown = calcZoneBreakdown(timeS.data, wattsS.data, FTP);
   } catch(e) { console.warn('Zone breakdown:', e.message); }
 
+  const MAX_POINTS = 7200;
+  function adaptiveSample(arr) {
+    if (arr.length <= MAX_POINTS) return arr;
+    const step = Math.ceil(arr.length / MAX_POINTS);
+    return arr.filter((_, i) => i % step === 0);
+  }
+
   let powerTimeline = null;
   try {
     if (wattsS && timeS && !inUnreliable) {
       const wattsArr = wattsS.data;
       const raw = timeS.data.map((t, i) => ({ t, w: Math.max(0, wattsArr[i] || 0) }));
-      powerTimeline = raw.slice(0, 10800);
+      powerTimeline = adaptiveSample(raw);
     }
   } catch(e) { console.warn('Power timeline:', e.message); }
 
@@ -877,13 +884,10 @@ async function getActivityDetail(stravaId, data, settings) {
       const tArr = timeS.data, dArr = distS.data;
       const maxT = tArr[tArr.length - 1];
       const raw = [];
+      let j = 0;
       for (let ws = 0; ws < maxT; ws += 5) {
-        let j = 0, bestDiff = Math.abs(tArr[0] - ws);
-        for (let k = 1; k < tArr.length; k++) {
-          const diff = Math.abs(tArr[k] - ws);
-          if (diff < bestDiff) { bestDiff = diff; j = k; }
-          if (tArr[k] > ws + 5) break;
-        }
+        while (j + 1 < tArr.length &&
+               Math.abs(tArr[j+1] - ws) <= Math.abs(tArr[j] - ws)) j++;
         raw.push({ t: ws, d: Math.round(dArr[j] / 10) / 100 });
       }
       if (raw.length > 1) distanceTimeline = raw;
@@ -896,13 +900,10 @@ async function getActivityDetail(stravaId, data, settings) {
       const tArr = timeS.data;
       const maxT = tArr[tArr.length - 1];
       const raw = [];
+      let j = 0;
       for (let ws = 0; ws < maxT; ws += 5) {
-        let j = 0, bestDiff = Math.abs(tArr[0] - ws);
-        for (let k = 1; k < tArr.length; k++) {
-          const diff = Math.abs(tArr[k] - ws);
-          if (diff < bestDiff) { bestDiff = diff; j = k; }
-          if (tArr[k] > ws + 5) break;
-        }
+        while (j + 1 < tArr.length &&
+               Math.abs(tArr[j+1] - ws) <= Math.abs(tArr[j] - ws)) j++;
         raw.push({ t: ws, lat: latlngS.data[j][0], lng: latlngS.data[j][1] });
       }
       if (raw.length > 1) gpsTrack = raw;
@@ -957,7 +958,8 @@ async function getActivityDetail(stravaId, data, settings) {
   let velocityTimeline = null;
   try {
     if (velS && timeS) {
-      velocityTimeline = timeS.data.map((t, i) => ({ t, v: Math.round(velS.data[i] * 3.6 * 10) / 10 }));
+      const raw = timeS.data.map((t, i) => ({ t, v: Math.round(velS.data[i] * 3.6 * 10) / 10 }));
+      velocityTimeline = adaptiveSample(raw);
     } else if (distS && timeS) {
       const result = [];
       for (let i = 1; i < timeS.data.length; i++) {
@@ -965,7 +967,7 @@ async function getActivityDetail(stravaId, data, settings) {
         const dd = distS.data[i] - distS.data[i - 1];
         result.push({ t: timeS.data[i], v: dt > 0 ? Math.round(dd / dt * 3.6 * 10) / 10 : 0 });
       }
-      if (result.length > 1) velocityTimeline = result;
+      if (result.length > 1) velocityTimeline = adaptiveSample(result);
     }
   } catch(e) { console.warn('Velocity timeline:', e.message); }
 
@@ -1022,6 +1024,17 @@ async function getActivityDetail(stravaId, data, settings) {
       velocityTimeline, cadenceTimeline, gradientTimeline,
       distanceTimeline, gpsTrack
     };
+    const MAX_CACHED = 50;
+    const streamKeys = Object.keys(freshData.activityStreams || {});
+    if (streamKeys.length > MAX_CACHED) {
+      streamKeys
+        .sort((a, b) =>
+          new Date(freshData.activityStreams[a].cachedAt) -
+          new Date(freshData.activityStreams[b].cachedAt)
+        )
+        .slice(0, streamKeys.length - MAX_CACHED)
+        .forEach(k => delete freshData.activityStreams[k]);
+    }
     await saveData(freshData);
   } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
 
