@@ -9,6 +9,8 @@ let S = {
   editingAiSession: null,
 };
 
+let _coachReturnContext = null;
+
 const DAYS_NL = ['Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag','Zondag'];
 const TYPES = ['Wielrennen (buiten)','Wielrennen (trainer)','Hardlopen','Krachttraining (Push)','Krachttraining (Pull)','Krachttraining (Legs)','Zwemmen','Overig'];
 
@@ -1121,6 +1123,21 @@ function showTab(name, btn) {
   document.getElementById('tab-'+name).classList.remove('hidden');
   if (btn) btn.classList.add('active');
   currentTab = name;
+  if (name !== 'analyse') {
+    _coachReturnContext = null;
+  } else {
+    const tabEl = document.getElementById('tab-analyse');
+    const existing = tabEl.querySelector('.ap-back-btn');
+    if (existing) existing.remove();
+    if (_coachReturnContext) {
+      const backBtn = document.createElement('button');
+      backBtn.className = 'ap-back-btn';
+      backBtn.style.cssText = 'margin-bottom:12px;display:block';
+      backBtn.textContent = '← Terug naar ' + _coachReturnContext.label;
+      backBtn.onclick = () => { const ctx = _coachReturnContext; _coachReturnContext = null; ctx.action(); };
+      tabEl.insertBefore(backBtn, tabEl.firstChild);
+    }
+  }
   // Load AI insights for this tab (once per session unless forced)
   const pages = TAB_INSIGHTS[name] || [];
   pages.forEach(p => { if (!S.insightLoaded[p]) loadInsight(p); });
@@ -1148,7 +1165,10 @@ async function loadInsight(page, force = false) {
       const coachBtn = document.createElement('button');
       coachBtn.className = 'ap-coach-link';
       coachBtn.textContent = 'Verdiep in Coach →';
-      coachBtn.onclick = () => showTab('analyse', document.querySelector('.nav-item[onclick*="analyse"]'));
+      coachBtn.onclick = () => {
+        _coachReturnContext = { label: 'Vandaag', action: () => showTab('vandaag', document.querySelector('.nav-item[onclick*="vandaag"]')) };
+        showTab('analyse', document.querySelector('.nav-item[onclick*="analyse"]'));
+      };
       textEl.parentElement.appendChild(coachBtn);
       if (metaEl) metaEl.textContent = result.cached
         ? `Gecached · ${new Date(result.cachedAt).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`
@@ -2810,7 +2830,12 @@ async function loadActivityAnalysis(stravaId) {
       const coachBtn = document.createElement('button');
       coachBtn.className = 'ap-coach-link';
       coachBtn.textContent = 'Verdiep in Coach →';
-      coachBtn.onclick = () => { renderActivityBack(); setTimeout(() => showTab('analyse', document.querySelector('.nav-item[onclick*="analyse"]')), 50); };
+      coachBtn.onclick = () => {
+        const actId = stravaId;
+        _coachReturnContext = { label: 'Activiteit', action: () => navigateToActivity(actId) };
+        renderActivityBack();
+        setTimeout(() => showTab('analyse', document.querySelector('.nav-item[onclick*="analyse"]')), 50);
+      };
       aiContainer.appendChild(coachBtn);
     }
   } catch(e) {

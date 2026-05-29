@@ -1071,7 +1071,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
     const settings = data.settings || {};
 
     // 7-day cache
-    const cacheKey = 'activity_v2_' + stravaId;
+    const cacheKey = 'activity_v3_' + stravaId;
     const cached   = data.aiInsights?.[cacheKey];
     if (cached?.ts && (Date.now() - cached.ts) < 7 * 24 * 60 * 60 * 1000) {
       return res.json({ text: cached.text });
@@ -1115,8 +1115,8 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
     ].filter(l => l !== null);
 
     const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
-      model: 'claude-sonnet-4-5', max_tokens: 400,
-      system: 'Je bent een persoonlijke wielrencoach. Schrijf een ritanalyse in maximaal 5 aaneengesloten zinnen. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets, geen kopjes. Gebruik concrete wielrencijfers (watt, TSS, zones, IF, HR). De laatste zin is altijd één concrete aanbeveling voor de komende 48 uur.',
+      model: 'claude-sonnet-4-5', max_tokens: 250,
+      system: 'Je bent een wielrencoach. Schrijf exact 3 zinnen, niet meer. Zin 1: wat valt op aan de cijfers (watt, TSS, zones, HR). Zin 2: wat verklaart dit in context van de belastingsstatus. Zin 3: één concrete aanbeveling voor de komende 48 uur. Geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets.',
       messages: [{ role: 'user', content: lines.join('\n') }]
     }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
 
@@ -1863,7 +1863,7 @@ app.post('/api/insights/:page', async (req, res) => {
       dataForHash = JSON.stringify(compactState);
       context = JSON.stringify(compactState);
       systemPrompt = 'Je bent een persoonlijke coach. Genereer een dagbriefing in maximaal 5 regels, in gewone zinnen, met concrete getallen uit de data. Sluit af met precies één concrete aanbeveling voor vandaag. Geen opsomming, geen headers, geen inleiding.';
-      maxTokens = 200;
+      maxTokens = 350;
     }
     else if (page === 'integratie') {
       if (!fullState) return res.json({ text: 'Sync je data voor geïntegreerde analyse.', cached: false, empty: true });
