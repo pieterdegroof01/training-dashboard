@@ -2192,6 +2192,8 @@ app.post('/webhook/strava', (req, res) => {
   })();
 });
 
+app.get('/activity/:id', (req, res) => res.sendFile('index.html', { root: 'public' }));
+
 app.listen(PORT, () => {
   console.log(`\n⚡ Training Dashboard draait op http://localhost:${PORT}\n`);
   if (!process.env.STRAVA_CLIENT_SECRET || process.env.STRAVA_CLIENT_SECRET.includes('jouw')) console.warn('⚠️  Strava credentials niet ingesteld');

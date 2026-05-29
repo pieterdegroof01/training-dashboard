@@ -301,7 +301,7 @@ function actRow(a, detail=false) {
   const elev = a.total_elevation_gain > 0 ? `<span>⛰ ${a.total_elevation_gain}m</span>` : '';
   const suf = a.suffer_score ? `<span class="c-red">🔥 ${a.suffer_score}</span>` : '';
   const _CLICK_TYPES = new Set(['Ride','VirtualRide','Run','TrailRun']);
-  const _detailAttr = _CLICK_TYPES.has(a.type) ? `onclick="openActivityDetail(${a.id})" data-strava-id="${a.id}" style="cursor:pointer"` : '';
+  const _detailAttr = _CLICK_TYPES.has(a.type) ? `onclick="navigateToActivity(${a.id})" data-strava-id="${a.id}" style="cursor:pointer"` : '';
   return `<div class="act-row" ${_detailAttr}>
     <div class="act-icon">${sEmoji(a.type)}</div>
     <div class="act-info"><div class="act-name">${a.name}</div><div class="act-date">${detail ? fmtD(a.start_date,true) : fmtD(a.start_date)}</div></div>
@@ -488,7 +488,7 @@ function renderWeekGrid() {
         const actStravaId    = s.matchedActivityId || s.stravaId;
         const aiClickable    = s.aiGenerated && s.blokken?.length && !isUnplanned && !actStravaId;
         const clickAttr      = actStravaId
-          ? `onclick="openActivityDetail(${actStravaId})" data-strava-id="${actStravaId}"`
+          ? `onclick="navigateToActivity(${actStravaId})" data-strava-id="${actStravaId}"`
           : aiClickable ? `onclick="openAiSession('${date}',${si})"` : '';
         const isCursorPointer = !!(actStravaId || aiClickable);
         let scoreBadge = '';
@@ -1623,18 +1623,7 @@ const ADM_SERIES = [
   { key:'rollingpower', label:'Gem. 30s', color:'#FBBF24', dataKey:'rollingPowerTimeline', valueKey:'w', unit:'W',   axisPosition:'left',  yDomain: (data, ftp) => [0, Math.max(...data.map(p=>p.w), (ftp||280)*1.1)] },
 ];
 
-function admSwitchTab(tab) {
-  document.querySelectorAll('.adm-tab').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
-  });
-  document.querySelectorAll('.adm-tab-panel').forEach(panel => {
-    panel.style.display = panel.id === 'adm-panel-' + tab ? 'block' : 'none';
-  });
-  const d = window._admCurrentDetail;
-  if (!d) return;
-  if (tab === 'distributies') setTimeout(() => admRenderDistributies(d, window._admCurrentFTP), 0);
-  if (tab === 'analyse')     setTimeout(() => admRenderAnalyse(d, window._admCurrentFTP), 0);
-}
+function admSwitchTab() { /* no-op: activity page uses grid layout instead of tabs */ }
 
 let admSeriesVisible = {};
 let admZoomState = { active: false, tStart: null, tEnd: null };
@@ -2080,41 +2069,85 @@ function admUpdateMapZoom(tStart, tEnd, gpsTrack) {
   admLeafletMap.fitBounds(admSegmentLayer.getBounds(), { padding: [30,30] });
 }
 
-async function openActivityDetail(stravaId) {
-  const modal = document.getElementById('activity-detail-modal');
-  modal.style.display = 'flex';
-  admSwitchTab('profiel');
+// ── Activity page routing ─────────────────────────────────────────────────────
 
-  document.getElementById('adm-title').textContent = 'Laden...';
-  document.getElementById('adm-meta').textContent = '';
-  document.getElementById('adm-metrics').innerHTML = '';
+function navigateToActivity(id) {
+  history.pushState({}, '', '/activity/' + id);
+  renderActivityPage(id);
+}
 
-  const resetIds = ['adm-derived-metrics','adm-map-section','adm-main-chart-section',
-    'adm-zone-bar','adm-zone-labels','adm-planned-comparison',
-    'adm-mmp-section','adm-hr-row','adm-decoupling-section','adm-planned-section'];
-  resetIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-  document.getElementById('adm-ai-content').innerHTML =
-    '<button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button>';
-  document.getElementById('adm-ai-btn').onclick = () => loadActivityAnalysis(stravaId);
+function renderActivityBack() {
+  if (window.history.length > 1) {
+    history.back();
+  } else {
+    const page = document.getElementById('activity-page');
+    if (page) page.style.display = 'none';
+    const appLayout = document.querySelector('.app-layout');
+    const header = document.querySelector('.header');
+    if (appLayout) appLayout.style.display = '';
+    if (header) header.style.display = '';
+    history.pushState({}, '', '/');
+    showTab('activiteiten', document.querySelector('.nav-item[onclick*="activiteiten"]'));
+  }
+}
+
+window.addEventListener('popstate', () => {
+  const match = window.location.pathname.match(/^\/activity\/(\d+)$/);
+  if (match) {
+    renderActivityPage(match[1]);
+  } else {
+    const page = document.getElementById('activity-page');
+    if (page) page.style.display = 'none';
+    const appLayout = document.querySelector('.app-layout');
+    const header = document.querySelector('.header');
+    if (appLayout) appLayout.style.display = '';
+    if (header) header.style.display = '';
+  }
+});
+
+async function renderActivityPage(id) {
+  const appLayout = document.querySelector('.app-layout');
+  const header = document.querySelector('.header');
+  if (appLayout) appLayout.style.display = 'none';
+  if (header) header.style.display = 'none';
+
+  let page = document.getElementById('activity-page');
+  if (!page) {
+    page = document.createElement('div');
+    page.id = 'activity-page';
+    document.body.appendChild(page);
+  }
+  page.style.display = 'block';
+  page.innerHTML = `
+    <div class="activity-header">
+      <button class="ap-back-btn" onclick="renderActivityBack()">← Activiteiten</button>
+      <div class="activity-header-center"><h2 class="ap-title">Laden...</h2></div>
+      <button class="ap-close-btn" onclick="renderActivityBack()">×</button>
+    </div>
+    <div class="ap-body"><div style="padding:40px;text-align:center;color:var(--muted)">Activiteit laden...</div></div>
+  `;
+
+  if (admLeafletMap) { admLeafletMap.remove(); admLeafletMap = null; admRouteLayer = null; admSegmentLayer = null; }
+  if (admCursorMarker) admCursorMarker = null;
+  window._admZoomAverages = {};
+  admZoomState = { active: false, tStart: null, tEnd: null };
+  admSeriesVisible = {};
 
   let d;
   try {
-    const resp = await fetch('/api/activity/' + stravaId + '/detail');
+    const resp = await fetch('/api/activity/' + id + '/detail');
     if (!resp.ok) throw new Error(await resp.text());
     d = await resp.json();
   } catch(e) {
-    document.getElementById('adm-title').textContent = 'Fout bij laden';
+    page.querySelector('.ap-body').innerHTML =
+      `<div class="alert alert-error" style="margin:16px">Fout bij laden: ${e.message}</div>`;
     return;
   }
+
   const a = d.activity;
   const FTP = d.ftp || 280;
   window._admCurrentDetail = d;
   window._admCurrentFTP = FTP;
-  admZoomState = { active: false, tStart: null, tEnd: null };
-  setTimeout(() => admInitMap(d.gpsTrack), 50);
 
   if (d.powerTimeline?.length) {
     const WIN = 30;
@@ -2139,57 +2172,140 @@ async function openActivityDetail(stravaId) {
     window._admComputedMetrics.maxRolling30 = Math.max(...d.rollingPowerTimeline.map(p => p.w));
   }
 
-  document.getElementById('adm-title').textContent = a.name;
-  document.getElementById('adm-meta').textContent = a.date + ' · ' + a.type;
+  const avgSpeed = a.distance_km && a.duration_min
+    ? +(a.distance_km / a.duration_min * 60).toFixed(1) : null;
+  const metricsHtml = [
+    a.distance_km  ? `<div class="metric-card"><div class="metric-card-val">${a.distance_km}&nbsp;km</div><div class="metric-card-lbl">Afstand</div></div>` : '',
+    `<div class="metric-card"><div class="metric-card-val">${a.duration_str}</div><div class="metric-card-lbl">Tijd</div></div>`,
+    `<div class="metric-card"><div class="metric-card-val">${a.tss}</div><div class="metric-card-lbl">TSS</div></div>`,
+    a.np           ? `<div class="metric-card"><div class="metric-card-val">${a.np}&nbsp;W</div><div class="metric-card-lbl">Norm. Vermogen</div></div>` : '',
+    a.avg_watts    ? `<div class="metric-card"><div class="metric-card-val">${a.avg_watts}&nbsp;W</div><div class="metric-card-lbl">Gem. Vermogen</div></div>` : '',
+    d.hrSummary?.avgHR ? `<div class="metric-card"><div class="metric-card-val">${d.hrSummary.avgHR}</div><div class="metric-card-lbl">Gem. HR</div></div>` : '',
+    a.elevation_m  ? `<div class="metric-card"><div class="metric-card-val">${a.elevation_m}&nbsp;m</div><div class="metric-card-lbl">Stijging</div></div>` : '',
+    avgSpeed       ? `<div class="metric-card"><div class="metric-card-val">${avgSpeed}</div><div class="metric-card-lbl">km/u</div></div>` : '',
+  ].join('');
 
-  // ── Primaire metrics ──
-  const metrics = [
-    ['Duur',    a.duration_str || a.duration_min + ' min'],
-    a.distance_km  ? ['Afstand',   a.distance_km + ' km']  : null,
-    a.elevation_m  ? ['Stijging',  a.elevation_m + ' hm']  : null,
-    a.avg_watts    ? ['Gem. watt', a.avg_watts + 'W']       : null,
-    a.np           ? ['NP',        a.np + 'W']              : null,
-    a.IF           ? ['IF',        a.IF]                    : null,
-    ['TSS', a.tss],
-    a.suffer_score ? ['Suffer',    a.suffer_score]          : null,
-  ].filter(Boolean);
-  document.getElementById('adm-metrics').innerHTML = metrics.map(([l, v]) =>
-    '<div class="adm-metric"><span class="adm-metric-val">' + v +
-    '</span><span class="adm-metric-label">' + l + '</span></div>'
-  ).join('');
-
-  // ── Afgeleide metrics ──
   const derived = [];
-  if (d.vi)  derived.push(['VI', d.vi,
-    d.vi < 1.05 ? 'Stabiel tempo' : d.vi < 1.10 ? 'Licht variabel' : 'Variabel']);
-  if (d.ef)  derived.push(['EF', d.ef, 'NP/gem.HR']);
+  if (d.vi) derived.push([d.vi, 'VI', d.vi < 1.05 ? 'Stabiel tempo' : d.vi < 1.10 ? 'Licht variabel' : 'Variabel']);
+  if (d.ef) derived.push([d.ef, 'EF', 'NP/gem.HR']);
   if (d.aerobicDecoupling) {
     const dc = d.aerobicDecoupling;
     const pct = Math.round(dc.decoupling * 1000) / 10;
-    derived.push(['Koppeling', pct + '%',
-      dc.status === 'goed' ? '✓ Goed (<5%)' : '⚠ Drift (>5%)']);
+    derived.push([pct + '%', 'Koppeling', dc.status === 'goed' ? '✓ Goed (<5%)' : '⚠ Drift (>5%)']);
   }
-  if (derived.length) {
-    const el = document.getElementById('adm-derived-metrics');
-    el.style.display = 'flex';
-    el.innerHTML = derived.map(([l, v, sub]) =>
-      '<div class="adm-derived-metric"><span class="adm-derived-val">' +
-      v + '</span><span class="adm-derived-label">' + l + '</span>' +
-      '<span class="adm-derived-sub">' + sub + '</span></div>'
-    ).join('');
-  }
+  const derivedHtml = derived.length
+    ? `<div id="adm-derived-metrics" class="adm-derived-row">${derived.map(([v,l,sub]) =>
+        `<div class="adm-derived-metric"><span class="adm-derived-val">${v}</span><span class="adm-derived-label">${l}</span><span class="adm-derived-sub">${sub}</span></div>`).join('')}</div>`
+    : `<div id="adm-derived-metrics" style="display:none"></div>`;
 
-  // ── Hoofdgrafiek met klikbare legend pills ──
+  page.innerHTML = `
+    <div class="activity-header">
+      <button class="ap-back-btn" onclick="renderActivityBack()">← Activiteiten</button>
+      <div class="activity-header-center">
+        <h2 id="adm-title" class="ap-title">${a.name}</h2>
+        <span id="adm-meta" class="ap-meta">${a.date} · ${a.type}</span>
+      </div>
+      <button class="ap-close-btn" onclick="renderActivityBack()">×</button>
+    </div>
+
+    <div class="ap-body">
+      <div class="activity-metrics-strip">${metricsHtml}</div>
+      ${derivedHtml}
+
+      <details class="ap-accordion-section" open>
+        <summary>Ritprofiel</summary>
+        <div class="activity-main-grid">
+          <div class="activity-left-col">
+            <div id="adm-map-section" class="ap-section" style="display:none">
+              <div id="adm-map" style="height:320px;max-height:420px;border-radius:8px;overflow:hidden"></div>
+            </div>
+            <div id="adm-main-chart-section" class="ap-section" style="display:none">
+              <div class="adm-chart-legend" id="adm-chart-legend"></div>
+              <div id="adm-zoom-info" class="adm-zoom-info" style="display:none"></div>
+              <svg id="adm-main-svg" width="100%" height="200" style="display:block;overflow:visible"></svg>
+            </div>
+          </div>
+          <div class="activity-right-col">
+            <div class="ap-section">
+              <h3 class="adm-section-title">Zoneverdeling</h3>
+              <div id="adm-zone-bar" style="display:none"></div>
+              <div id="adm-zone-labels" style="display:none"></div>
+              <div id="adm-planned-comparison" style="display:none">
+                <p style="font-size:11px;opacity:0.5;margin:8px 0 4px">Gepland vs werkelijk</p>
+                <div id="adm-planned-bar"></div>
+              </div>
+            </div>
+            <div id="adm-mmp-section" class="ap-section" style="display:none">
+              <h3 class="adm-section-title">Mean Maximal Power</h3>
+              <p class="adm-section-sub">Beste gemiddeld vermogen per duur</p>
+              <svg id="adm-mmp-svg" width="100%" height="120" style="display:block;overflow:visible"></svg>
+            </div>
+            <div id="adm-decoupling-section" class="ap-section" style="display:none">
+              <h3 class="adm-section-title">Aerobe koppeling</h3>
+              <div id="adm-decoupling-content"></div>
+            </div>
+            <div id="adm-planned-section" class="ap-section" style="display:none">
+              <h3 class="adm-section-title">Geplande sessie</h3>
+              <div id="adm-planned-blocks"></div>
+            </div>
+            <div id="adm-hr-row" class="ap-section" style="display:none">
+              <span id="adm-hr-text" style="font-size:13px"></span>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="ap-accordion-section">
+        <summary>Distributies</summary>
+        <div class="activity-distributions-grid">
+          <div id="adm-sect-power-hist"><h3 class="adm-section-title">Vermogen</h3><svg id="adm-power-hist" width="100%" height="130" style="display:block"></svg></div>
+          <div id="adm-sect-hr-hist"><h3 class="adm-section-title">Hartslag</h3><svg id="adm-hr-hist" width="100%" height="130" style="display:block"></svg></div>
+          <div id="adm-sect-cad-hist"><h3 class="adm-section-title">Cadans</h3><svg id="adm-dist-cadence-svg" width="100%" height="130" style="display:block"></svg></div>
+          <div id="adm-sect-spd-hist"><h3 class="adm-section-title">Snelheid</h3><svg id="adm-dist-speed-svg" width="100%" height="130" style="display:block"></svg></div>
+          <p id="adm-dist-nodata" class="adm-no-data" style="display:none;grid-column:1/-1">Geen distributies beschikbaar.</p>
+        </div>
+      </details>
+
+      <details class="ap-accordion-section">
+        <summary>Analyse</summary>
+        <div class="activity-analysis-grid">
+          <div id="adm-sect-scatter" class="ap-section"><h3 class="adm-section-title">Vermogen–Hartslag scatter</h3><canvas id="adm-scatter-canvas" height="200" style="width:100%;display:block"></canvas></div>
+          <div id="adm-sect-drift" class="ap-section"><h3 class="adm-section-title">HR drift</h3><svg id="adm-drift-svg" width="100%" height="120" style="display:block;overflow:visible"></svg></div>
+          <div id="adm-sect-quadrant" class="ap-section"><h3 class="adm-section-title">Vermogenskwadranten (vermogen × cadans)</h3><canvas id="adm-quadrant-canvas" height="200" style="width:100%;display:block"></canvas></div>
+          <p id="adm-analyse-nodata" class="adm-no-data" style="display:none;grid-column:1/-1">Geen analysedata beschikbaar.</p>
+        </div>
+      </details>
+
+      <details class="ap-accordion-section">
+        <summary>AI</summary>
+        <div class="activity-ai-block ap-section">
+          <h3 class="adm-section-title">AI-analyse</h3>
+          <div id="adm-ai-content"><button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button></div>
+        </div>
+      </details>
+    </div>
+  `;
+
+  document.getElementById('adm-ai-btn').onclick = () => loadActivityAnalysis(id);
+
+  // Force all accordion sections open on desktop
+  if (window.innerWidth >= 601) {
+    document.querySelectorAll('details.ap-accordion-section').forEach(el => { el.open = true; });
+  }
+  window.addEventListener('resize', function _apResize() {
+    if (!document.getElementById('activity-page') || document.getElementById('activity-page').style.display === 'none') {
+      window.removeEventListener('resize', _apResize); return;
+    }
+    if (window.innerWidth >= 601) {
+      document.querySelectorAll('details.ap-accordion-section').forEach(el => { el.open = true; });
+    }
+  });
+
+  // Main chart
   const hasAnyChart = ADM_SERIES.some(s => d[s.dataKey]?.length > 1);
   if (hasAnyChart) {
     ADM_SERIES.forEach(s => {
-      const data = d[s.dataKey];
-      if (data?.length > 1) {
-        if (admSeriesVisible[s.key] === undefined)
-          admSeriesVisible[s.key] = ['power','hr'].includes(s.key);
-      } else {
-        admSeriesVisible[s.key] = false;
-      }
+      admSeriesVisible[s.key] = d[s.dataKey]?.length > 1 ? ['power','hr'].includes(s.key) : false;
     });
     document.getElementById('adm-main-chart-section').style.display = 'block';
     document.getElementById('adm-chart-legend').innerHTML =
@@ -2203,11 +2319,11 @@ async function openActivityDetail(stravaId) {
     admRenderMainChart(d, FTP);
   }
 
-  // ── Zone-balk ──
+  // Zone breakdown
   if (d.zoneBreakdown && !d.zoneBreakdown.estimated) {
-    const zb   = d.zoneBreakdown;
+    const zb = d.zoneBreakdown;
     const mins = [zb.z1Min,zb.z2Min,zb.z3Min,zb.z4Min,zb.z5Min];
-    const tot  = mins.reduce((s,v)=>s+v,0);
+    const tot = mins.reduce((s,v)=>s+v,0);
     const zBar = document.getElementById('adm-zone-bar');
     zBar.style.display = 'flex';
     zBar.innerHTML = mins.map((m,i) => {
@@ -2219,8 +2335,7 @@ async function openActivityDetail(stravaId) {
     const zLabels = document.getElementById('adm-zone-labels');
     zLabels.style.display = 'flex';
     zLabels.innerHTML = mins.map((m,i)=>
-      '<div class="adm-zone-label" style="color:'+ADM_ZONE_COLORS[i]+
-      '">Z'+(i+1)+'<br>'+m+'min</div>'
+      '<div class="adm-zone-label" style="color:'+ADM_ZONE_COLORS[i]+'">Z'+(i+1)+'<br>'+m+'min</div>'
     ).join('');
     if (d.plannedSession?.blokken?.length) {
       const pz = [0,0,0,0,0];
@@ -2245,7 +2360,7 @@ async function openActivityDetail(stravaId) {
     }
   }
 
-  // ── MMP curve ──
+  // MMP curve
   if (d.mmpCurve?.length > 1) {
     document.getElementById('adm-mmp-section').style.display='block';
     const svg=document.getElementById('adm-mmp-svg');
@@ -2275,39 +2390,37 @@ async function openActivityDetail(stravaId) {
       html+='<text x="'+(pad.left-4)+'" y="'+(ySm(w)+3)+'" fill="#4A5568" font-size="8" text-anchor="end">'+w+'</text>';
     });
     svg.innerHTML=html;
-    // MMP tooltip
     if (!document.getElementById('adm-tooltip')) {
-      const tip = document.createElement('div');
-      tip.id = 'adm-tooltip'; tip.className = 'adm-tooltip';
+      const tip=document.createElement('div');
+      tip.id='adm-tooltip'; tip.className='adm-tooltip';
       document.body.appendChild(tip);
     }
-    const mmpOverlay = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    mmpOverlay.setAttribute('x', pad.left); mmpOverlay.setAttribute('y', pad.top);
-    mmpOverlay.setAttribute('width', dW); mmpOverlay.setAttribute('height', dH);
-    mmpOverlay.setAttribute('fill','transparent'); mmpOverlay.style.cursor = 'crosshair';
+    const mmpOverlay=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    mmpOverlay.setAttribute('x',pad.left); mmpOverlay.setAttribute('y',pad.top);
+    mmpOverlay.setAttribute('width',dW); mmpOverlay.setAttribute('height',dH);
+    mmpOverlay.setAttribute('fill','transparent'); mmpOverlay.style.cursor='crosshair';
     svg.appendChild(mmpOverlay);
-    mmpOverlay.addEventListener('mousemove', e => {
-      const rect = svg.getBoundingClientRect();
-      const mx = e.clientX - rect.left - pad.left;
-      const idx = Math.max(0, Math.min(n-1, Math.round(mx / dW * (n-1))));
-      const pt = d.mmpCurve[idx];
-      if (!pt) return;
-      const tip = document.getElementById('adm-tooltip');
-      if (!tip) return;
-      tip.innerHTML = '<div class="adm-tooltip-time">'+(labels[idx]||'')+'</div>' +
-        '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:#F59E0B"></span>' +
-        'MMP: <strong>'+pt.power+' W</strong></div>';
-      tip.style.display = 'block';
-      tip.style.left = (e.clientX + 14) + 'px';
-      tip.style.top = (e.clientY - 60) + 'px';
+    mmpOverlay.addEventListener('mousemove',e=>{
+      const rect=svg.getBoundingClientRect();
+      const mx=e.clientX-rect.left-pad.left;
+      const idx=Math.max(0,Math.min(n-1,Math.round(mx/dW*(n-1))));
+      const pt=d.mmpCurve[idx];
+      if(!pt) return;
+      const tip=document.getElementById('adm-tooltip');
+      if(!tip) return;
+      tip.innerHTML='<div class="adm-tooltip-time">'+(labels[idx]||'')+'</div>'+
+        '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:#F59E0B"></span>MMP: <strong>'+pt.power+' W</strong></div>';
+      tip.style.display='block';
+      tip.style.left=(e.clientX+14)+'px';
+      tip.style.top=(e.clientY-60)+'px';
     });
-    mmpOverlay.addEventListener('mouseleave', () => {
-      const tip = document.getElementById('adm-tooltip');
-      if (tip) tip.style.display = 'none';
+    mmpOverlay.addEventListener('mouseleave',()=>{
+      const tip=document.getElementById('adm-tooltip');
+      if(tip) tip.style.display='none';
     });
   }
 
-  // ── HR + cadence ──
+  // HR + cadence
   if (d.hrSummary?.avgHR) {
     document.getElementById('adm-hr-row').style.display='block';
     let txt='Hartslag: gem. '+d.hrSummary.avgHR+' bpm  max '+d.hrSummary.maxHR+' bpm';
@@ -2315,7 +2428,7 @@ async function openActivityDetail(stravaId) {
     document.getElementById('adm-hr-text').textContent=txt;
   }
 
-  // ── Aerobic decoupling detail ──
+  // Aerobic decoupling
   if (d.aerobicDecoupling) {
     const dc=d.aerobicDecoupling;
     document.getElementById('adm-decoupling-section').style.display='block';
@@ -2332,7 +2445,7 @@ async function openActivityDetail(stravaId) {
       '</div></div>';
   }
 
-  // ── Geplande sessie blokken ──
+  // Planned session blocks
   if (d.plannedSession) {
     document.getElementById('adm-planned-section').style.display='block';
     document.getElementById('adm-planned-blocks').innerHTML=
@@ -2347,7 +2460,19 @@ async function openActivityDetail(stravaId) {
         return '<div class="adm-block-row" style="border-left:3px solid '+ADM_ZONE_COLORS[zi]+'">'+txt+'</div>';
       }).join('');
   }
+
+  // GPS map + distributions + analysis (deferred for layout settling)
+  setTimeout(() => admInitMap(d.gpsTrack), 50);
+  setTimeout(() => {
+    admRenderDistributies(d, FTP);
+    admRenderAnalyse(d, FTP);
+  }, 100);
 }
+
+// (openActivityDetail replaced by renderActivityPage above)
+// Kept as no-op for any external references
+function openActivityDetail(stravaId) { navigateToActivity(stravaId); }
+
 
 function admDrawHistBar(svgEl, bins, colorFn, labelFn) {
   const W = svgEl.getBoundingClientRect().width || svgEl.parentElement?.offsetWidth || 320;
@@ -2680,16 +2805,12 @@ async function loadActivityAnalysis(stravaId) {
   }
 }
 
-function closeActivityDetailModal() {
-  const modal = document.getElementById('activity-detail-modal');
-  if (modal) modal.style.display = 'none';
-  if (admCursorMarker) { admCursorMarker.remove(); admCursorMarker = null; }
-  if (admLeafletMap) { admLeafletMap.remove(); admLeafletMap = null;
-                       admRouteLayer = null; admSegmentLayer = null; }
-  window._admZoomAverages = {};
-  admZoomState = { active: false, tStart: null, tEnd: null };
-}
-
 // ── Init ──────────────────────────────────────────────────────────────────────
-syncAll();
-(TAB_INSIGHTS['overview'] || []).forEach(p => loadInsight(p));
+const _activityPageMatch = window.location.pathname.match(/^\/activity\/(\d+)$/);
+if (_activityPageMatch) {
+  loadUserData(); // load settings (needed for zone colors etc.)
+  renderActivityPage(_activityPageMatch[1]);
+} else {
+  syncAll();
+  (TAB_INSIGHTS['overview'] || []).forEach(p => loadInsight(p));
+}
