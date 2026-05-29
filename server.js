@@ -1071,7 +1071,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
     const settings = data.settings || {};
 
     // 7-day cache
-    const cacheKey = 'activity_' + stravaId;
+    const cacheKey = 'activity_v2_' + stravaId;
     const cached   = data.aiInsights?.[cacheKey];
     if (cached?.ts && (Date.now() - cached.ts) < 7 * 24 * 60 * 60 * 1000) {
       return res.json({ text: cached.text });
@@ -1116,7 +1116,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
 
     const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
       model: 'claude-sonnet-4-5', max_tokens: 400,
-      system: 'Je bent een persoonlijke wielrencoach. Genereer een ritanalyse in maximaal 5 regels, in gewone zinnen, met concrete wielrencijfers (watt, TSS, zones, IF). Sluit af met precies één concrete aanbeveling voor de komende 48 uur. Geen opsomming, geen headers, geen inleiding.',
+      system: 'Je bent een persoonlijke wielrencoach. Schrijf een ritanalyse in maximaal 5 aaneengesloten zinnen. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets, geen kopjes. Gebruik concrete wielrencijfers (watt, TSS, zones, IF, HR). De laatste zin is altijd één concrete aanbeveling voor de komende 48 uur.',
       messages: [{ role: 'user', content: lines.join('\n') }]
     }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
 
@@ -1836,20 +1836,32 @@ app.post('/api/insights/:page', async (req, res) => {
       const dayAfter  = new Date(); dayAfter.setDate(dayAfter.getDate() + 2);
       const tomorrowStr  = tomorrow.toISOString().split('T')[0];
       const dayAfterStr  = dayAfter.toISOString().split('T')[0];
-      dataForHash = JSON.stringify({ fullState, todayStr, w: weight[todayStr], note: data.quickNote, wp0: weekPlan[todayStr], wp1: weekPlan[tomorrowStr], wp2: weekPlan[dayAfterStr] });
-      context = JSON.stringify({
+      const compactState = {
         datum: todayStr,
-        volledigeStaat: fullState,
-        weekplan: {
-          vandaag: weekPlan[todayStr] || [],
-          morgen:  weekPlan[tomorrowStr] || [],
-          overmorgen: weekPlan[dayAfterStr] || []
-        },
-        primairDoel: data.goals?.primary || '–',
-        gewichtDoel: data.goals?.weightTarget || '–',
-        huidigGewicht: weight[todayStr] || recentWt[0]?.[1] || '–',
+        readiness: fullState?.readiness ? { total: fullState.readiness.total, interpretation: fullState.readiness.interpretation, breakdown: fullState.readiness.breakdown } : null,
+        endurance: { atl: m.atl, ctl: m.ctl, tsb: m.tsb, acwr: m.acwr, monotony: m.monotony, strain: m.strain, weeklyLoad: m.weeklyLoad },
+        overreaching: fullState?.overreaching ? { level: fullState.overreaching.level, flags: fullState.overreaching.flags } : null,
+        ftp: fullState?.ftpInfo?.ftp || settings.ftp || null,
+        zoneModel: fullState?.currentZoneModel ? { model: fullState.currentZoneModel.model, lowPct: fullState.currentZoneModel.lowPct, midPct: fullState.currentZoneModel.midPct, highPct: fullState.currentZoneModel.highPct } : null,
+        strength: fullState?.strengthMetrics ? {
+          daysSinceLastSession: fullState.strengthMetrics.daysSinceLastSession,
+          weeklyLoad: fullState.strengthMetrics.weeklyLoad,
+          avgWeeklyLoad4w: fullState.strengthMetrics.avgWeeklyLoad4w,
+          muscleGroups: {
+            lower_body: fullState.strengthMetrics.muscleGroups?.lower_body ? { daysSinceLastSession: fullState.strengthMetrics.muscleGroups.lower_body.daysSinceLastSession, trend: fullState.strengthMetrics.muscleGroups.lower_body.trend } : null,
+            push: fullState.strengthMetrics.muscleGroups?.push ? { daysSinceLastSession: fullState.strengthMetrics.muscleGroups.push.daysSinceLastSession, trend: fullState.strengthMetrics.muscleGroups.push.trend } : null,
+            pull: fullState.strengthMetrics.muscleGroups?.pull ? { daysSinceLastSession: fullState.strengthMetrics.muscleGroups.pull.daysSinceLastSession, trend: fullState.strengthMetrics.muscleGroups.pull.trend } : null
+          },
+          e1RMTrends: (fullState.strengthMetrics.e1RMTrends || []).slice(0,5).map(e => ({ exercise: e.exercise, recent: e.sessions?.slice(-2).map(s => ({ date: s.date, e1rm: s.e1rm })) || [] }))
+        } : null,
+        gewicht: { huidig: weight[todayStr] || recentWt[0]?.[1] || null, doel: data.goals?.weightTarget || null },
+        primairDoel: data.goals?.primary || null,
+        weekplan: { vandaag: weekPlan[todayStr] || [], morgen: weekPlan[tomorrowStr] || [], overmorgen: weekPlan[dayAfterStr] || [] },
+        recenteActiviteiten: recentActs.slice(0,3).map(a => ({ naam: a.name, type: a.type, datum: a.start_date?.split('T')[0], duur_min: Math.round((a.moving_time||0)/60), avg_watts: a.average_watts ? Math.round(a.average_watts) : null, tss: a.suffer_score || null })),
         notitie: data.quickNote || null
-      });
+      };
+      dataForHash = JSON.stringify(compactState);
+      context = JSON.stringify(compactState);
       systemPrompt = 'Je bent een persoonlijke coach. Genereer een dagbriefing in maximaal 5 regels, in gewone zinnen, met concrete getallen uit de data. Sluit af met precies één concrete aanbeveling voor vandaag. Geen opsomming, geen headers, geen inleiding.';
       maxTokens = 200;
     }
