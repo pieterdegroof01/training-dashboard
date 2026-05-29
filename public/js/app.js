@@ -1145,6 +1145,11 @@ async function loadInsight(page, force = false) {
     } else {
       textEl.textContent = result.text;
       textEl.style.color = '';
+      const coachBtn = document.createElement('button');
+      coachBtn.className = 'ap-coach-link';
+      coachBtn.textContent = 'Verdiep in Coach →';
+      coachBtn.onclick = () => showTab('analyse', document.querySelector('.nav-item[onclick*="analyse"]'));
+      textEl.parentElement.appendChild(coachBtn);
       if (metaEl) metaEl.textContent = result.cached
         ? `Gecached · ${new Date(result.cachedAt).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`
         : 'Zojuist gegenereerd';
@@ -2280,13 +2285,13 @@ async function renderActivityPage(id) {
         <summary>AI</summary>
         <div class="activity-ai-block ap-section">
           <h3 class="adm-section-title">AI-analyse</h3>
-          <div id="adm-ai-content"><button id="adm-ai-btn" class="btn btn-primary">Analyseer rit</button></div>
+          <div id="adm-ai-content"><span style="font-size:13px;opacity:0.6">Analyseren...</span></div>
         </div>
       </details>
     </div>
   `;
 
-  document.getElementById('adm-ai-btn').onclick = () => loadActivityAnalysis(id);
+  loadActivityAnalysis(id);
 
   // Force all accordion sections open on desktop
   if (window.innerWidth >= 601) {
@@ -2788,8 +2793,9 @@ function admRenderAnalyse(d, FTP) {
 }
 
 async function loadActivityAnalysis(stravaId) {
-  document.getElementById('adm-ai-content').innerHTML =
-    '<span style="font-size:13px;opacity:0.6">Analyseren...</span>';
+  const container = document.getElementById('adm-ai-content');
+  if (!container) return;
+  container.innerHTML = '<span style="font-size:13px;opacity:0.6">Analyseren...</span>';
   try {
     const resp = await fetch('/api/activity/' + stravaId + '/analyse', {
       method: 'POST',
@@ -2797,11 +2803,19 @@ async function loadActivityAnalysis(stravaId) {
       body: JSON.stringify({ computed: window._admComputedMetrics || {} })
     });
     const d    = await resp.json();
-    document.getElementById('adm-ai-content').innerHTML =
-      '<div class="adm-ai-text">' + (d.text || 'Analyse niet beschikbaar.') + '</div>';
+    const aiContainer = document.getElementById('adm-ai-content');
+    if (!aiContainer) return;
+    aiContainer.innerHTML = '<div class="adm-ai-text">' + (d.text || 'Analyse niet beschikbaar.') + '</div>';
+    if (d.text) {
+      const coachBtn = document.createElement('button');
+      coachBtn.className = 'ap-coach-link';
+      coachBtn.textContent = 'Verdiep in Coach →';
+      coachBtn.onclick = () => { renderActivityBack(); setTimeout(() => showTab('analyse', document.querySelector('.nav-item[onclick*="analyse"]')), 50); };
+      aiContainer.appendChild(coachBtn);
+    }
   } catch(e) {
-    document.getElementById('adm-ai-content').innerHTML =
-      '<span style="font-size:13px;opacity:0.6">Fout bij laden.</span>';
+    const aiContainer = document.getElementById('adm-ai-content');
+    if (aiContainer) aiContainer.innerHTML = '<span style="font-size:13px;opacity:0.6">Fout bij laden.</span>';
   }
 }
 

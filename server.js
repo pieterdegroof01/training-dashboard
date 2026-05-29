@@ -1116,7 +1116,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
 
     const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
       model: 'claude-sonnet-4-5', max_tokens: 400,
-      system: 'Je bent een evidence-based wielrencoach. Geef een directe, concrete analyse in maximaal 150 woorden in het Nederlands. Geen algemeenheden, geen complimenten als introductie.',
+      system: 'Je bent een persoonlijke wielrencoach. Genereer een ritanalyse in maximaal 5 regels, in gewone zinnen, met concrete wielrencijfers (watt, TSS, zones, IF). Sluit af met precies één concrete aanbeveling voor de komende 48 uur. Geen opsomming, geen headers, geen inleiding.',
       messages: [{ role: 'user', content: lines.join('\n') }]
     }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
 
@@ -1832,17 +1832,26 @@ app.post('/api/insights/:page', async (req, res) => {
     if (page === 'vandaag') {
       if (!fullState && !recentActs.length)
         return res.json({ text: 'Sync eerst je trainingsdata om dagcoaching te activeren.', cached: false, empty: true });
-      dataForHash = JSON.stringify({ m, todayStr, w: weight[todayStr], note: data.quickNote });
-      context = `Datum: ${todayStr}
-Readiness: ${fullState?.readiness?.total||'–'}/100 (${fullState?.readiness?.interpretation||'–'})
-ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'} | ACWR: ${m.acwr||'–'} | Monotony: ${m.monotony||'–'}
-Overreaching: ${fullState?.overreaching?.level||'geen'} ${fullState?.overreaching?.flags?.length?'('+fullState.overreaching.flags.join(', ')+')':''}
-FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W | Gewicht: ${weight[todayStr]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
-Notitie: ${data.quickNote||'–'}
-Maaltijdtijden: ontbijt ${mealTimings.weekday.breakfast}, lunch ${mealTimings.weekday.lunch}, diner ${mealTimings.weekday.dinner}
-Laatste 3 activiteiten: ${recentActs.slice(0,3).map(a=>`${a.name} (${a.type}, ${new Date(a.start_date).toLocaleDateString('nl-NL')}, ${a.average_watts?Math.round(a.average_watts)+'W':'–'}, ${Math.round((a.moving_time||0)/60)}min)`).join(' | ')||'–'}
-Doel: ${data.goals?.primary||'–'}`;
-      systemPrompt += ' Geef vandaag praktisch dagadvies: (1) is trainen verstandig gezien readiness+belasting, (2) zo ja: type, intensiteit en duur, (3) voedings- of hersteladvies. Antwoord in maximaal 60 woorden. Geen inleiding, geen afsluiting, direct to the point.';
+      const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+      const dayAfter  = new Date(); dayAfter.setDate(dayAfter.getDate() + 2);
+      const tomorrowStr  = tomorrow.toISOString().split('T')[0];
+      const dayAfterStr  = dayAfter.toISOString().split('T')[0];
+      dataForHash = JSON.stringify({ fullState, todayStr, w: weight[todayStr], note: data.quickNote, wp0: weekPlan[todayStr], wp1: weekPlan[tomorrowStr], wp2: weekPlan[dayAfterStr] });
+      context = JSON.stringify({
+        datum: todayStr,
+        volledigeStaat: fullState,
+        weekplan: {
+          vandaag: weekPlan[todayStr] || [],
+          morgen:  weekPlan[tomorrowStr] || [],
+          overmorgen: weekPlan[dayAfterStr] || []
+        },
+        primairDoel: data.goals?.primary || '–',
+        gewichtDoel: data.goals?.weightTarget || '–',
+        huidigGewicht: weight[todayStr] || recentWt[0]?.[1] || '–',
+        notitie: data.quickNote || null
+      });
+      systemPrompt = 'Je bent een persoonlijke coach. Genereer een dagbriefing in maximaal 5 regels, in gewone zinnen, met concrete getallen uit de data. Sluit af met precies één concrete aanbeveling voor vandaag. Geen opsomming, geen headers, geen inleiding.';
+      maxTokens = 200;
     }
     else if (page === 'integratie') {
       if (!fullState) return res.json({ text: 'Sync je data voor geïntegreerde analyse.', cached: false, empty: true });

@@ -430,3 +430,5 @@ details.ap-accordion-section > summary { display:none; }
 .adm-zone-legend-row { display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;margin-bottom:4px; }
 .adm-zone-legend-item { display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted); }
 .adm-no-data { font-size:13px;color:var(--muted);padding:16px 0;text-align:center; }
+.ap-coach-link { display:inline-block;margin-top:10px;padding:6px 14px;font-size:13px;font-weight:500;color:#3B82F6;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:6px;cursor:pointer;transition:background 0.15s,border-color 0.15s; }
+.ap-coach-link:hover { background:rgba(59,130,246,0.2);border-color:rgba(59,130,246,0.5); }
