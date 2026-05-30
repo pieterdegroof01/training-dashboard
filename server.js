@@ -662,7 +662,6 @@ app.get('/api/strava/activities', async (req, res) => {
 });
 
 app.post('/api/strava/sync-all', async (req, res) => {
-  console.log('Sync-all gestart');
   try {
     const token = await getStravaToken();
     const data = await loadData();
@@ -688,13 +687,13 @@ app.post('/api/strava/sync-all', async (req, res) => {
     data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
     data.calibration = calibration;
 
+    data.activityStreams = {};
     await saveData(data);
     await matchPlannedToActual(data);
     try {
       const syncState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
       await adjustCurrentWeek(data, syncState);
     } catch(e) { console.warn('adjustCurrentWeek (sync):', e.message); }
-    console.log('Sync-all klaar, totaal:', cache.activities.length);
     res.json({ total: cache.activities.length, new: newActs?.length || 0, lastSync: cache.lastSync, calibration });
   } catch (err) {
     console.error('Sync-all fout:', err.message, err.stack);
@@ -751,7 +750,30 @@ async function getActivityDetail(stravaId, data, settings) {
     return s ? { targetTSS: s.targetTSS, duration: s.duration, blokken: s.blokken, title: s.title } : null;
   }
 
-  // Cache check tijdelijk uitgeschakeld — altijd opnieuw fetchen
+  const cached = data.activityStreams?.[sid];
+  if (cached) {
+    return {
+      activity:          activity ? buildMeta(activity) : null,
+      zoneBreakdown:     cached.zoneBreakdown,
+      powerTimeline:     cached.powerTimeline,
+      hrSummary:         cached.hrSummary,
+      avgCadence:        cached.avgCadence || null,
+      hrTimeline:        cached.hrTimeline,
+      altitudeTimeline:  cached.altitudeTimeline,
+      mmpCurve:          cached.mmpCurve,
+      aerobicDecoupling: cached.aerobicDecoupling,
+      vi:                cached.vi,
+      ef:                cached.ef,
+      velocityTimeline:  cached.velocityTimeline,
+      cadenceTimeline:   cached.cadenceTimeline,
+      gradientTimeline:  cached.gradientTimeline,
+      distanceTimeline:  cached.distanceTimeline,
+      gpsTrack:          cached.gpsTrack,
+      ftp:               FTP,
+      plannedSession:    activity ? findPlanned(actDate) : null,
+      sessionClassification: cached.sessionClassification
+    };
+  }
 
   const inUnreliable = actDate >= (settings.unreliablePowerStart || '2020-01-01') &&
                        actDate <= (settings.unreliablePowerEnd   || '2020-12-31');
@@ -1056,7 +1078,6 @@ async function getActivityDetail(stravaId, data, settings) {
 }
 
 app.get('/api/activity/:stravaId/detail', async (req, res) => {
-  console.log('Detail endpoint aangeroepen voor:', req.params.stravaId);
   try {
     const data     = await loadData();
     const settings = data.settings || {};
@@ -2183,34 +2204,44 @@ app.post('/webhook/strava', (req, res) => {
   res.status(200).send('OK');
 
   const { object_type, aspect_type, object_id } = req.body || {};
-  if (object_type !== 'activity' || aspect_type !== 'create') return;
+  if (object_type !== 'activity' || (aspect_type !== 'create' && aspect_type !== 'update')) return;
 
   (async () => {
     try {
-      const token = await getStravaToken();
-      const { data: activity } = await axios.get(
-        `https://www.strava.com/api/v3/activities/${object_id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
       const data = await loadData();
-      const cache = data.activityCache || { lastSync: null, activities: [] };
 
-      if (cache.activities.some(a => a.id === activity.id)) return;
+      // Verwijder stream cache voor dit activiteit-id
+      const sid = String(object_id);
+      if (data.activityStreams?.[sid]) {
+        delete data.activityStreams[sid];
+      }
 
-      cache.activities.unshift(activity);
-      cache.lastSync = new Date().toISOString();
-      data.activityCache = cache;
+      if (aspect_type === 'create') {
+        const token = await getStravaToken();
+        const { data: activity } = await axios.get(
+          `https://www.strava.com/api/v3/activities/${object_id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
 
-      const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
-      data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
-      data.calibration = calibration;
+        const cache = data.activityCache || { lastSync: null, activities: [] };
 
-      await matchPlannedToActual(data);
-      try {
-        const wbState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
-        await adjustCurrentWeek(data, wbState);
-      } catch(e) { console.warn('adjustCurrentWeek (webhook):', e.message); }
+        if (!cache.activities.some(a => a.id === activity.id)) {
+          cache.activities.unshift(activity);
+          cache.lastSync = new Date().toISOString();
+          data.activityCache = cache;
+
+          const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
+          data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
+          data.calibration = calibration;
+
+          await matchPlannedToActual(data);
+          try {
+            const wbState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
+            await adjustCurrentWeek(data, wbState);
+          } catch(e) { console.warn('adjustCurrentWeek (webhook):', e.message); }
+        }
+      }
+
       await saveData(data);
     } catch (err) {
       console.error('Webhook verwerking mislukt:', err.message);
