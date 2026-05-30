@@ -34,16 +34,17 @@ app.use(express.static('public'));
 const BASIC_AUTH_USER = process.env.BASIC_AUTH_USER;
 const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS;
 
-if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
-  const authMiddleware = basicAuth({ users: { [BASIC_AUTH_USER]: BASIC_AUTH_PASS }, challenge: true });
-  const AUTH_EXCLUDED = ['/auth/strava', '/auth/strava/callback', '/webhook/strava'];
-  app.use((req, res, next) => {
-    if (AUTH_EXCLUDED.includes(req.path)) return next();
-    authMiddleware(req, res, next);
-  });
-} else {
-  console.warn('⚠️  BASIC_AUTH_USER of BASIC_AUTH_PASS niet ingesteld — auth uitgeschakeld');
-}
+// Basic Auth tijdelijk uitgeschakeld
+// if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
+//   const authMiddleware = basicAuth({ users: { [BASIC_AUTH_USER]: BASIC_AUTH_PASS }, challenge: true });
+//   const AUTH_EXCLUDED = ['/auth/strava', '/auth/strava/callback', '/webhook/strava'];
+//   app.use((req, res, next) => {
+//     if (AUTH_EXCLUDED.includes(req.path)) return next();
+//     authMiddleware(req, res, next);
+//   });
+// } else {
+//   console.warn('⚠️  BASIC_AUTH_USER of BASIC_AUTH_PASS niet ingesteld — auth uitgeschakeld');
+// }
 
 // ── Data persistence ──────────────────────────────────────────────────────────
 
