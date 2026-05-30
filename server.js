@@ -10,6 +10,9 @@ const engine = require('./engine');
 const { classifySession } = require('./engine');
 
 const SCHEMA_VERSION = 1;
+const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
+  ? process.env.AUTH_BYPASS_IPS.split(',').map(ip => ip.trim()).filter(Boolean)
+  : [];
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,17 +39,18 @@ app.use(express.static('public'));
 const BASIC_AUTH_USER = process.env.BASIC_AUTH_USER;
 const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS;
 
-// Basic Auth tijdelijk uitgeschakeld
-// if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
-//   const authMiddleware = basicAuth({ users: { [BASIC_AUTH_USER]: BASIC_AUTH_PASS }, challenge: true });
-//   const AUTH_EXCLUDED = ['/auth/strava', '/auth/strava/callback', '/webhook/strava'];
-//   app.use((req, res, next) => {
-//     if (AUTH_EXCLUDED.includes(req.path)) return next();
-//     authMiddleware(req, res, next);
-//   });
-// } else {
-//   console.warn('⚠️  BASIC_AUTH_USER of BASIC_AUTH_PASS niet ingesteld — auth uitgeschakeld');
-// }
+if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
+  const authMiddleware = basicAuth({ users: { [BASIC_AUTH_USER]: BASIC_AUTH_PASS }, challenge: true });
+  const AUTH_EXCLUDED = ['/auth/strava', '/auth/strava/callback', '/webhook/strava'];
+  app.use((req, res, next) => {
+    if (AUTH_EXCLUDED.includes(req.path)) return next();
+    const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
+    if (BYPASS_IPS.length && BYPASS_IPS.includes(clientIp)) return next();
+    authMiddleware(req, res, next);
+  });
+} else {
+  console.warn('⚠️  BASIC_AUTH_USER of BASIC_AUTH_PASS niet ingesteld — auth uitgeschakeld');
+}
 
 // ── Data persistence ──────────────────────────────────────────────────────────
 
@@ -2280,4 +2284,5 @@ app.listen(PORT, () => {
   console.log(`\n⚡ Training Dashboard draait op http://localhost:${PORT}\n`);
   if (!process.env.STRAVA_CLIENT_SECRET || process.env.STRAVA_CLIENT_SECRET.includes('jouw')) console.warn('⚠️  Strava credentials niet ingesteld');
   if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('jouw')) console.warn('⚠️  Anthropic API key niet ingesteld');
+  console.info(`Auth bypass: ${BYPASS_IPS.length} IP('s) geconfigureerd`);
 });
