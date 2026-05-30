@@ -31,9 +31,8 @@ async function api(path, opts={}) {
 // ── Load ──────────────────────────────────────────────────────────────────────
 async function syncAll() {
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Laden...');
-  await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability()]);
+  await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability(), loadFullState()]);
   renderWeekGrid(); // re-render now that weekAvailability is guaranteed loaded
-  await loadFullState();
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Sync');
 }
 
@@ -224,10 +223,27 @@ async function loadFullState() {
       document.getElementById('sFTP').textContent = '–';
     }
 
+    // Weight
+    if (s.currentWeight) {
+      document.getElementById('sWeight').textContent = s.currentWeight + 'kg';
+    }
+
+    // FTP toelichting
+    const ftpNoteEl = document.getElementById('sFTPNote');
+    if (ftpNoteEl) {
+      if (s.ftpInfo) {
+        ftpNoteEl.textContent = `Berekeningen gebruiken rolling FTP (${s.ftpInfo.ftp}W)`;
+      } else {
+        const manualFtp = S.data.settings?.ftp || 280;
+        ftpNoteEl.textContent = `Berekeningen gebruiken handmatige FTP (${manualFtp}W)`;
+      }
+    }
+
     // Training model
     const model = s.currentZoneModel;
     if (model) {
-      document.getElementById('sModel').textContent = model.model;
+      const modelLabel = model.model === 'mixed/onbekend' ? 'Onvoldoende data' : model.model;
+      document.getElementById('sModel').textContent = modelLabel;
       document.getElementById('sModelSub').textContent = `${model.lowPct}/${model.midPct}/${model.highPct}%`;
     }
 
@@ -253,6 +269,9 @@ function renderAlerts(s) {
   const acwrWarn = thr.acwrWarn ?? 1.3;
   const m = s.enduranceMetrics || s.metrics || {};
 
+  const overreachingCoversAcwr = s.overreaching.level !== 'none' &&
+    s.overreaching.flags.some(f => f.toLowerCase().includes('acwr'));
+
   if (s.overreaching.level === 'severe') {
     alerts.push({ type: 'error', icon: '🚨', title: 'Zwaar overreached',
       content: 'Meerdere overbelastingsindicatoren samen. Hersteldagen inplannen, geen zware sessies. Flags: ' + s.overreaching.flags.join(', ') });
@@ -270,7 +289,7 @@ function renderAlerts(s) {
     });
   }
 
-  if (m.acwr > acwrCrit) {
+  if (m.acwr > acwrCrit && !overreachingCoversAcwr) {
     alerts.push({ type: 'error', icon: '⚡', title: 'ACWR spike',
       content: `Acute belasting ${m.acwr}× chronische — hoog blessurerisico volgens Gabbett (BJSM 2016). Verlaag volume.` });
   }
@@ -1138,6 +1157,12 @@ function showTab(name, btn) {
       tabEl.insertBefore(backBtn, tabEl.firstChild);
     }
   }
+  // Auto-load trends charts when Trends tab is opened
+  if (name === 'voortgang' && !S._chartsLoaded) {
+    S._chartsLoaded = true;
+    loadCharts();
+  }
+
   // Load AI insights for this tab (once per session unless forced)
   const pages = TAB_INSIGHTS[name] || [];
   pages.forEach(p => { if (!S.insightLoaded[p]) loadInsight(p); });

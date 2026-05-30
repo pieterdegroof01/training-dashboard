@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const multer = require('multer');
 const basicAuth = require('express-basic-auth');
+const compression = require('compression');
 const engine = require('./engine');
 const { classifySession } = require('./engine');
 
@@ -15,6 +16,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = process.env.DATA_PATH || path.join(__dirname, 'data.json');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use((req, res, next) => {
   if (req.path.endsWith('.html') || req.path === '/') {

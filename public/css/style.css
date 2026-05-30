@@ -424,7 +424,7 @@ details.ap-accordion-section > summary { display:none; }
 .adm-tab { background:none;border:none;border-bottom:2px solid transparent;color:rgba(255,255,255,0.45);font-size:12px;font-weight:600;padding:7px 14px;cursor:pointer;margin-bottom:-1px;transition:color 0.15s,border-color 0.15s; }
 .adm-tab.active { color:var(--text);border-bottom-color:#3B82F6; }
 .adm-tab:hover:not(.active) { color:rgba(255,255,255,0.7); }
-.adm-tab-panel { min-height:100px; }
+.adm-tab-panel { min-height:0; }
 .adm-dist-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px; }
 @media (max-width:480px) { .adm-dist-grid { grid-template-columns:1fr; } }
 .adm-zone-legend-row { display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;margin-bottom:4px; }

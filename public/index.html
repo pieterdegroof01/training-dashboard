@@ -80,7 +80,7 @@
 
     <div class="stats-grid">
       <div class="stat"><div class="stat-lbl">Trainingsmodel</div><div class="stat-val" id="sModel" style="font-size:14px;line-height:1.3">–</div><div class="stat-sub" id="sModelSub">deze week</div></div>
-      <div class="stat"><div class="stat-lbl">Rolling FTP</div><div class="stat-val c-orange" id="sFTP">–</div><div class="stat-sub">60d window</div></div>
+      <div class="stat"><div class="stat-lbl">Rolling FTP</div><div class="stat-val c-orange" id="sFTP">–</div><div class="stat-sub">60d window</div><div class="stat-sub" id="sFTPNote" style="font-size:10px;margin-top:2px;line-height:1.3"></div></div>
       <div class="stat"><div class="stat-lbl">Gewicht</div><div class="stat-val c-green" id="sWeight">–</div><div class="stat-sub" id="sWeightSub">doel: 90-92kg</div></div>
     </div>
 
@@ -203,10 +203,10 @@
     <div class="card">
       <div class="card-label">Handmatig invoeren</div>
       <div class="form-grid">
-        <div class="fg"><label>Calorieën (kcal)</label><input type="number" id="mKcal" placeholder="2400"></div>
-        <div class="fg"><label>Eiwit (g)</label><input type="number" id="mProt" placeholder="180"></div>
-        <div class="fg"><label>Koolhydraten (g)</label><input type="number" id="mCarb" placeholder="250"></div>
-        <div class="fg"><label>Vet (g)</label><input type="number" id="mFat" placeholder="70"></div>
+        <div class="fg"><label>Calorieën (kcal)</label><input type="number" id="mKcal" placeholder="bijv. 2400"></div>
+        <div class="fg"><label>Eiwit (g)</label><input type="number" id="mProt" placeholder="bijv. 180"></div>
+        <div class="fg"><label>Koolhydraten (g)</label><input type="number" id="mCarb" placeholder="bijv. 250"></div>
+        <div class="fg"><label>Vet (g)</label><input type="number" id="mFat" placeholder="bijv. 70"></div>
         <div class="fg"><label>Tijdstip (optioneel)</label><input type="time" id="mTime"></div>
       </div>
       <button class="btn btn-primary mt-3" onclick="saveManualNutr()" id="btnManualNutr">Opslaan voor vandaag</button>
@@ -441,7 +441,7 @@
 
     <div class="card">
       <div class="card-label">Krachttraining</div>
-      <div class="form-grid">
+      <div style="max-width:260px">
         <div class="fg"><label>Standaard RPE (1–10)</label><input type="number" step="0.5" min="1" max="10" id="sDefaultRPE" placeholder="7.5"></div>
       </div>
       <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsKracht()" id="btnSaveKracht">Opslaan</button>
@@ -465,7 +465,7 @@
       <div class="form-grid">
         <div class="fg"><label>Onbetrouwbaar van</label><input type="date" id="sPwrStart" value="2020-01-01"></div>
         <div class="fg"><label>Onbetrouwbaar tot</label><input type="date" id="sPwrEnd" value="2020-12-31"></div>
-        <div class="fg"><label>Huidige FTP (watt)</label><input type="number" id="sFtp" placeholder="280"></div>
+        <div class="fg"><label>Huidige FTP (watt)</label><input type="number" id="sFtp" placeholder="280"><span style="font-size:11px;color:var(--muted);margin-top:3px">Wordt alleen gebruikt als fallback wanneer geen recente ritten beschikbaar zijn voor rolling FTP-berekening.</span></div>
       </div>
       <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettings()" id="btnSettings">Opslaan</button>
     </div>
