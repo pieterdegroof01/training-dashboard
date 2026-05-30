@@ -8,6 +8,8 @@ const basicAuth = require('express-basic-auth');
 const engine = require('./engine');
 const { classifySession } = require('./engine');
 
+const SCHEMA_VERSION = 1;
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = process.env.DATA_PATH || path.join(__dirname, 'data.json');
@@ -66,6 +68,15 @@ async function loadData() {
 
 async function saveData(data) {
   await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+function migrateData(data) {
+  if ((data.schemaVersion ?? -1) < SCHEMA_VERSION) {
+    console.info(`Migratie uitgevoerd: schema ${data.schemaVersion ?? 'onbekend'} → ${SCHEMA_VERSION}`);
+    data.aiInsights = {};
+    data.schemaVersion = SCHEMA_VERSION;
+  }
+  return data;
 }
 
 function simpleHash(str) {
@@ -1668,7 +1679,9 @@ app.post('/api/data', async (req, res) => {
     if (updates.settings && current.settings) {
       updates.settings = { ...current.settings, ...updates.settings };
     }
-    await saveData({ ...current, ...updates });
+    const merged = { ...current, ...updates };
+    migrateData(merged);
+    await saveData(merged);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2250,6 +2263,15 @@ app.post('/webhook/strava', (req, res) => {
 });
 
 app.get('/activity/:id', (req, res) => res.sendFile('index.html', { root: 'public' }));
+
+(async () => {
+  try {
+    const data = await loadData();
+    const versionBefore = data.schemaVersion;
+    migrateData(data);
+    if (data.schemaVersion !== versionBefore) await saveData(data);
+  } catch(e) { console.error('Startup migratie mislukt:', e.message); }
+})();
 
 app.listen(PORT, () => {
   console.log(`\n⚡ Training Dashboard draait op http://localhost:${PORT}\n`);
