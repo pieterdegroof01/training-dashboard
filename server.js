@@ -6,6 +6,7 @@ const path = require('path');
 const multer = require('multer');
 const basicAuth = require('express-basic-auth');
 const engine = require('./engine');
+const { classifySession } = require('./engine');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -797,6 +798,8 @@ async function getActivityDetail(stravaId, data, settings) {
     }
   } catch(e) { console.warn('Power timeline:', e.message); }
 
+  const sessionClassification = classifySession(powerTimeline, FTP);
+
   let hrSummary = null;
   try {
     if (hrS?.data?.length) {
@@ -1022,7 +1025,7 @@ async function getActivityDetail(stravaId, data, settings) {
       hrTimeline, altitudeTimeline, mmpCurve,
       aerobicDecoupling, vi, ef,
       velocityTimeline, cadenceTimeline, gradientTimeline,
-      distanceTimeline, gpsTrack
+      distanceTimeline, gpsTrack, sessionClassification
     };
     const MAX_CACHED = 50;
     const streamKeys = Object.keys(freshData.activityStreams || {});
@@ -1047,7 +1050,8 @@ async function getActivityDetail(stravaId, data, settings) {
     velocityTimeline,  cadenceTimeline, gradientTimeline,
     distanceTimeline,  gpsTrack,
     ftp:               FTP,
-    plannedSession:    activity ? findPlanned(actDate) : null
+    plannedSession:    activity ? findPlanned(actDate) : null,
+    sessionClassification
   };
 }
 
@@ -1071,7 +1075,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
     const settings = data.settings || {};
 
     // 7-day cache
-    const cacheKey = 'activity_v4_' + stravaId;
+    const cacheKey = 'activity_v7_' + stravaId;
     const cached   = data.aiInsights?.[cacheKey];
     if (cached?.ts && (Date.now() - cached.ts) < 7 * 24 * 60 * 60 * 1000) {
       return res.json({ text: cached.text });
@@ -1092,6 +1096,8 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
     const a  = detail.activity;
     const zb = detail.zoneBreakdown;
     const ps = detail.plannedSession;
+    const sc = detail.sessionClassification ||
+      classifySession(detail.powerTimeline, detail.ftp);
 
     const lines = [
       `Activiteit: ${a.name}, ${a.date}, ${a.duration_min} min, ${a.distance_km || '–'} km, ${a.elevation_m} hm`,
@@ -1102,6 +1108,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
       zb && !zb.estimated
         ? `Zone-verdeling: Z1 ${zb.z1Min}min | Z2 ${zb.z2Min}min | Z3 ${zb.z3Min}min | Z4 ${zb.z4Min}min | Z5 ${zb.z5Min}min — Low ${Math.round(zb.lowPct*100)}% Mid ${Math.round(zb.midPct*100)}% High ${Math.round(zb.highPct*100)}%`
         : null,
+      `Sessieclassificatie: ${sc.sessionType} (bouts: ${sc.boutCount}, CV: ${sc.boutDurationCV ?? '–'}, polarisatie: ${sc.polarizationIndex ?? '–'}, dominanteBin: ${sc.dominantBinFraction ?? '–'})`,
       ps ? `Gepland: ${ps.title || '–'}, target TSS ${ps.targetTSS}, ${ps.duration} min` : null,
       ps ? `Geplande blokken: ${JSON.stringify(ps.blokken)}` : null,
       ps ? `Werkelijke TSS: ${a.tss} (afwijking: ${a.tss - (ps.targetTSS || 0)})` : null,
@@ -1109,14 +1116,12 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
       computed.maxPower     ? `Max momentaan vermogen: ${computed.maxPower}W`        : null,
       computed.maxHR        ? `Max hartslag: ${computed.maxHR} bpm`                 : null,
       `Huidige TSB: ${state.enduranceMetrics?.tsb ?? '–'}`,
-      `Fase: ${state.trainingPlan?.phase || 'onbekend'}`,
-      '',
-      'Analyseer in drie genummerde punten: (1) wat vertelt de uitvoering van deze rit — zone-verdeling, vermogensprofiel, vergelijking met plan als van toepassing. (2) Wat had anders gemoeten op basis van de data. (3) Wat betekent dit concreet voor de komende 48 uur training gezien huidige TSB en fase.'
+      `Fase: ${state.trainingPlan?.phase || 'onbekend'}`
     ].filter(l => l !== null);
 
     const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
       model: 'claude-sonnet-4-5', max_tokens: 250,
-      system: 'Je bent een persoonlijke wielrencoach. Schrijf exact 3 zinnen, niet meer. Gebruik de Variability Index (VI) om het type rit te bepalen: VI onder 1.05 = steady endurance of tempo, VI boven 1.10 = variabel of intervalwerk. Zin 1: wat valt op aan de cijfers (watt, TSS, zones, IF, VI) en wat voor type rit was dit. Zin 2: wat verklaart dit in context van de belastingsstatus. Zin 3: één concrete aanbeveling voor de komende 48 uur. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets.',
+      system: 'Je bent een persoonlijke wielrencoach. Schrijf exact 3 zinnen, niet meer. Het sessionType veld vertelt je wat voor rit dit was op basis van vermogensanalyse — gebruik dit als vertrekpunt, niet VI. Zin 1: wat valt op aan de cijfers (watt, TSS, zones, IF) en wat voor type rit was dit. Zin 2: wat verklaart dit in context van de belastingsstatus. Zin 3: één concrete aanbeveling voor de komende 48 uur. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets.',
       messages: [{ role: 'user', content: lines.join('\n') }]
     }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
 

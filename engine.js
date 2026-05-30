@@ -941,6 +941,98 @@ function computeLoadSlope(dailyETL) {
   return secondHalf - firstHalf;
 }
 
+function classifySession(powerTimeline, ftp) {
+  if (!powerTimeline || powerTimeline.length < 60 || !ftp) {
+    return { sessionType: 'onbekend', boutCount: 0, boutDurationCV: null, polarizationIndex: null, dominantBinFraction: null };
+  }
+
+  // Stap 1: 30-seconden voortschrijdend gemiddelde
+  const WIN = 30;
+  const smoothed = powerTimeline.map((p, i) => {
+    let sum = 0, cnt = 0, j = i;
+    while (j >= 0 && p.t - powerTimeline[j].t < WIN) { sum += powerTimeline[j].w; cnt++; j--; }
+    return { t: p.t, w: cnt ? sum / cnt : p.w };
+  });
+
+  // Stap 2: Bout detection op 88% FTP (sweetspot/drempel threshold)
+  const workThreshold = ftp * 0.88;
+  const MIN_BOUT = 20;    // seconden
+  const GAP_MERGE = 10;   // seconden
+
+  const runs = [];
+  let inWork = false, startT = 0;
+  for (let i = 0; i < smoothed.length; i++) {
+    const above = smoothed[i].w >= workThreshold;
+    if (above && !inWork)  { inWork = true; startT = smoothed[i].t; }
+    if (!above && inWork)  { inWork = false; runs.push({ start: startT, end: smoothed[i].t, dur: smoothed[i].t - startT }); }
+  }
+  if (inWork) runs.push({ start: startT, end: smoothed[smoothed.length-1].t, dur: smoothed[smoothed.length-1].t - startT });
+
+  // Gap merge
+  const merged = [];
+  for (const r of runs) {
+    if (merged.length && r.start - merged[merged.length-1].end <= GAP_MERGE) {
+      merged[merged.length-1].end = r.end;
+      merged[merged.length-1].dur = merged[merged.length-1].end - merged[merged.length-1].start;
+    } else {
+      merged.push({ ...r });
+    }
+  }
+
+  // Filter korte bouts
+  const bouts = merged.filter(b => b.dur >= MIN_BOUT);
+  const boutCount = bouts.length;
+
+  // Bout duration CV (standaardafwijking / gemiddelde)
+  let boutDurationCV = null;
+  if (boutCount >= 2) {
+    const mean = bouts.reduce((s, b) => s + b.dur, 0) / boutCount;
+    const sd = Math.sqrt(bouts.reduce((s, b) => s + Math.pow(b.dur - mean, 2), 0) / boutCount);
+    boutDurationCV = mean > 0 ? Math.round(sd / mean * 100) / 100 : null;
+  }
+
+  // Stap 3: Power distribution — polarization index
+  // Bins: laag < 65% FTP, middenveld 75-88% FTP, hoog > 90% FTP
+  let timeLow = 0, timeMid = 0, timeHigh = 0, timeTotal = 0;
+  const binCounts = {};
+  for (const p of powerTimeline) {
+    if (p.w <= 0) continue;
+    const pct = p.w / ftp;
+    timeTotal++;
+    if (pct < 0.65) timeLow++;
+    else if (pct >= 0.75 && pct < 0.88) timeMid++;
+    else if (pct >= 0.90) timeHigh++;
+    const bin = Math.floor(pct * 20);  // 5% brede bins
+    binCounts[bin] = (binCounts[bin] || 0) + 1;
+  }
+  const polarizationIndex = timeMid > 0
+    ? Math.round((timeLow + timeHigh) / timeMid * 100) / 100
+    : null;
+
+  // Dominant bin fraction
+  const maxBin = timeTotal > 0 ? Math.max(...Object.values(binCounts)) / timeTotal : 0;
+  const dominantBinFraction = Math.round(maxBin * 100) / 100;
+
+  // Stap 4: Classificatie
+  const IF = powerTimeline.reduce((s, p) => s + Math.pow(p.w, 4), 0);  // proxy via NP
+  let sessionType;
+  if (boutCount >= 3 && boutDurationCV !== null && boutDurationCV < 0.40) {
+    sessionType = 'gestructureerde intervals';
+  } else if (boutCount >= 3 && boutDurationCV !== null && boutDurationCV >= 0.40) {
+    sessionType = 'ongestructureerd of groepsrit';
+  } else if (boutCount <= 1 && dominantBinFraction >= 0.50) {
+    sessionType = 'steady endurance';
+  } else if (boutCount === 1 || (boutCount === 2 && dominantBinFraction >= 0.40)) {
+    sessionType = 'tempo of sweetspot';
+  } else if (polarizationIndex !== null && polarizationIndex > 2.0) {
+    sessionType = 'polarized';
+  } else {
+    sessionType = 'variabel';
+  }
+
+  return { sessionType, boutCount, boutDurationCV, polarizationIndex, dominantBinFraction };
+}
+
 module.exports = {
   computeETLForActivity,
   computeETLForHevyWorkout,
@@ -959,5 +1051,6 @@ module.exports = {
   computeTrainingPlan,
   computeFullState,
   isUnreliablePower,
+  classifySession,
   ENDURANCE_TYPES, STRENGTH_TYPES
 };
