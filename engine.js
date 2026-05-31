@@ -926,6 +926,29 @@ function computeTrainingPlan(data, state) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// POWER-DURATION CURVE (MMP) — O(n) sliding window per duratie
+// ────────────────────────────────────────────────────────────────────────────
+function computeMMP(powerTimeline, durations = [5,10,30,60,120,300,600,1200,1800,3600]) {
+  if (!powerTimeline || powerTimeline.length < 60) return null;
+  const n = powerTimeline.length;
+  const result = {};
+  for (const dur of durations) {
+    if (dur > n) continue;
+    let sum = 0, maxAvg = 0;
+    for (let i = 0; i < n; i++) {
+      sum += powerTimeline[i].w;
+      if (i >= dur) sum -= powerTimeline[i - dur].w;
+      if (i >= dur - 1) {
+        const avg = sum / dur;
+        if (avg > maxAvg) maxAvg = avg;
+      }
+    }
+    if (maxAvg > 0) result[dur] = Math.round(maxAvg);
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // AEROBE EFFICIËNTIE TREND
 // ────────────────────────────────────────────────────────────────────────────
 function computeAerobicEfficiencyTrend(activities, settings) {
@@ -1216,5 +1239,6 @@ module.exports = {
   computeHrTSS,
   suggestLTHR,
   computeAerobicEfficiencyTrend,
+  computeMMP,
   ENDURANCE_TYPES, STRENGTH_TYPES
 };

@@ -718,6 +718,22 @@ app.post('/api/strava/sync-all', async (req, res) => {
       if (a.powerSource === undefined) assignPowerSource(a);
     });
 
+    // MMP cache voor nieuw gesyncte activiteiten met gemeten vermogen
+    data.mmpCache = data.mmpCache || {};
+    const mmpCandidates = cache.activities.filter(a =>
+      (a.powerSource === 'measured' || a.powerSource === 'unknown') &&
+      a.average_watts > 0 &&
+      !data.mmpCache[String(a.id)]
+    );
+    let mmpAdded = 0;
+    for (const a of mmpCandidates) {
+      const ok = await computeAndCacheMMP(a.id, a, token, data);
+      if (ok) mmpAdded++;
+      if (mmpCandidates.indexOf(a) < mmpCandidates.length - 1)
+        await new Promise(r => setTimeout(r, 150));
+    }
+    if (mmpAdded > 0) console.info(`MMP berekend voor ${mmpAdded} nieuwe activiteiten`);
+
     // Herbereken kalibratiefactor na sync
     const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
     data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
@@ -746,6 +762,106 @@ app.get('/api/strava/history-summary', async (req, res) => {
     const summary = buildHistorySummary(activities, settings);
     res.json({ total: activities.length, lastSync: data.activityCache?.lastSync, metrics, summary });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── MMP helper + endpoints ────────────────────────────────────────────────────
+
+async function computeAndCacheMMP(activityId, activityObj, token, data) {
+  const id = String(activityId);
+  if (data.mmpCache[id]) return false;
+  const ps = activityObj.powerSource;
+  if (ps !== 'measured' && ps !== 'unknown') return false;
+  if (!activityObj.average_watts) return false;
+  try {
+    const resp = await axios.get(
+      `https://www.strava.com/api/v3/activities/${id}/streams?keys=watts&key_by_type=true`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const wattsData = resp.data?.watts?.data;
+    if (!wattsData?.length) return false;
+    const powerTimeline = wattsData.map(w => ({ w: Math.max(0, w || 0) }));
+    const mmp = engine.computeMMP(powerTimeline);
+    if (!mmp) return false;
+    const date = activityObj.start_date?.split('T')[0] || '';
+    data.mmpCache[id] = { date, powerSource: ps, mmp };
+    return true;
+  } catch(e) {
+    console.warn(`MMP stream mislukt (${id}):`, e.message);
+    return false;
+  }
+}
+
+app.post('/api/strava/mmp-batch', async (req, res) => {
+  try {
+    const days = Math.min(parseInt(req.body?.days) || 90, 365);
+    const token = await getStravaToken();
+    const data = await loadData();
+    data.mmpCache = data.mmpCache || {};
+    const settings = data.settings || {};
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+
+    const candidates = (data.activityCache?.activities || []).filter(a => {
+      if (a.type !== 'Ride' && a.type !== 'VirtualRide') return false;
+      if (a.powerSource !== 'measured' && a.powerSource !== 'unknown') return false;
+      if (!a.average_watts) return false;
+      const date = a.start_date?.split('T')[0] || '';
+      if (engine.isUnreliablePower(date, settings)) return false;
+      return new Date(date) >= cutoff;
+    });
+
+    let processed = 0, skipped = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const a = candidates[i];
+      if (data.mmpCache[String(a.id)]) { skipped++; continue; }
+      const ok = await computeAndCacheMMP(a.id, a, token, data);
+      if (ok) processed++; else skipped++;
+      if (i < candidates.length - 1) await new Promise(r => setTimeout(r, 150));
+    }
+
+    const freshData = await loadData();
+    freshData.mmpCache = { ...(freshData.mmpCache || {}), ...data.mmpCache };
+    await saveData(freshData);
+
+    res.json({ processed, skipped, total: candidates.length, cached: Object.keys(freshData.mmpCache).length });
+  } catch(err) {
+    console.error('MMP batch fout:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const MMP_DURATIONS = [5,10,30,60,120,300,600,1200,1800,3600];
+
+app.get('/api/state/mmp-curve', async (req, res) => {
+  try {
+    const data = await loadData();
+    const cache = data.mmpCache || {};
+    const now = new Date();
+    const cut30 = new Date(now); cut30.setDate(now.getDate() - 30);
+    const cut90 = new Date(now); cut90.setDate(now.getDate() - 90);
+
+    const recent = {}, previous = {};
+    let recentCount = 0, previousCount = 0;
+
+    for (const [, entry] of Object.entries(cache)) {
+      const d = new Date(entry.date);
+      let bucket = null;
+      if (d >= cut30)       { bucket = recent;   recentCount++;   }
+      else if (d >= cut90)  { bucket = previous; previousCount++; }
+      else continue;
+      for (const dur of MMP_DURATIONS) {
+        const val = entry.mmp?.[dur];
+        if (val && (!bucket[dur] || val > bucket[dur])) bucket[dur] = val;
+      }
+    }
+
+    res.json({
+      durations: MMP_DURATIONS,
+      recent:   MMP_DURATIONS.map(d => recent[d]   ?? null),
+      previous: MMP_DURATIONS.map(d => previous[d] ?? null),
+      totalActivities: Object.keys(cache).length,
+      recentCount, previousCount
+    });
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── Activity detail helper ────────────────────────────────────────────────────
@@ -2272,10 +2388,15 @@ app.post('/webhook/strava', (req, res) => {
           cache.activities.unshift(activity);
           cache.lastSync = new Date().toISOString();
           data.activityCache = cache;
+          data.mmpCache = data.mmpCache || {};
 
           const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
           data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
           data.calibration = calibration;
+
+          if ((activity.powerSource === 'measured' || activity.powerSource === 'unknown') && activity.average_watts > 0) {
+            await computeAndCacheMMP(activity.id, activity, token, data);
+          }
 
           await matchPlannedToActual(data);
           try {

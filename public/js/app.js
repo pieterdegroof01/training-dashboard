@@ -1584,6 +1584,7 @@ async function loadCharts() {
     }
 
     renderAerobicEfficiency();
+    renderMmpCurve();
 
     msg.className = 'hidden';
   } catch(e) {
@@ -1676,6 +1677,61 @@ function renderAerobicEfficiency() {
       },
       options: baseOpts
     });
+  }
+}
+
+// ── MMP curve ────────────────────────────────────────────────────────────────
+
+const MMP_LABELS = ['5s','10s','30s','1m','2m','5m','10m','20m','30m','1u'];
+
+async function renderMmpCurve() {
+  const container = document.getElementById('mmpCurveContainer');
+  if (!container) return;
+  try {
+    const d = await api('/api/state/mmp-curve');
+    if (d.recentCount === 0) {
+      container.innerHTML = `<div style="color:var(--muted);font-size:12px">Nog geen data — druk op Berekenen om te starten (${d.totalActivities} activiteiten in cache).</div>`;
+      return;
+    }
+    container.innerHTML = '<canvas id="chartMmp" height="90"></canvas><div id="mmpMeta" style="font-size:11px;color:var(--muted);margin-top:6px"></div>';
+    const gridColor = 'rgba(255,255,255,0.06)', tickColor = '#666';
+    makeChart('chartMmp', {
+      type: 'line',
+      data: {
+        labels: MMP_LABELS,
+        datasets: [
+          { label: 'Laatste 30 dagen', data: d.recent,    borderColor: '#f97316', backgroundColor: '#f9731618', borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true,  spanGaps: true },
+          { label: '31–90 dagen',      data: d.previous, borderColor: '#666',    backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 3, tension: 0.3, borderDash: [4,4], spanGaps: true }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#aaa', font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y ?? '–'}W` } } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 } } },
+          y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'Watt', color: tickColor, font: { size: 10 } } }
+        }
+      }
+    });
+    document.getElementById('mmpMeta').textContent = `${d.recentCount} ritten (recent) · ${d.previousCount} ritten (vorige periode)`;
+  } catch(e) {
+    if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Curve laden mislukt: ${e.message}</div>`;
+  }
+}
+
+async function runMmpBatch() {
+  const btn = document.getElementById('btnMmpBatch');
+  const status = document.getElementById('mmpBatchStatus');
+  btn.disabled = true; btn.textContent = 'Bezig...';
+  status.textContent = '';
+  try {
+    const result = await api('/api/strava/mmp-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: 90 }) });
+    status.textContent = `Verwerkt: ${result.processed}, overgeslagen: ${result.skipped}, totaal in cache: ${result.cached}`;
+    await renderMmpCurve();
+  } catch(e) {
+    status.textContent = 'Fout: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Berekenen (laatste 90 dagen)';
   }
 }
 
