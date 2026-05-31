@@ -1557,17 +1557,39 @@ async function loadCharts() {
     // ── Gewicht ───────────────────────────────────────────────────────────────
     const wData = filterByDays(d.weightSeries.length > 60 ? d.weightMonthly.map(m => ({date: m.month, kg: m.avg})) : d.weightSeries, days);
     if (wData.length) {
+      const weightXY = wData.map(p => ({ x: new Date(p.date + 'T12:00:00').getTime(), y: p.kg }));
       makeChart('chartWeight', {
         type: 'line',
         data: {
-          labels: wData.map(v => v.date),
           datasets: [{
-            label: 'Gewicht (kg)', data: wData.map(v => v.kg),
+            label: 'Gewicht (kg)', data: weightXY,
             borderColor: '#4ade80', backgroundColor: '#4ade8018',
             borderWidth: 2, pointRadius: wData.length > 60 ? 3 : 4, fill: true, tension: 0.3
           }]
         },
-        options: { ...baseOpts, plugins: { ...baseOpts.plugins, annotation: {} } }
+        options: {
+          ...baseOpts,
+          plugins: { ...baseOpts.plugins, annotation: {} },
+          scales: {
+            ...baseOpts.scales,
+            x: {
+              type: 'linear',
+              grid: { color: gridColor },
+              ticks: {
+                callback: function(value) {
+                  const d = new Date(value);
+                  return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: '2-digit' });
+                },
+                maxTicksLimit: 10,
+                autoSkip: true,
+                color: tickColor,
+                font: { size: 10 }
+              },
+              min: Math.min(...weightXY.map(p => p.x)),
+              max: Math.max(...weightXY.map(p => p.x))
+            }
+          }
+        }
       });
     }
 
