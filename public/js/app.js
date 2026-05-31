@@ -1569,7 +1569,18 @@ async function loadCharts() {
         },
         options: {
           ...baseOpts,
-          plugins: { ...baseOpts.plugins, annotation: {} },
+          plugins: {
+            ...baseOpts.plugins,
+            annotation: {},
+            tooltip: {
+              callbacks: {
+                title: function(items) {
+                  const ts = items[0].parsed.x;
+                  return new Date(ts).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+                }
+              }
+            }
+          },
           scales: {
             ...baseOpts.scales,
             x: {
