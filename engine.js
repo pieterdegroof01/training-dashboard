@@ -926,6 +926,81 @@ function computeTrainingPlan(data, state) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// AEROBE EFFICIËNTIE TREND
+// ────────────────────────────────────────────────────────────────────────────
+function computeAerobicEfficiencyTrend(activities, settings) {
+  const now = new Date();
+  const cutoff = new Date(now); cutoff.setDate(now.getDate() - 180);
+
+  const eligible = activities.filter(a => {
+    if (a.type !== 'Ride' && a.type !== 'VirtualRide') return false;
+    if ((a.moving_time || 0) < 2700) return false;
+    if (!a.average_heartrate || a.average_heartrate <= 0) return false;
+    if (!a.start_date) return false;
+    const date = a.start_date.split('T')[0];
+    if (isUnreliablePower(date, settings)) return false;
+    return new Date(date) >= cutoff;
+  });
+
+  const powerPoints = [];
+  const speedPoints = [];
+
+  eligible.forEach(a => {
+    const date = a.start_date.split('T')[0];
+    const hr = a.average_heartrate;
+    const name = a.name || '';
+    if ((a.powerSource === 'measured' || a.powerSource === 'unknown') &&
+        (a.weighted_average_watts || a.average_watts)) {
+      const np = a.weighted_average_watts || a.average_watts;
+      powerPoints.push({ date, ei: Math.round(np / hr * 100) / 100, basis: 'power', name });
+    } else if (a.powerSource === 'estimated' && a.average_speed) {
+      const speedKmh = a.average_speed * 3.6;
+      powerPoints.length; // noop — keep series separate
+      speedPoints.push({ date, ei: Math.round(speedKmh / hr * 1000) / 1000, basis: 'speed', name });
+    }
+  });
+
+  powerPoints.sort((a, b) => a.date.localeCompare(b.date));
+  speedPoints.sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!powerPoints.length && !speedPoints.length) return null;
+
+  function addRolling(points) {
+    return points.map(p => {
+      const pDate = new Date(p.date);
+      const win28 = new Date(pDate); win28.setDate(pDate.getDate() - 27);
+      const inWin = points.filter(q => { const d = new Date(q.date); return d >= win28 && d <= pDate; });
+      const rollingEI = Math.round(inWin.reduce((s, q) => s + q.ei, 0) / inWin.length * 100) / 100;
+      return { date: p.date, ei: p.ei, rollingEI, name: p.name };
+    });
+  }
+
+  function computeTrend(points) {
+    const win56Start = new Date(now); win56Start.setDate(now.getDate() - 56);
+    const win = points.filter(p => new Date(p.date) >= win56Start);
+    if (win.length < 5) return { slope: 0, trendDirection: 'insufficient_data' };
+    const origin = new Date(win[0].date);
+    const n = win.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    win.forEach(p => {
+      const x = Math.round((new Date(p.date) - origin) / 86400000);
+      sumX += x; sumY += p.ei; sumXY += x * p.ei; sumX2 += x * x;
+    });
+    const denom = n * sumX2 - sumX * sumX;
+    const slope = denom !== 0 ? Math.round((n * sumXY - sumX * sumY) / denom * 10000) / 10000 : 0;
+    const trendDirection = slope > 0.001 ? 'improving' : slope < -0.001 ? 'declining' : 'stable';
+    return { slope, trendDirection };
+  }
+
+  return {
+    powerSeries: addRolling(powerPoints),
+    speedSeries: addRolling(speedPoints),
+    powerTrend: computeTrend(powerPoints),
+    speedTrend: computeTrend(speedPoints)
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // LTHR SUGGESTIE — schat lactaatdrempel-hartslag uit measured ritten
 // ────────────────────────────────────────────────────────────────────────────
 function suggestLTHR(activities) {
@@ -977,6 +1052,7 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
     perfTrends, plateaus, overreaching,
     readiness, personalModel, adaptivePlan,
     currentWeight,
+    aerobicEfficiencyTrend: computeAerobicEfficiencyTrend(activities, settings),
     trainingPlan: computeTrainingPlan(data, { metrics: enduranceMetrics })
   };
 }
@@ -1139,5 +1215,6 @@ module.exports = {
   classifySessionFromHR,
   computeHrTSS,
   suggestLTHR,
+  computeAerobicEfficiencyTrend,
   ENDURANCE_TYPES, STRENGTH_TYPES
 };

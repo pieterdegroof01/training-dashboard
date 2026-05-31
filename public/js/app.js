@@ -1583,10 +1583,99 @@ async function loadCharts() {
       document.getElementById('chartPower').parentElement.innerHTML += '<div class="alert alert-info mt-2" style="font-size:11px">Geen vermogensdata beschikbaar. Sync eerst je volledige history.</div>';
     }
 
+    renderAerobicEfficiency();
+
     msg.className = 'hidden';
   } catch(e) {
     msg.className = 'alert alert-error';
     msg.textContent = 'Laden mislukt: ' + e.message;
+  }
+}
+
+function renderAerobicEfficiency() {
+  const el = document.getElementById('aeroEff');
+  if (!el) return;
+  const aet = S.fullState?.aerobicEfficiencyTrend;
+  const hasPower = (aet?.powerSeries?.length || 0) >= 3;
+  const hasSpeed = (aet?.speedSeries?.length || 0) >= 3;
+
+  if (!aet || (!hasPower && !hasSpeed)) {
+    el.innerHTML = '<div class="alert alert-info" style="font-size:12px">Onvoldoende data — minimaal 3 ritten van 45+ minuten vereist.</div>';
+    return;
+  }
+
+  function trendBadge(trend) {
+    if (!trend || trend.trendDirection === 'insufficient_data')
+      return '<span style="background:var(--card2);color:var(--muted);padding:2px 9px;border-radius:99px;font-size:11px">Onvoldoende data</span>';
+    if (trend.trendDirection === 'improving')
+      return '<span style="background:#16a34a22;color:#4ade80;padding:2px 9px;border-radius:99px;font-size:11px">↑ Verbeterend</span>';
+    if (trend.trendDirection === 'declining')
+      return '<span style="background:#dc262622;color:#f87171;padding:2px 9px;border-radius:99px;font-size:11px">↓ Dalend</span>';
+    return '<span style="background:var(--card2);color:var(--muted);padding:2px 9px;border-radius:99px;font-size:11px">→ Stabiel</span>';
+  }
+
+  let html = '';
+  if (hasPower) {
+    html += `<div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text)">Vermogen / hartslag (W/bpm)</span>
+        ${trendBadge(aet.powerTrend)}
+      </div>
+      <canvas id="chartAerobicPower" height="80"></canvas>
+    </div>`;
+  }
+  if (hasSpeed) {
+    html += `<div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text)">Snelheid / hartslag (km·h⁻¹/bpm)</span>
+        ${trendBadge(aet.speedTrend)}
+      </div>
+      <canvas id="chartAerobicSpeed" height="80"></canvas>
+    </div>`;
+  }
+  el.innerHTML = html;
+
+  const gridColor = 'rgba(255,255,255,0.06)', tickColor = '#666';
+  const baseOpts = {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#aaa', font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } } }
+    }
+  };
+
+  if (hasPower) {
+    makeChart('chartAerobicPower', {
+      type: 'line',
+      data: {
+        labels: aet.powerSeries.map(p => p.date),
+        datasets: [
+          { label: 'EI (W/bpm)', data: aet.powerSeries.map(p => p.ei),
+            borderWidth: 0, pointRadius: 3, pointBackgroundColor: '#f97316', showLine: false },
+          { label: '28d gem.', data: aet.powerSeries.map(p => p.rollingEI),
+            borderColor: '#f97316', backgroundColor: '#f9731618',
+            borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }
+        ]
+      },
+      options: baseOpts
+    });
+  }
+  if (hasSpeed) {
+    makeChart('chartAerobicSpeed', {
+      type: 'line',
+      data: {
+        labels: aet.speedSeries.map(p => p.date),
+        datasets: [
+          { label: 'EI (km/h/bpm)', data: aet.speedSeries.map(p => p.ei),
+            borderWidth: 0, pointRadius: 3, pointBackgroundColor: '#38bdf8', showLine: false },
+          { label: '28d gem.', data: aet.speedSeries.map(p => p.rollingEI),
+            borderColor: '#38bdf8', backgroundColor: '#38bdf818',
+            borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }
+        ]
+      },
+      options: baseOpts
+    });
   }
 }
 
