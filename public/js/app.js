@@ -943,6 +943,26 @@ function initSleepStars() {
   }
 }
 
+(function() {
+  const btn = document.getElementById('sleepQualityInfo');
+  const tip = document.getElementById('sleepQualityTooltip');
+  if (!btn || !tip) return;
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (tip.style.display === 'none') {
+      const r = btn.getBoundingClientRect();
+      tip.style.left = Math.min(r.left, window.innerWidth - 296) + 'px';
+      tip.style.top = (r.bottom + 8) + 'px';
+      tip.style.display = 'block';
+    } else {
+      tip.style.display = 'none';
+    }
+  });
+  document.addEventListener('click', () => {
+    if (tip) tip.style.display = 'none';
+  });
+})();
+
 async function saveSleep() {
   const hours = parseFloat(document.getElementById('sleepHours')?.value);
   if (isNaN(hours) || hours < 0 || hours > 14) return;

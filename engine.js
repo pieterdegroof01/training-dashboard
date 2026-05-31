@@ -683,7 +683,8 @@ function computeSleepMetrics(sleepData) {
   const last14 = sleepData.slice(-14);
   let sleepDebt = 0;
   for (const night of last14) {
-    const h = night?.hours || 0;
+    if (!night || night.hours == null) continue;
+    const h = night.hours;
     const deficit = sleepNeed - h;
     if (deficit > 0) sleepDebt += deficit;
     else sleepDebt = Math.max(0, sleepDebt - (-deficit) * 0.5);

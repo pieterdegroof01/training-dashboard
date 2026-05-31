@@ -92,12 +92,24 @@
           <input type="number" id="sleepHours" min="0" max="14" step="0.5" placeholder="7.5" style="width:70px;margin-left:8px">
         </div>
         <div>
-          <label style="font-size:11px;color:var(--muted)">Kwaliteit</label>
+          <label style="font-size:11px;color:var(--muted)">Kwaliteit
+            <span id="sleepQualityInfo" style="cursor:pointer;margin-left:4px;color:var(--muted);font-size:11px;border:1px solid var(--muted);border-radius:50%;padding:0 4px;line-height:1.4">?</span>
+          </label>
           <span id="sleepStars" style="margin-left:8px;cursor:pointer;font-size:18px">☆☆☆☆☆</span>
         </div>
         <button class="btn btn-sm btn-primary" onclick="saveSleep()">Opslaan</button>
       </div>
       <div id="sleepDebtDisplay" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div id="sleepQualityTooltip" style="display:none;position:fixed;z-index:9999;background:var(--card,#1e2535);border:1px solid var(--border,#2d3748);border-radius:10px;padding:14px 16px;max-width:280px;font-size:12px;line-height:1.7;box-shadow:0 4px 24px rgba(0,0,0,0.4)">
+      <div style="font-weight:600;margin-bottom:8px;font-size:13px">Slaapkwaliteit beoordelen</div>
+      <div>⭐ <strong>Slecht</strong> — meerdere keren wakker, &gt; 45 min om in slaap te vallen, vermoeid wakker</div>
+      <div>⭐⭐ <strong>Matig</strong> — 1–2 keer wakker, 30–45 min inslapen, niet uitgerust</div>
+      <div>⭐⭐⭐ <strong>Normaal</strong> — 1 keer kort wakker, 15–30 min inslapen, redelijk uitgerust</div>
+      <div>⭐⭐⭐⭐ <strong>Goed</strong> — nauwelijks wakker, &lt; 15 min inslapen, uitgerust wakker</div>
+      <div>⭐⭐⭐⭐⭐ <strong>Uitstekend</strong> — ononderbroken geslapen, &lt; 10 min inslapen, fris en energiek wakker</div>
+      <div style="margin-top:8px;font-size:11px;color:var(--muted)">Bron: PSQI-schaal + USOPC atleten-slaaprichtlijnen</div>
     </div>
 
     <div id="strengthOverview" class="card" style="display:none">
