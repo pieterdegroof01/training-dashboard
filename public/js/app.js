@@ -1540,8 +1540,8 @@ async function loadCharts() {
   document.getElementById('chartsContainer').classList.remove('hidden');
 
   try {
-    const d = await api('/api/charts/data?days=' + days);
     const days = parseInt(document.getElementById('chartPeriod').value);
+    const d = await api('/api/charts/data?days=' + days);
 
     const gridColor = 'rgba(255,255,255,0.06)';
     const tickColor = '#666';
