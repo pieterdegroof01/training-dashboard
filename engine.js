@@ -949,6 +949,28 @@ function computeMMP(powerTimeline, durations = [5,10,30,60,120,300,600,1200,1800
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// POWER-DURATION CURVE VOLLEDIG — één waarde per seconde (Int16Array)
+// ────────────────────────────────────────────────────────────────────────────
+function computeMMPFull(powerTimeline) {
+  if (!powerTimeline || powerTimeline.length < 10) return null;
+  const n = powerTimeline.length;
+  const result = new Int16Array(n);
+  for (let dur = 1; dur <= n; dur++) {
+    let sum = 0, maxAvg = 0;
+    for (let i = 0; i < n; i++) {
+      sum += powerTimeline[i].w;
+      if (i >= dur) sum -= powerTimeline[i - dur].w;
+      if (i >= dur - 1) {
+        const avg = sum / dur;
+        if (avg > maxAvg) maxAvg = avg;
+      }
+    }
+    result[dur - 1] = Math.round(maxAvg);
+  }
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // AEROBE EFFICIËNTIE TREND
 // ────────────────────────────────────────────────────────────────────────────
 function computeAerobicEfficiencyTrend(activities, settings) {
@@ -1240,5 +1262,6 @@ module.exports = {
   suggestLTHR,
   computeAerobicEfficiencyTrend,
   computeMMP,
+  computeMMPFull,
   ENDURANCE_TYPES, STRENGTH_TYPES
 };

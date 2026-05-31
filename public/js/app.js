@@ -1682,7 +1682,12 @@ function renderAerobicEfficiency() {
 
 // ── MMP curve ────────────────────────────────────────────────────────────────
 
-const MMP_LABELS = ['5s','10s','30s','1m','2m','5m','10m','20m','30m','1u'];
+function formatDur(s) {
+  if (s < 60) return s + 's';
+  if (s < 3600) { const m = Math.floor(s / 60), r = s % 60; return m + 'm' + (r ? String(r).padStart(2,'0') + 's' : ''); }
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h + 'u' + (m ? m + 'm' : '');
+}
 
 async function renderMmpCurve() {
   const container = document.getElementById('mmpCurveContainer');
@@ -1694,21 +1699,57 @@ async function renderMmpCurve() {
       return;
     }
     container.innerHTML = '<canvas id="chartMmp" height="90"></canvas><div id="mmpMeta" style="font-size:11px;color:var(--muted);margin-top:6px"></div>';
+
+    const recentPts = d.recent;
+    const prevPts   = d.previous;
+    const labels    = recentPts.map(p => formatDur(p.dur));
     const gridColor = 'rgba(255,255,255,0.06)', tickColor = '#666';
+
     makeChart('chartMmp', {
       type: 'line',
       data: {
-        labels: MMP_LABELS,
+        labels,
         datasets: [
-          { label: 'Laatste 30 dagen', data: d.recent,    borderColor: '#f97316', backgroundColor: '#f9731618', borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true,  spanGaps: true },
-          { label: '31–90 dagen',      data: d.previous, borderColor: '#666',    backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 3, tension: 0.3, borderDash: [4,4], spanGaps: true }
+          { label: 'Laatste 30 dagen', data: recentPts.map(p => p.watts),
+            borderColor: '#f97316', backgroundColor: '#f9731612',
+            borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true, spanGaps: true },
+          { label: '31–90 dagen', data: prevPts.map(p => p.watts),
+            borderColor: '#555', borderWidth: 1.5, pointRadius: 0,
+            tension: 0.2, borderDash: [4,4], spanGaps: true }
         ]
       },
       options: {
         responsive: true,
-        plugins: { legend: { labels: { color: '#aaa', font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y ?? '–'}W` } } },
+        onClick: (evt, elements, chart) => {
+          const els = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+          if (!els.length) return;
+          const idx = els[0].index, dsIdx = els[0].datasetIndex;
+          const pts = dsIdx === 0 ? recentPts : prevPts;
+          const p = pts[idx];
+          if (p?.activityId) navigateToActivity(p.activityId);
+        },
+        onHover: (evt, elements) => {
+          if (evt.native?.target) evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+        },
+        plugins: {
+          legend: { labels: { color: '#aaa', font: { size: 11 } } },
+          tooltip: {
+            mode: 'index', intersect: false,
+            callbacks: {
+              title: ctx => formatDur(recentPts[ctx[0]?.dataIndex]?.dur || prevPts[ctx[0]?.dataIndex]?.dur || 0),
+              label: ctx => {
+                const pts = ctx.datasetIndex === 0 ? recentPts : prevPts;
+                const p = pts[ctx.dataIndex];
+                if (!p?.watts) return null;
+                const lines = [ctx.dataset.label + ': ' + p.watts + 'W'];
+                if (p.name) lines.push('📍 ' + p.name + ' (' + p.date + ')');
+                return lines;
+              }
+            }
+          }
+        },
         scales: {
-          x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 } } },
+          x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
           y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'Watt', color: tickColor, font: { size: 10 } } }
         }
       }

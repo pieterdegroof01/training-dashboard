@@ -768,7 +768,7 @@ app.get('/api/strava/history-summary', async (req, res) => {
 
 async function computeAndCacheMMP(activityId, activityObj, token, data) {
   const id = String(activityId);
-  if (data.mmpCache[id]) return false;
+  if (data.mmpCache[id]?.v === 2) return false;
   const ps = activityObj.powerSource;
   if (ps !== 'measured' && ps !== 'unknown') return false;
   if (!activityObj.average_watts) return false;
@@ -780,10 +780,11 @@ async function computeAndCacheMMP(activityId, activityObj, token, data) {
     const wattsData = resp.data?.watts?.data;
     if (!wattsData?.length) return false;
     const powerTimeline = wattsData.map(w => ({ w: Math.max(0, w || 0) }));
-    const mmp = engine.computeMMP(powerTimeline);
-    if (!mmp) return false;
+    const mmpFull = engine.computeMMPFull(powerTimeline);
+    if (!mmpFull) return false;
     const date = activityObj.start_date?.split('T')[0] || '';
-    data.mmpCache[id] = { date, powerSource: ps, mmp };
+    const name = activityObj.name || '';
+    data.mmpCache[id] = { date, powerSource: ps, name, dur: powerTimeline.length, mmpArray: Array.from(mmpFull), v: 2 };
     return true;
   } catch(e) {
     console.warn(`MMP stream mislukt (${id}):`, e.message);
@@ -812,7 +813,7 @@ app.post('/api/strava/mmp-batch', async (req, res) => {
     let processed = 0, skipped = 0;
     for (let i = 0; i < candidates.length; i++) {
       const a = candidates[i];
-      if (data.mmpCache[String(a.id)]) { skipped++; continue; }
+      if (data.mmpCache[String(a.id)]?.v === 2) { skipped++; continue; }
       const ok = await computeAndCacheMMP(a.id, a, token, data);
       if (ok) processed++; else skipped++;
       if (i < candidates.length - 1) await new Promise(r => setTimeout(r, 150));
@@ -839,27 +840,59 @@ app.get('/api/state/mmp-curve', async (req, res) => {
     const cut30 = new Date(now); cut30.setDate(now.getDate() - 30);
     const cut90 = new Date(now); cut90.setDate(now.getDate() - 90);
 
-    const recent = {}, previous = {};
-    let recentCount = 0, previousCount = 0;
-
-    for (const [, entry] of Object.entries(cache)) {
+    const recentEntries = [], prevEntries = [];
+    for (const [id, entry] of Object.entries(cache)) {
+      if (entry.v !== 2) continue;
       const d = new Date(entry.date);
-      let bucket = null;
-      if (d >= cut30)       { bucket = recent;   recentCount++;   }
-      else if (d >= cut90)  { bucket = previous; previousCount++; }
-      else continue;
-      for (const dur of MMP_DURATIONS) {
-        const val = entry.mmp?.[dur];
-        if (val && (!bucket[dur] || val > bucket[dur])) bucket[dur] = val;
+      if (d >= cut30)      recentEntries.push([id, entry]);
+      else if (d >= cut90) prevEntries.push([id, entry]);
+    }
+    const recentCount = recentEntries.length;
+    const previousCount = prevEntries.length;
+
+    function buildCurve(entries) {
+      if (!entries.length) return { maxDur: 0, maxCurve: [], attribution: [] };
+      const maxDur = Math.max(...entries.map(([, e]) => e.dur));
+      const maxCurve = new Array(maxDur).fill(0);
+      const attribution = new Array(maxDur).fill(null);
+      for (const [id, entry] of entries) {
+        const arr = entry.mmpArray, len = Math.min(arr.length, maxDur);
+        for (let i = 0; i < len; i++) {
+          if (arr[i] > maxCurve[i]) { maxCurve[i] = arr[i]; attribution[i] = id; }
+        }
       }
+      return { maxDur, maxCurve, attribution };
+    }
+
+    const { maxDur: rDur, maxCurve: rCurve, attribution: rAttr } = buildCurve(recentEntries);
+    const { maxDur: pDur, maxCurve: pCurve, attribution: pAttr } = buildCurve(prevEntries);
+    const basisDur = rDur || pDur;
+
+    let sampledIndices = [0];
+    if (basisDur > 1) {
+      const sampledSet = new Set([0, basisDur - 1]);
+      const lnDur = Math.log(basisDur);
+      for (let j = 0; j <= 400; j++) {
+        const idx = Math.min(Math.round(Math.exp(j * lnDur / 400)) - 1, basisDur - 1);
+        if (idx >= 0) sampledSet.add(idx);
+      }
+      sampledIndices = [...sampledSet].sort((a, b) => a - b);
+    }
+
+    function buildSampled(maxCurve, attribution, maxDur) {
+      return sampledIndices.map(i => {
+        if (i >= maxDur) return { dur: i + 1, watts: null, activityId: null, name: null, date: null };
+        const actId = attribution[i];
+        const entry = actId ? cache[actId] : null;
+        return { dur: i + 1, watts: maxCurve[i] || null, activityId: actId || null, name: entry?.name || null, date: entry?.date || null };
+      });
     }
 
     res.json({
-      durations: MMP_DURATIONS,
-      recent:   MMP_DURATIONS.map(d => recent[d]   ?? null),
-      previous: MMP_DURATIONS.map(d => previous[d] ?? null),
-      totalActivities: Object.keys(cache).length,
-      recentCount, previousCount
+      recent:   buildSampled(rCurve, rAttr, rDur),
+      previous: buildSampled(pCurve, pAttr, pDur),
+      recentCount, previousCount,
+      totalActivities: Object.keys(cache).length
     });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
