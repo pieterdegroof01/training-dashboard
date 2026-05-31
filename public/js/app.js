@@ -2473,10 +2473,10 @@ async function renderActivityPage(id) {
                 <div id="adm-planned-bar"></div>
               </div>
             </div>
-            <div id="adm-mmp-section" class="ap-section" style="display:none">
+            <div id="adm-mmp-section" class="ap-section">
               <h3 class="adm-section-title">Mean Maximal Power</h3>
-              <p class="adm-section-sub">Beste gemiddeld vermogen per duur</p>
-              <svg id="adm-mmp-svg" width="100%" height="120" style="display:block;overflow:visible"></svg>
+              <p class="adm-section-sub">Deze rit vs 90-dagen best</p>
+              <div id="admMmpChart" style="margin-top:8px"></div>
             </div>
             <div id="adm-decoupling-section" class="ap-section" style="display:none">
               <h3 class="adm-section-title">Aerobe koppeling</h3>
@@ -2598,65 +2598,8 @@ async function renderActivityPage(id) {
     }
   }
 
-  // MMP curve
-  if (d.mmpCurve?.length > 1) {
-    document.getElementById('adm-mmp-section').style.display='block';
-    const svg=document.getElementById('adm-mmp-svg');
-    const W=svg.getBoundingClientRect().width||600;
-    const H=120;
-    const pad={top:10,right:10,bottom:20,left:40};
-    const dW=W-pad.left-pad.right, dH=H-pad.top-pad.bottom;
-    const labels=['5s','10s','30s','1m','2m','5m','10m','20m'];
-    const maxP=Math.max(...d.mmpCurve.map(p=>p.power),FTP);
-    const n=d.mmpCurve.length;
-    const xSm=i=>pad.left+i/(n-1)*dW;
-    const ySm=w=>pad.top+(1-w/(maxP||1))*dH;
-    let html='';
-    const ftpY=ySm(FTP);
-    html+='<line x1="'+pad.left+'" y1="'+ftpY+'" x2="'+(pad.left+dW)+'" y2="'+ftpY+
-      '" stroke="#EF4444" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>';
-    html+='<text x="'+(pad.left+4)+'" y="'+(ftpY-3)+'" fill="#EF4444" font-size="9">FTP</text>';
-    const pts=d.mmpCurve.map((p,i)=>xSm(i)+','+ySm(p.power)).join(' ');
-    html+='<polyline points="'+pts+'" fill="none" stroke="#F59E0B" stroke-width="2"/>';
-    d.mmpCurve.forEach((p,i)=>{
-      const x=xSm(i), y=ySm(p.power);
-      html+='<circle cx="'+x+'" cy="'+y+'" r="3" fill="#F59E0B"/>';
-      html+='<text x="'+x+'" y="'+(H-5)+'" fill="#4A5568" font-size="8" text-anchor="middle">'+(labels[i]||'')+'</text>';
-      html+='<text x="'+x+'" y="'+(y-6)+'" fill="#F59E0B" font-size="8" text-anchor="middle">'+p.power+'W</text>';
-    });
-    [0,Math.round(maxP/2),maxP].forEach(w=>{
-      html+='<text x="'+(pad.left-4)+'" y="'+(ySm(w)+3)+'" fill="#4A5568" font-size="8" text-anchor="end">'+w+'</text>';
-    });
-    svg.innerHTML=html;
-    if (!document.getElementById('adm-tooltip')) {
-      const tip=document.createElement('div');
-      tip.id='adm-tooltip'; tip.className='adm-tooltip';
-      document.body.appendChild(tip);
-    }
-    const mmpOverlay=document.createElementNS('http://www.w3.org/2000/svg','rect');
-    mmpOverlay.setAttribute('x',pad.left); mmpOverlay.setAttribute('y',pad.top);
-    mmpOverlay.setAttribute('width',dW); mmpOverlay.setAttribute('height',dH);
-    mmpOverlay.setAttribute('fill','transparent'); mmpOverlay.style.cursor='crosshair';
-    svg.appendChild(mmpOverlay);
-    mmpOverlay.addEventListener('mousemove',e=>{
-      const rect=svg.getBoundingClientRect();
-      const mx=e.clientX-rect.left-pad.left;
-      const idx=Math.max(0,Math.min(n-1,Math.round(mx/dW*(n-1))));
-      const pt=d.mmpCurve[idx];
-      if(!pt) return;
-      const tip=document.getElementById('adm-tooltip');
-      if(!tip) return;
-      tip.innerHTML='<div class="adm-tooltip-time">'+(labels[idx]||'')+'</div>'+
-        '<div class="adm-tooltip-row"><span class="adm-tooltip-dot" style="background:#F59E0B"></span>MMP: <strong>'+pt.power+' W</strong></div>';
-      tip.style.display='block';
-      tip.style.left=(e.clientX+14)+'px';
-      tip.style.top=(e.clientY-60)+'px';
-    });
-    mmpOverlay.addEventListener('mouseleave',()=>{
-      const tip=document.getElementById('adm-tooltip');
-      if(tip) tip.style.display='none';
-    });
-  }
+  // MMP vergelijkingscurve
+  renderActivityMmpChart(d);
 
   // HR + cadence
   if (d.hrSummary?.avgHR) {
@@ -2705,6 +2648,69 @@ async function renderActivityPage(id) {
     admRenderDistributies(d, FTP);
     admRenderAnalyse(d, FTP);
   }, 100);
+}
+
+function renderActivityMmpChart(detail) {
+  const el = document.getElementById('admMmpChart');
+  if (!el) return;
+  const actPts  = detail.activityMmpCurve;
+  const bestPts = detail.bestMmpCurve;
+  if (!actPts?.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Geen vermogensdata beschikbaar voor curve.</div>';
+    return;
+  }
+  el.innerHTML = '<canvas id="chartAdmMmp" height="100"></canvas><div id="admMmpMeta" style="font-size:10px;color:var(--muted);margin-top:4px"></div>';
+  const gridColor = 'rgba(255,255,255,0.06)', tickColor = '#666';
+  makeChart('chartAdmMmp', {
+    type: 'line',
+    data: {
+      labels: actPts.map(p => formatDur(p.dur)),
+      datasets: [
+        { label: 'Deze rit', data: actPts.map(p => p.watts),
+          borderColor: '#f97316', backgroundColor: '#f9731612',
+          borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true, spanGaps: true },
+        { label: '90d best', data: (bestPts||[]).map(p => p.watts),
+          borderColor: '#555', borderWidth: 1.5, pointRadius: 0,
+          tension: 0.2, borderDash: [4,4], spanGaps: true }
+      ]
+    },
+    options: {
+      responsive: true,
+      onClick: (evt, elements, chart) => {
+        const els = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+        if (!els.length || els[0].datasetIndex !== 1) return;
+        const p = bestPts?.[els[0].index];
+        if (p?.activityId) navigateToActivity(p.activityId);
+      },
+      onHover: (evt, els) => {
+        if (evt.native?.target) evt.native.target.style.cursor = els.length ? 'pointer' : 'default';
+      },
+      plugins: {
+        legend: { labels: { color: '#aaa', font: { size: 10 } } },
+        tooltip: {
+          mode: 'index', intersect: false,
+          callbacks: {
+            title: ctx => formatDur(actPts[ctx[0]?.dataIndex]?.dur || 0),
+            label: ctx => {
+              if (ctx.datasetIndex === 0) return 'Deze rit: ' + (ctx.parsed.y ?? '–') + 'W';
+              const p = bestPts?.[ctx.dataIndex];
+              const lines = ['90d best: ' + (p?.watts ?? '–') + 'W'];
+              if (p?.name) lines.push('📍 ' + p.name + ' (' + p.date + ')');
+              return lines;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 10 } },
+        y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 } }, title: { display: true, text: 'Watt', color: tickColor, font: { size: 10 } } }
+      }
+    }
+  });
+  if (document.getElementById('admMmpMeta') && bestPts?.length) {
+    const bestCount = bestPts.filter(p => p.watts).length;
+    document.getElementById('admMmpMeta').textContent = bestCount > 0 ? '90-dagen best beschikbaar · klik op grijze lijn om te navigeren' : '90-dagen best: nog geen data (druk Berekenen op Trends-tab)';
+  }
 }
 
 // (openActivityDetail replaced by renderActivityPage above)

@@ -935,8 +935,44 @@ async function getActivityDetail(stravaId, data, settings) {
     return s ? { targetTSS: s.targetTSS, duration: s.duration, blokken: s.blokken, title: s.title } : null;
   }
 
+  function buildActivityMmpCurves(powerTl, actPs) {
+    try {
+      if ((actPs !== 'measured' && actPs !== 'unknown') || !powerTl) return { activityMmpCurve: null, bestMmpCurve: null };
+      const rawForMmp = powerTl.map(p => ({ w: p.w }));
+      const mmpFull = engine.computeMMPFull(rawForMmp);
+      if (!mmpFull) return { activityMmpCurve: null, bestMmpCurve: null };
+      const actDur = mmpFull.length;
+      const lnDur = Math.log(actDur);
+      const sampledSet = new Set([0, actDur - 1]);
+      for (let j = 0; j <= 300; j++) {
+        const idx = Math.min(Math.round(Math.exp(j * lnDur / 300)) - 1, actDur - 1);
+        if (idx >= 0) sampledSet.add(idx);
+      }
+      const sampledIndices = [...sampledSet].sort((a, b) => a - b);
+      const actCurve = sampledIndices.map(i => ({ dur: i + 1, watts: mmpFull[i] || null }));
+      const mmpCache = data.mmpCache || {};
+      const cut90 = new Date(); cut90.setDate(cut90.getDate() - 90);
+      const best90 = new Array(actDur).fill(0);
+      const bestAttr90 = new Array(actDur).fill(null);
+      for (const [entryId, entry] of Object.entries(mmpCache)) {
+        if (entry.v !== 2 || new Date(entry.date) < cut90) continue;
+        const arr = entry.mmpArray, len = Math.min(arr.length, actDur);
+        for (let i = 0; i < len; i++) {
+          if (arr[i] > best90[i]) { best90[i] = arr[i]; bestAttr90[i] = entryId; }
+        }
+      }
+      const bestCurve = sampledIndices.map(i => {
+        const actId = bestAttr90[i];
+        const entry = actId ? mmpCache[actId] : null;
+        return { dur: i + 1, watts: best90[i] || null, activityId: actId || null, name: entry?.name || null, date: entry?.date || null };
+      });
+      return { activityMmpCurve: actCurve, bestMmpCurve: bestCurve };
+    } catch(e) { console.warn('buildActivityMmpCurves:', e.message); return { activityMmpCurve: null, bestMmpCurve: null }; }
+  }
+
   const cached = data.activityStreams?.[sid];
   if (cached) {
+    const { activityMmpCurve, bestMmpCurve } = buildActivityMmpCurves(cached.powerTimeline, activity?.powerSource);
     return {
       activity:          activity ? buildMeta(activity) : null,
       zoneBreakdown:     cached.zoneBreakdown,
@@ -956,7 +992,8 @@ async function getActivityDetail(stravaId, data, settings) {
       gpsTrack:          cached.gpsTrack,
       ftp:               FTP,
       plannedSession:    activity ? findPlanned(actDate) : null,
-      sessionClassification: cached.sessionClassification
+      sessionClassification: cached.sessionClassification,
+      activityMmpCurve, bestMmpCurve
     };
   }
 
@@ -1004,6 +1041,9 @@ async function getActivityDetail(stravaId, data, settings) {
       powerTimeline = adaptiveSample(raw);
     }
   } catch(e) { console.warn('Power timeline:', e.message); }
+
+  // MMP vergelijkingscurve: deze rit vs 90-dagen-best
+  const { activityMmpCurve, bestMmpCurve } = buildActivityMmpCurves(powerTimeline, activity?.powerSource);
 
   let hrSummary = null;
   try {
@@ -1262,7 +1302,8 @@ async function getActivityDetail(stravaId, data, settings) {
     distanceTimeline,  gpsTrack,
     ftp:               FTP,
     plannedSession:    activity ? findPlanned(actDate) : null,
-    sessionClassification
+    sessionClassification,
+    activityMmpCurve, bestMmpCurve
   };
 }
 
