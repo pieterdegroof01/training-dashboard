@@ -95,8 +95,13 @@ function simpleHash(str) {
 function assignPowerSource(activity) {
   if (!activity.average_watts) {
     activity.powerSource = null;
+  } else if (activity.device_watts === true) {
+    activity.powerSource = 'measured';
+  } else if (activity.device_watts === false) {
+    activity.powerSource = 'estimated';
   } else {
-    activity.powerSource = activity.device_watts === true ? 'measured' : 'estimated';
+    // device_watts ontbreekt in cache (oudere Strava-export)
+    activity.powerSource = 'unknown';
   }
 }
 

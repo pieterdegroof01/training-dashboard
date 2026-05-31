@@ -82,7 +82,7 @@ function rollingFtp(activities, settings, asOfDate = null) {
 
   const candidates = activities.filter(a => {
     if (a.type !== 'Ride' && a.type !== 'VirtualRide') return false;
-    if (a.powerSource !== 'measured') return false;
+    if (a.powerSource !== 'measured' && a.powerSource !== 'unknown') return false;
     const d = a.start_date?.split('T')[0] || '';
     if (!d || isUnreliablePower(d, settings)) return false;
     const dt = new Date(d);
@@ -96,13 +96,15 @@ function rollingFtp(activities, settings, asOfDate = null) {
   const efforts = candidates.map(a => ({
     date: a.start_date.split('T')[0],
     np: a.weighted_average_watts || a.average_watts,
-    name: a.name
+    name: a.name,
+    powerSource: a.powerSource
   }));
   const sorted = efforts.sort((a, b) => b.np - a.np);
   const top3 = sorted.slice(0, 3);
   const median = top3[Math.floor(top3.length / 2)].np;
+  const uncertainCount = top3.filter(r => r.powerSource === 'unknown').length;
 
-  return { ftp: Math.round(median * 0.95), basedOn: top3, method: 'top-20min × 0.95' };
+  return { ftp: Math.round(median * 0.95), basedOn: top3, uncertainCount, method: 'top-20min × 0.95' };
 }
 
 function ftpForDate(activities, settings, date) {
@@ -178,11 +180,12 @@ function computeETLForActivity(activity, settings) {
       if (activity.suffer_score > 0) return { etl: Math.round(activity.suffer_score * sufferFactor), tssSource: 'fallback' };
       return { etl: Math.round(durH * 50), tssSource: 'fallback' };
     }
-    // Prioriteit 2: gemeten vermogen (powerSource === 'measured')
-    if (activity.powerSource === 'measured' && activity.average_watts && durH > 0) {
+    // Prioriteit 2: gemeten of onbekend-bron vermogen
+    if ((activity.powerSource === 'measured' || activity.powerSource === 'unknown') && activity.average_watts && durH > 0) {
       const np = activity.weighted_average_watts || activity.average_watts;
       const IF = np / ftp;
-      return { etl: Math.min(Math.round(IF * IF * durH * 100), 400), tssSource: 'power' };
+      const tssSource = activity.powerSource === 'measured' ? 'power' : 'power_unverified';
+      return { etl: Math.min(Math.round(IF * IF * durH * 100), 400), tssSource };
     }
     // Prioriteit 3: hrTSS via LTHR-instelling
     if (lthr && activity.average_heartrate) {
@@ -974,7 +977,6 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
     perfTrends, plateaus, overreaching,
     readiness, personalModel, adaptivePlan,
     currentWeight,
-    lthrSuggestion: suggestLTHR(activities),
     trainingPlan: computeTrainingPlan(data, { metrics: enduranceMetrics })
   };
 }
