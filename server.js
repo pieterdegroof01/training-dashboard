@@ -1583,64 +1583,189 @@ app.post('/api/nutrition/parse-screenshot', upload.single('screenshot'), async (
   } catch (err) { res.status(500).json({ error: 'Verwerking mislukt: ' + err.message }); }
 });
 
+// ── Gedeelde gewicht CSV-parser (Garmin Connect NL + platte formaten) ─────────
+
+const _NL_EN_MONTHS = {
+  januari:1, jan:1, january:1,
+  februari:2, feb:2, february:2,
+  maart:3, mrt:3, march:3, mar:3,
+  april:4, apr:4,
+  mei:5, may:5,
+  juni:6, jun:6, june:6,
+  juli:7, jul:7, july:7,
+  augustus:8, aug:8, august:8,
+  september:9, sep:9,
+  oktober:10, okt:10, october:10, oct:10,
+  november:11, nov:11,
+  december:12, dec:12
+};
+
+function parseWeightCsv(buffer) {
+  const raw = buffer.toString('utf8').replace(/^﻿/, ''); // strip UTF-8 BOM
+  const allLines = raw.split(/\r?\n/);
+  const nonEmpty = allLines.filter(l => l.trim());
+  if (nonEmpty.length < 2) return { error: 'Bestand is leeg of bevat te weinig regels' };
+
+  const firstLine = nonEmpty[0];
+  const delim = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
+  const headerCols = firstLine.split(delim).map(h => h.replace(/"/g, '').trim().toLowerCase());
+
+  const weightIdx = headerCols.findIndex(h =>
+    h === 'weight' || h === 'gewicht' || h === 'weight (kg)' || h === 'weight (lbs)' || h === 'gewicht (kg)' ||
+    (h.includes('weight') && !h.includes('body') && !h.includes('bone') && !h.includes('muscle'))
+  );
+  if (weightIdx === -1) return { error: `Gewichtskolom niet gevonden. Kolommen: ${headerCols.join(', ')}` };
+
+  // Date column for flat-format support (may be absent in Garmin multi-row format)
+  const dateIdx = headerCols.findIndex(h =>
+    h.includes('date') || h === 'datum' || h.includes('time') || h.includes('tijd')
+  );
+
+  function parseMonthName(str) {
+    const m = str.trim().match(/^(\d{1,2})\s+([a-zA-ZÀ-ÿ]+)\.?\s+(\d{4})$/);
+    if (!m) return null;
+    const monthNum = _NL_EN_MONTHS[m[2].toLowerCase()];
+    if (!monthNum) return null;
+    return `${m[3]}-${String(monthNum).padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  }
+
+  function parseDateStr(raw) {
+    const s = raw.replace(/"/g, '').trim();
+    const byMonth = parseMonthName(s);
+    if (byMonth) return byMonth;
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const eu = s.match(/^(\d{2})-(\d{2})-(\d{4})/);
+    if (eu) return `${eu[3]}-${eu[2]}-${eu[1]}`;
+    const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (us) return `${us[3]}-${us[1].padStart(2,'0')}-${us[2].padStart(2,'0')}`;
+    const p = new Date(s);
+    if (!isNaN(p.getTime()) && s.length >= 8) return p.toISOString().split('T')[0];
+    return null;
+  }
+
+  function parseWeightVal(raw) {
+    if (!raw || raw.trim() === '' || raw.trim() === '--') return null;
+    const cleaned = raw.trim().replace(/\s*(kg|lbs)\s*$/i, '').replace(',', '.').trim();
+    const w = parseFloat(cleaned);
+    return (isNaN(w) || w <= 0) ? null : w;
+  }
+
+  function isTimeCell(cell) {
+    return /^\d{1,2}:\d{2}(:\d{2})?$/.test(cell.trim());
+  }
+
+  const entries = [];
+  const weightSamples = [];
+  let currentDate = null;
+  let dateRowsFound = 0, measureRowsFound = 0, invalidMeasures = 0;
+
+  for (let i = 0; i < allLines.length; i++) {
+    const line = allLines[i];
+    if (!line.trim()) continue;
+    // Skip header row
+    if (i === 0 || line.split(delim).map(c => c.replace(/"/g,'').trim().toLowerCase()).join(',') === headerCols.join(',')) continue;
+
+    const cols = line.split(delim).map(c => c.replace(/"/g, '').trim());
+    const firstCell = cols[0];
+
+    // 1. Date row: first cell matches Dutch/English month name or numeric date
+    const byMonthDate = parseMonthName(firstCell);
+    const isNumericDateRow = !byMonthDate && (
+      /^\d{4}-\d{2}-\d{2}$/.test(firstCell) ||
+      /^\d{2}-\d{2}-\d{4}$/.test(firstCell) ||
+      /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(firstCell)
+    );
+
+    if (byMonthDate || isNumericDateRow) {
+      const parsed = byMonthDate || parseDateStr(firstCell);
+      if (parsed) {
+        currentDate = parsed;
+        dateRowsFound++;
+        // Flat row: same line also has a weight (e.g. standard flat CSV)
+        if (weightIdx < cols.length) {
+          const w = parseWeightVal(cols[weightIdx]);
+          if (w !== null && w > 1 && w < 700) {
+            entries.push({ date: currentDate, weight: w });
+            weightSamples.push(w);
+            measureRowsFound++;
+          }
+        }
+      }
+      continue;
+    }
+
+    // 2. Timestamp row: first cell is HH:MM — use currentDate context
+    if (isTimeCell(firstCell)) {
+      if (!currentDate) continue;
+      measureRowsFound++;
+      if (weightIdx < cols.length) {
+        const w = parseWeightVal(cols[weightIdx]);
+        if (w !== null && w > 1 && w < 700) {
+          entries.push({ date: currentDate, weight: w });
+          weightSamples.push(w);
+        } else { invalidMeasures++; }
+      } else { invalidMeasures++; }
+      continue;
+    }
+
+    // 3. Flat format: row with date in dedicated dateIdx column
+    if (dateIdx !== -1 && dateIdx < cols.length) {
+      const parsed = parseDateStr(cols[dateIdx]);
+      if (parsed && weightIdx < cols.length) {
+        const w = parseWeightVal(cols[weightIdx]);
+        if (w !== null && w > 1 && w < 700) {
+          entries.push({ date: parsed, weight: w });
+          weightSamples.push(w);
+          measureRowsFound++;
+        }
+      }
+    }
+  }
+
+  let isLbs = false;
+  if (weightSamples.length > 0) {
+    const sorted = [...weightSamples].sort((a, b) => a - b);
+    isLbs = sorted[Math.floor(sorted.length / 2)] > 150;
+  }
+
+  return { entries, isLbs, dateRowsFound, measureRowsFound, invalidMeasures, weightColName: headerCols[weightIdx] };
+}
+
+function weightImportErrorMsg(parsed) {
+  const { dateRowsFound, measureRowsFound, invalidMeasures, weightColName } = parsed;
+  if (dateRowsFound > 0 && measureRowsFound === 0)
+    return `Wel ${dateRowsFound} datumregel(s) gevonden maar geen geldige gewichtswaarden in kolom '${weightColName}'.`;
+  if (dateRowsFound === 0 && measureRowsFound === 0)
+    return `Geen datum- of meetrijen herkend — controleer het bestandsformaat.`;
+  return `${measureRowsFound} meetregel(s) verwerkt maar alle waarden ongeldig (${invalidMeasures} ontbrekend/onleesbaar).`;
+}
+
 app.post('/api/weight/import', upload.single('csvfile'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen bestand ontvangen' });
 
-    const text = req.file.buffer.toString('utf8').replace(/\r/g, '');
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    if (lines.length < 2) return res.status(400).json({ error: 'Bestand lijkt leeg' });
+    const parsed = parseWeightCsv(req.file.buffer);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
 
-    const header = lines[0].replace(/"/g, '').split(',').map(h => h.trim().toLowerCase());
-    const dateIdx = header.findIndex(h => h.includes('date') || h === 'datum');
-    const weightIdx = header.findIndex(h =>
-      h === 'weight' || h === 'gewicht' || h === 'weight (kg)' || h === 'weight (lbs)' ||
-      (h.includes('weight') && !h.includes('body') && !h.includes('bone') && !h.includes('muscle'))
-    );
-
-    if (dateIdx === -1 || weightIdx === -1)
-      return res.status(400).json({ error: `Kolommen niet gevonden. Gevonden: ${header.join(', ')}` });
-
-    const samples = lines.slice(1, 20).map(l => parseFloat(l.replace(/"/g,'').split(',')[weightIdx])).filter(n => !isNaN(n));
-    const median = samples.sort((a,b)=>a-b)[Math.floor(samples.length/2)];
-    const isLbs = median > 150;
-
+    const { entries, isLbs } = parsed;
     const imported = {};
-    let skipped = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].replace(/"/g, '').split(',');
-      if (cols.length <= Math.max(dateIdx, weightIdx)) continue;
-      const rawDate = cols[dateIdx]?.trim();
-      const rawWeight = cols[weightIdx]?.trim();
-      if (!rawDate || !rawWeight) continue;
-
-      let dateKey = null;
-      const isoM = rawDate.match(/(\d{4})-(\d{2})-(\d{2})/);
-      const euM  = rawDate.match(/(\d{2})-(\d{2})-(\d{4})/);
-      const usM  = rawDate.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-      if (isoM) dateKey = `${isoM[1]}-${isoM[2]}-${isoM[3]}`;
-      else if (euM) dateKey = `${euM[3]}-${euM[2]}-${euM[1]}`;
-      else if (usM) dateKey = `${usM[3]}-${usM[1]}-${usM[2]}`;
-      if (!dateKey) { skipped++; continue; }
-
-      let weight = parseFloat(rawWeight);
-      if (isNaN(weight) || weight < 20 || weight > 400) { skipped++; continue; }
-      if (isLbs) weight = Math.round(weight * 0.453592 * 10) / 10;
-      else weight = Math.round(weight * 10) / 10;
-      if (!imported[dateKey]) imported[dateKey] = String(weight);
+    for (const { date, weight } of entries) {
+      const w = isLbs ? Math.round(weight * 0.453592 * 10) / 10 : Math.round(weight * 10) / 10;
+      if (!imported[date]) imported[date] = String(w);
     }
 
     const count = Object.keys(imported).length;
-    if (count === 0) return res.status(400).json({ error: `Geen geldige metingen gevonden. ${skipped} regels overgeslagen.` });
+    if (count === 0) return res.status(400).json({ error: `Geen geldige metingen gevonden. ${weightImportErrorMsg(parsed)}` });
 
     const data = await loadData();
     const existing = data.weight || {};
-    data.weight = { ...imported, ...existing };
+    data.weight = { ...imported, ...existing }; // bestaande handmatige invoer wint
     await saveData(data);
 
     const sorted = Object.keys(imported).sort();
-    res.json({ imported: count, skipped, total: Object.keys(data.weight).length, oldest: sorted[0], newest: sorted[sorted.length - 1], unit: isLbs ? 'lbs omgezet naar kg' : 'kg' });
+    const skipped = parsed.measureRowsFound - count;
+    res.json({ imported: count, skipped: Math.max(0, skipped), total: Object.keys(data.weight).length, oldest: sorted[0], newest: sorted[sorted.length - 1], unit: isLbs ? 'lbs omgezet naar kg' : 'kg' });
   } catch (err) { res.status(500).json({ error: 'Import mislukt: ' + err.message }); }
 });
 
@@ -2004,46 +2129,15 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen bestand ontvangen' });
 
-    const text = req.file.buffer.toString('utf8');
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) return res.status(400).json({ error: 'Bestand is leeg of ongeldig' });
+    const parsed = parseWeightCsv(req.file.buffer);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
 
-    const delim = (lines[0].match(/;/g) || []).length > (lines[0].match(/,/g) || []).length ? ';' : ',';
-    const header = lines[0].split(delim).map(h => h.replace(/"/g, '').trim().toLowerCase());
-    const dateIdx = header.findIndex(h => h.includes('date') || h.includes('datum') || h.includes('time') || h.includes('tijd'));
-    const weightIdx = header.findIndex(h => h.match(/^weight$|^gewicht$|^weight \(kg\)|^weight \(lbs\)|^gewicht \(kg\)/));
+    const { entries, isLbs } = parsed;
+    if (!entries.length) return res.status(400).json({ error: `Geen geldige gewichtsinvoeren gevonden. ${weightImportErrorMsg(parsed)}` });
 
-    if (dateIdx === -1 || weightIdx === -1)
-      return res.status(400).json({ error: `Kolommen niet herkend. Gevonden kolommen: ${header.join(', ')}.` });
-
-    const entries = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(delim).map(c => c.replace(/"/g, '').trim());
-      const rawDate = cols[dateIdx];
-      const rawWeight = cols[weightIdx];
-      if (!rawDate || !rawWeight || rawWeight === '') continue;
-
-      let dateKey = null;
-      const cleanDate = rawDate.split(' ')[0].split('T')[0];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) dateKey = cleanDate;
-      else if (/^\d{2}-\d{2}-\d{4}$/.test(cleanDate)) { const [d, m, y] = cleanDate.split('-'); dateKey = `${y}-${m}-${d}`; }
-      else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cleanDate)) { const [m, d, y] = cleanDate.split('/'); dateKey = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }
-      else { const parsed = new Date(rawDate); if (!isNaN(parsed)) dateKey = parsed.toISOString().split('T')[0]; }
-      if (!dateKey) continue;
-
-      const weight = parseFloat(rawWeight.replace(',', '.'));
-      if (isNaN(weight) || weight <= 0) continue;
-      entries.push({ date: dateKey, weight });
-    }
-
-    if (!entries.length) return res.status(400).json({ error: 'Geen geldige gewichtsinvoeren gevonden' });
-
-    const sorted = [...entries].sort((a, b) => a.weight - b.weight);
-    const median = sorted[Math.floor(sorted.length / 2)].weight;
-    const isLbs = median > 150;
     const converted = entries.map(e => ({
       date: e.date,
-      weight: isLbs ? Math.round((e.weight * 0.453592) * 10) / 10 : Math.round(e.weight * 10) / 10
+      weight: isLbs ? Math.round(e.weight * 0.453592 * 10) / 10 : Math.round(e.weight * 10) / 10
     }));
 
     const data = await loadData();
@@ -2055,11 +2149,12 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
     data.weight = existing;
     await saveData(data);
 
+    const byDate = [...converted].sort((a, b) => a.date.localeCompare(b.date));
     res.json({
       ok: true, total: converted.length, added, skipped,
       unit: isLbs ? 'lbs → omgezet naar kg' : 'kg',
-      eerste: converted.sort((a,b)=>a.date.localeCompare(b.date))[0]?.date,
-      laatste: converted.sort((a,b)=>b.date.localeCompare(a.date))[0]?.date,
+      eerste: byDate[0]?.date,
+      laatste: byDate[byDate.length - 1]?.date
     });
   } catch (err) {
     res.status(500).json({ error: 'Upload mislukt: ' + err.message });
