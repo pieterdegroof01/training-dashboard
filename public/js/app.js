@@ -1350,7 +1350,7 @@ const HELP_TEXTS = {
   nutrition: { title: 'Voeding — Help', content: `<strong>Voeding bijhouden</strong><br>Importeer een Yazio screenshot of voer macros handmatig in.<br><br><strong>Macros</strong><br>• Calorieën (kcal) — totale energie-inname<br>• Eiwit (g) — spieronderhoud en groei<br>• Koolhydraten (g) — primaire energiebron<br>• Vet (g) — hormonen en vetoplosbare vitaminen<br><br><strong>14-dagenkaart</strong><br>Overzicht van de afgelopen 14 dagen inclusief gewicht per dag.` },
   analyse: { title: 'Coach — Help', content: `<strong>AI Coach</strong><br>Genereert gepersonaliseerd trainingsadvies op basis van al je data.<br><br><strong>Wat wordt meegenomen</strong><br>• Trainingsgeschiedenis (Strava)<br>• Gym workouts (Hevy)<br>• Voeding en gewicht<br>• Doelen en weekpatronen<br>• Literatuur (wetenschappelijke context)<br><br><strong>Tip</strong><br>Voeg een notitie toe voor specifieke vragen of aanvullingen (blessures, afwijkingen).` },
   planning: { title: 'Doelen — Help', content: `<strong>Doelen instellen</strong><br>Stel je primaire trainingsdoel in. Dit wordt meegenomen in de AI-analyse.<br><br><strong>Velden</strong><br>• Primair doel — wat wil je bereiken?<br>• Doelgewicht — streefgewicht in kg<br>• Tijdlijn — wanneer bereikt?<br>• Extra context — blessures, events, beperkingen<br><br><strong>Vaste patronen</strong><br>Wekelijks terugkerende trainingen als basis voor weekplanning en analyse.` },
-  voortgang: { title: 'Trends — Help', content: `<strong>Grafieken</strong><br>Visualiseer je trainingsdata over tijd.<br><br><strong>Beschikbare grafieken</strong><br>• <strong>Gewicht</strong> — trend over de geselecteerde periode<br>• <strong>ATL / CTL / TSB</strong> — trainingsbelasting (120 dagen)<br>• <strong>Wekelijks volume</strong> — uren en sessies per week<br>• <strong>Voeding</strong> — calorieën en eiwit per dag<br>• <strong>Vermogen</strong> — gemiddeld wattage per maand<br><br>Selecteer een periode en klik op Laden.` },
+  voortgang: { title: 'Trends — Help', content: `<strong>Grafieken</strong><br>Visualiseer je trainingsdata over tijd.<br><br><strong>Beschikbare grafieken</strong><br>• <strong>Gewicht</strong> — trend over de geselecteerde periode<br>• <strong>ATL / CTL / TSB</strong> — trainingsbelasting (volgt periodeselectie)<br>• <strong>Wekelijks volume</strong> — uren en sessies per week<br>• <strong>Voeding</strong> — calorieën en eiwit per dag<br>• <strong>Vermogen</strong> — gemiddeld wattage per maand<br><br>Selecteer een periode en klik op Laden.` },
   instellingen: { title: 'Settings — Help', content: `<strong>Instellingen</strong><br>Configureer je dashboard en trainingszones.<br><br><strong>Secties</strong><br>• Trainingszones — FTP-percentages per zone<br>• Fysiologie — max hartslag, gewichtsverlies doel<br>• Krachttraining — standaard RPE<br>• Alertdrempels — wanneer worden waarschuwingen getoond?<br>• Powermeter & FTP — onbetrouwbare periode en handmatige FTP<br>• Gewicht importeren — Garmin CSV import<br>• Literatuur — wetenschappelijke bronnen voor AI-analyse` },
 };
 
@@ -1540,7 +1540,7 @@ async function loadCharts() {
   document.getElementById('chartsContainer').classList.remove('hidden');
 
   try {
-    const d = await api('/api/charts/data');
+    const d = await api('/api/charts/data?days=' + days);
     const days = parseInt(document.getElementById('chartPeriod').value);
 
     const gridColor = 'rgba(255,255,255,0.06)';
@@ -1605,7 +1605,7 @@ async function loadCharts() {
     }
 
     // ── ATL/CTL/TSB ───────────────────────────────────────────────────────────
-    const lData = filterByDays(d.loadSeries, Math.min(days, 120));
+    const lData = filterByDays(d.loadSeries, days);
     if (lData.length) {
       makeChart('chartLoad', {
         type: 'line',

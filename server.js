@@ -1401,6 +1401,7 @@ app.get('/api/calibration', async (req, res) => {
 
 app.get('/api/charts/data', async (req, res) => {
   try {
+    const days = parseInt(req.query.days) || 365;
     const data = await loadData();
     const activities = data.activityCache?.activities || [];
     const settings = data.settings || {};
@@ -1423,7 +1424,7 @@ app.get('/api/charts/data', async (req, res) => {
     if (allDates.length) {
       let atl = 0, ctl = 0;
       const start = new Date(allDates[0]);
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 120);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const loadSeries = [];
       for (let d = new Date(start); d <= new Date(); d.setDate(d.getDate() + 1)) {
         const key = d.toISOString().split('T')[0];
