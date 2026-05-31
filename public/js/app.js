@@ -84,6 +84,7 @@ async function loadUserData() {
     document.getElementById('sPwrStart').value = cfg.unreliablePowerStart||'2020-01-01';
     document.getElementById('sPwrEnd').value = cfg.unreliablePowerEnd||'2020-12-31';
     document.getElementById('sFtp').value = cfg.ftp||280;
+    if (document.getElementById('setting-lthr')) document.getElementById('setting-lthr').value = cfg.lthr ?? '';
     const z = cfg.zones||{};
     if (document.getElementById('sZ1')) document.getElementById('sZ1').value = z.z1||55;
     if (document.getElementById('sZ2')) document.getElementById('sZ2').value = z.z2||75;
@@ -948,7 +949,8 @@ async function saveGoals() {
 
 async function saveSettings() {
   const existing = S.data.settings || {};
-  const settings = { ...existing, unreliablePowerStart:document.getElementById('sPwrStart').value, unreliablePowerEnd:document.getElementById('sPwrEnd').value, ftp:parseInt(document.getElementById('sFtp').value)||280 };
+  const lthrRaw = document.getElementById('setting-lthr')?.value;
+  const settings = { ...existing, unreliablePowerStart:document.getElementById('sPwrStart').value, unreliablePowerEnd:document.getElementById('sPwrEnd').value, ftp:parseInt(document.getElementById('sFtp').value)||280, lthr: lthrRaw ? parseInt(lthrRaw) : null };
   await saveDataPartial({ settings });
   showSaved('btnSettings', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
 }

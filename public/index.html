@@ -466,6 +466,7 @@
         <div class="fg"><label>Onbetrouwbaar van</label><input type="date" id="sPwrStart" value="2020-01-01"></div>
         <div class="fg"><label>Onbetrouwbaar tot</label><input type="date" id="sPwrEnd" value="2020-12-31"></div>
         <div class="fg"><label>Huidige FTP (watt)</label><input type="number" id="sFtp" placeholder="280"><span style="font-size:11px;color:var(--muted);margin-top:3px">Wordt alleen gebruikt als fallback wanneer geen recente ritten beschikbaar zijn voor rolling FTP-berekening.</span></div>
+        <div class="fg"><label>Lactaatdrempel hartslag (LTHR)</label><input type="number" id="setting-lthr" min="100" max="220" step="1" placeholder="bijv. 172"><span style="font-size:11px;color:var(--muted);margin-top:3px">Gemiddelde hartslag over de laatste 20 min van een maximale 30-min inspanning. Vereist voor hrTSS op ritten zonder vermogensmeter.</span></div>
       </div>
       <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettings()" id="btnSettings">Opslaan</button>
     </div>
