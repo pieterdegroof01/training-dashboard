@@ -1544,6 +1544,28 @@ app.get('/api/hevy/workouts', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Slaap ─────────────────────────────────────────────────────────────────────
+
+app.post('/api/sleep', async (req, res) => {
+  try {
+    const { date, hours, quality } = req.body || {};
+    if (!date || typeof hours !== 'number' || isNaN(hours)) return res.status(400).json({ error: 'date en hours vereist' });
+    const freshData = await loadData();
+    freshData.sleep = freshData.sleep || {};
+    freshData.sleep[date] = { hours: parseFloat(hours), quality: parseInt(quality) || 3, source: 'manual' };
+    await saveData(freshData);
+    res.json({ ok: true });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/sleep/today', async (req, res) => {
+  try {
+    const data = await loadData();
+    const today = new Date().toISOString().split('T')[0];
+    res.json(data.sleep?.[today] || null);
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/nutrition/parse-screenshot', upload.single('screenshot'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen afbeelding ontvangen' });
@@ -1846,11 +1868,20 @@ app.get('/api/state/full', async (req, res) => {
     const { enduranceDailyETL, strengthDailyETL, dailyETL, sources, ...rest } = state;
     rest.enduranceMetrics = { ...rest.enduranceMetrics, history: undefined };
     rest.metrics = rest.enduranceMetrics;
+    // Slaapdata laatste 14 dagen (ontbrekende dagen = null)
+    const sleep = data.sleep || {};
+    const sleepData14 = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      sleepData14.push(sleep[key] ? { date: key, ...sleep[key] } : null);
+    }
     res.json({
       ...rest,
       hasETLData: Object.keys(dailyETL).length > 0,
       calibration: data.calibration || { factor: 1.0, count: 0, reliable: false },
-      alertThresholds: settings.alerts || {}
+      alertThresholds: settings.alerts || {},
+      sleepData: sleepData14
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

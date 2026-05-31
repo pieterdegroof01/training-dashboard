@@ -211,8 +211,8 @@ async function loadFullState() {
     const ringColor = r.total >= 80 ? '#4ade80' : r.total >= 65 ? '#a3e635' : r.total >= 50 ? '#facc15' : r.total >= 35 ? '#fb923c' : '#f87171';
     ring.setAttribute('stroke', ringColor);
     document.getElementById('readinessBreakdown').innerHTML =
-      `TSB ${r.breakdown.tsb||0}/35 · ACWR ${r.breakdown.acwr||0}/20 · Monotony ${r.breakdown.monotony||0}/15<br>` +
-      `Load slope ${r.breakdown.loadSlope||0}/10 · Voeding ${r.breakdown.nutrition||0}/10 · Kracht ${r.breakdown.strengthFatigue||0}/10`;
+      `TSB ${r.breakdown.tsb||0}/28 · ACWR ${r.breakdown.acwr||0}/16 · Monotony ${r.breakdown.monotony||0}/12<br>` +
+      `Load slope ${r.breakdown.loadSlope||0}/8 · Voeding ${r.breakdown.nutrition||0}/8 · Kracht ${r.breakdown.strengthFatigue||0}/8 · Slaap ${r.breakdown.sleep||0}/20`;
 
     // Update all metrics
     updateMetrics(s.enduranceMetrics || s.metrics);
@@ -256,6 +256,18 @@ async function loadFullState() {
 
     // Alerts
     renderAlerts(s);
+
+    // Slaap
+    renderSleepDebt(s);
+    initSleepStars();
+    api('/api/sleep/today').then(today => {
+      if (today) {
+        const el = document.getElementById('sleepHours');
+        if (el) el.value = today.hours;
+        _sleepQuality = today.quality || 0;
+        initSleepStars();
+      }
+    }).catch(() => {});
   } catch(e) {
     console.warn('loadFullState failed', e);
   }
@@ -911,6 +923,47 @@ function closeModal(e) {
 async function saveDataPartial(partial) {
   await api('/api/data', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(partial) });
   S.data = { ...S.data, ...partial };
+}
+
+// ── Slaap invoer ─────────────────────────────────────────────────────────────
+
+let _sleepQuality = 0;
+
+function initSleepStars() {
+  const el = document.getElementById('sleepStars');
+  if (!el) return;
+  el.innerHTML = '';
+  for (let i = 1; i <= 5; i++) {
+    const s = document.createElement('span');
+    s.textContent = i <= _sleepQuality ? '★' : '☆';
+    s.style.cursor = 'pointer';
+    s.style.color = i <= _sleepQuality ? 'var(--color-accent,#f97316)' : 'var(--muted)';
+    s.onclick = () => { _sleepQuality = i; initSleepStars(); };
+    el.appendChild(s);
+  }
+}
+
+async function saveSleep() {
+  const hours = parseFloat(document.getElementById('sleepHours')?.value);
+  if (isNaN(hours) || hours < 0 || hours > 14) return;
+  const quality = _sleepQuality || 3;
+  const today = new Date().toISOString().split('T')[0];
+  await api('/api/sleep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: today, hours, quality }) });
+  await loadFullState();
+}
+
+function renderSleepDebt(state) {
+  const el = document.getElementById('sleepDebtDisplay');
+  if (!el) return;
+  const sm = state?.sleepMetrics;
+  if (!sm) { el.textContent = ''; return; }
+  const catColors = { optimal: '#4ade80', low: '#a3e635', moderate: '#fb923c', high: '#f87171' };
+  const catLabels = { optimal: 'Optimaal', low: 'Laag', moderate: 'Matig', high: 'Hoog' };
+  el.innerHTML =
+    'Slaapschuld (14d): <strong style="color:' + catColors[sm.debtCategory] + '">' +
+    sm.sleepDebt.toFixed(1) + 'u · ' + catLabels[sm.debtCategory] + '</strong>' +
+    ' &nbsp;·&nbsp; Slaapbehoefte: ' + sm.sleepNeed + 'u' +
+    (sm.reliable ? '' : ' <span style="color:var(--muted)">(default, te weinig data)</span>');
 }
 
 async function saveQuick() {

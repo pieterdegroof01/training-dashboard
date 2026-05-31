@@ -663,69 +663,122 @@ function detectOverreaching(metrics, history, settings) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// READINESS SCORE — duurbelasting + krachtherstel + voeding
+// SLAAP METRICS — schuld, behoefte, nachtscore
 // ────────────────────────────────────────────────────────────────────────────
-function readinessScore(enduranceMetrics, strengthMetrics, recentNutrition, currentWeight, personalModel, settings) {
+function computeSleepMetrics(sleepData) {
+  if (!sleepData || !sleepData.length) return null;
+
+  const nights = sleepData.filter(d => d && d.hours >= 6 && d.hours <= 11);
+  const availableNights = nights.length;
+  let sleepNeed, reliable;
+  if (availableNights < 5) {
+    sleepNeed = 8.0; reliable = false;
+  } else {
+    const top3 = [...nights].sort((a, b) => b.hours - a.hours).slice(0, 3);
+    const avg = top3.reduce((s, n) => s + n.hours, 0) / 3;
+    sleepNeed = Math.round(avg * 2) / 2;
+    reliable = availableNights >= 10;
+  }
+
+  const last14 = sleepData.slice(-14);
+  let sleepDebt = 0;
+  for (const night of last14) {
+    const h = night?.hours || 0;
+    const deficit = sleepNeed - h;
+    if (deficit > 0) sleepDebt += deficit;
+    else sleepDebt = Math.max(0, sleepDebt - (-deficit) * 0.5);
+  }
+  sleepDebt = Math.max(0, Math.round(sleepDebt * 10) / 10);
+  const debtCategory = sleepDebt < 0.5 ? 'optimal' : sleepDebt < 1.5 ? 'low' : sleepDebt < 3.0 ? 'moderate' : 'high';
+
+  const yesterday = sleepData[sleepData.length - 1];
+  let sleepScore, lastNight;
+  if (!yesterday || yesterday.hours == null) {
+    sleepScore = 50;
+    lastNight = null;
+  } else {
+    lastNight = yesterday;
+    const normalizedHours = Math.min(yesterday.hours / sleepNeed, 1.0);
+    sleepScore = Math.round((normalizedHours * 0.6 + (yesterday.quality / 5) * 0.4) * 100);
+  }
+
+  return { sleepNeed, reliable, sleepDebt, debtCategory, sleepScore, lastNight, availableNights };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// READINESS SCORE — duurbelasting + krachtherstel + voeding + slaap
+// ────────────────────────────────────────────────────────────────────────────
+function readinessScore(enduranceMetrics, strengthMetrics, recentNutrition, currentWeight, personalModel, settings, sleepMetrics = null) {
   const optimalTSB = personalModel?.optimalTSB ?? { min: -10, max: 5 };
 
-  // TSB component (35 pts) — alleen duurtraining
-  let tsbScore = 35;
-  if (enduranceMetrics.tsb < optimalTSB.min - 25) tsbScore = 0;
-  else if (enduranceMetrics.tsb < optimalTSB.min - 10) tsbScore = 8;
-  else if (enduranceMetrics.tsb < optimalTSB.min) tsbScore = 22;
-  else if (enduranceMetrics.tsb > optimalTSB.max + 15) tsbScore = 26;
-  else if (enduranceMetrics.tsb > optimalTSB.max + 5) tsbScore = 30;
+  // TSB component (×0.8 → max 28) — alleen duurtraining
+  let tsbRaw = 35;
+  if (enduranceMetrics.tsb < optimalTSB.min - 25) tsbRaw = 0;
+  else if (enduranceMetrics.tsb < optimalTSB.min - 10) tsbRaw = 8;
+  else if (enduranceMetrics.tsb < optimalTSB.min) tsbRaw = 22;
+  else if (enduranceMetrics.tsb > optimalTSB.max + 15) tsbRaw = 26;
+  else if (enduranceMetrics.tsb > optimalTSB.max + 5) tsbRaw = 30;
+  const tsbScore = Math.round(tsbRaw * 0.8);
 
-  // ACWR component (20 pts) — alleen duurtraining
-  let acwrScore = 20;
-  if (enduranceMetrics.acwr > 1.5) acwrScore = 0;
-  else if (enduranceMetrics.acwr > 1.3) acwrScore = 8;
-  else if (enduranceMetrics.acwr > 1.2) acwrScore = 14;
-  else if (enduranceMetrics.acwr < 0.6) acwrScore = 12;
+  // ACWR component (×0.8 → max 16) — alleen duurtraining
+  let acwrRaw = 20;
+  if (enduranceMetrics.acwr > 1.5) acwrRaw = 0;
+  else if (enduranceMetrics.acwr > 1.3) acwrRaw = 8;
+  else if (enduranceMetrics.acwr > 1.2) acwrRaw = 14;
+  else if (enduranceMetrics.acwr < 0.6) acwrRaw = 12;
+  const acwrScore = Math.round(acwrRaw * 0.8);
 
-  // Monotony component (15 pts) — alleen duurtraining
-  let monotonyScore = 15;
-  if (enduranceMetrics.monotony > 2.5) monotonyScore = 0;
-  else if (enduranceMetrics.monotony > 2.0) monotonyScore = 6;
-  else if (enduranceMetrics.monotony > 1.7) monotonyScore = 11;
+  // Monotony component (×0.8 → max 12) — alleen duurtraining
+  let monotonyRaw = 15;
+  if (enduranceMetrics.monotony > 2.5) monotonyRaw = 0;
+  else if (enduranceMetrics.monotony > 2.0) monotonyRaw = 6;
+  else if (enduranceMetrics.monotony > 1.7) monotonyRaw = 11;
+  const monotonyScore = Math.round(monotonyRaw * 0.8);
 
-  // Load slope (10 pts)
-  let loadSlopeScore = 10;
-  if (enduranceMetrics.acwr > 1.4) loadSlopeScore = 2;
-  else if (enduranceMetrics.acwr > 1.25) loadSlopeScore = 6;
+  // Load slope (×0.8 → max 8)
+  let loadSlopeRaw = 10;
+  if (enduranceMetrics.acwr > 1.4) loadSlopeRaw = 2;
+  else if (enduranceMetrics.acwr > 1.25) loadSlopeRaw = 6;
+  const loadSlopeScore = Math.round(loadSlopeRaw * 0.8);
 
-  // Voeding (10 pts)
-  let nutritionScore = 5;
+  // Voeding (×0.8 → max 8)
+  let nutritionRaw = 5;
   if (recentNutrition && recentNutrition.length >= 3) {
     const avgKcal    = recentNutrition.reduce((s, n) => s + (parseInt(n.kcal) || 0), 0) / recentNutrition.length;
     const avgProtein = recentNutrition.reduce((s, n) => s + (parseInt(n.protein) || 0), 0) / recentNutrition.length;
     const proteinPerKg = currentWeight ? avgProtein / currentWeight : 0;
-    nutritionScore = 0;
-    if (proteinPerKg >= 2.0) nutritionScore += 5;
-    else if (proteinPerKg >= 1.6) nutritionScore += 3;
-    if (avgKcal >= 1800) nutritionScore += 5;
-    else if (avgKcal >= 1500) nutritionScore += 3;
+    nutritionRaw = 0;
+    if (proteinPerKg >= 2.0) nutritionRaw += 5;
+    else if (proteinPerKg >= 1.6) nutritionRaw += 3;
+    if (avgKcal >= 1800) nutritionRaw += 5;
+    else if (avgKcal >= 1500) nutritionRaw += 3;
   }
+  const nutritionScore = Math.round(nutritionRaw * 0.8);
 
-  // Krachtherstel component (10 pts)
-  let strengthFatigueScore = 10;
+  // Krachtherstel component (×0.8 → max 8)
+  let strengthFatigueRaw = 10;
   if (strengthMetrics) {
     const daysSinceLower = strengthMetrics.muscleGroups?.lower_body?.daysSinceLastSession ?? 99;
     const volRatio = strengthMetrics.avgWeeklyLoad4w > 0
       ? strengthMetrics.weeklyLoad / strengthMetrics.avgWeeklyLoad4w : 1;
-    if (daysSinceLower <= 1) strengthFatigueScore = 2;
-    else if (daysSinceLower <= 2) strengthFatigueScore = 5;
-    else if (daysSinceLower <= 3) strengthFatigueScore = 7;
-    if (volRatio > 1.5) strengthFatigueScore = Math.max(0, strengthFatigueScore - 3);
-    else if (volRatio > 1.2) strengthFatigueScore = Math.max(0, strengthFatigueScore - 1);
+    if (daysSinceLower <= 1) strengthFatigueRaw = 2;
+    else if (daysSinceLower <= 2) strengthFatigueRaw = 5;
+    else if (daysSinceLower <= 3) strengthFatigueRaw = 7;
+    if (volRatio > 1.5) strengthFatigueRaw = Math.max(0, strengthFatigueRaw - 3);
+    else if (volRatio > 1.2) strengthFatigueRaw = Math.max(0, strengthFatigueRaw - 1);
   }
+  const strengthFatigueScore = Math.round(strengthFatigueRaw * 0.8);
 
-  const total = tsbScore + acwrScore + monotonyScore + loadSlopeScore + nutritionScore + strengthFatigueScore;
+  // Slaap component (max 20)
+  const sleepScore = sleepMetrics ? Math.round(sleepMetrics.sleepScore * 0.20) : 10;
+
+  const total = tsbScore + acwrScore + monotonyScore + loadSlopeScore + nutritionScore + strengthFatigueScore + sleepScore;
   return {
     total,
     breakdown: {
       tsb: tsbScore, acwr: acwrScore, monotony: monotonyScore,
-      loadSlope: loadSlopeScore, nutrition: nutritionScore, strengthFatigue: strengthFatigueScore
+      loadSlope: loadSlopeScore, nutrition: nutritionScore, strengthFatigue: strengthFatigueScore,
+      sleep: sleepScore
     },
     interpretation: total >= 80 ? 'uitgerust' : total >= 65 ? 'goed' : total >= 50 ? 'matig' : total >= 35 ? 'vermoeid' : 'overbelast'
   };
@@ -1085,7 +1138,21 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
   const currentWeight = wEntries[0] ? parseFloat(wEntries[0][1]) : 100;
 
   const personalModel = buildPersonalResponseModel(activities, enduranceMetrics.history, settings);
-  const readiness = readinessScore(enduranceMetrics, strengthMetrics, recentNutrition, currentWeight, personalModel, settings);
+
+  // Slaapdata — laatste 90 dagen, ontbrekende dagen als null
+  let sleepMetrics = null;
+  if (data?.sleep) {
+    const now = new Date();
+    const sleepArr = [];
+    for (let i = 89; i >= 0; i--) {
+      const d = new Date(now); d.setDate(now.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      sleepArr.push(data.sleep[key] ? { date: key, ...data.sleep[key] } : null);
+    }
+    sleepMetrics = computeSleepMetrics(sleepArr);
+  }
+
+  const readiness = readinessScore(enduranceMetrics, strengthMetrics, recentNutrition, currentWeight, personalModel, settings, sleepMetrics);
   const adaptivePlan = adaptiveWeekAdjustments(weekPlan, readiness, overreaching, plateaus, currentZoneModel);
 
   return {
@@ -1097,6 +1164,7 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
     perfTrends, plateaus, overreaching,
     readiness, personalModel, adaptivePlan,
     currentWeight,
+    sleepMetrics,
     aerobicEfficiencyTrend: computeAerobicEfficiencyTrend(activities, settings),
     trainingPlan: computeTrainingPlan(data, { metrics: enduranceMetrics })
   };
@@ -1260,6 +1328,7 @@ module.exports = {
   classifySessionFromHR,
   computeHrTSS,
   suggestLTHR,
+  computeSleepMetrics,
   computeAerobicEfficiencyTrend,
   computeMMP,
   computeMMPFull,

@@ -84,6 +84,22 @@
       <div class="stat"><div class="stat-lbl">Gewicht</div><div class="stat-val c-green" id="sWeight">–</div><div class="stat-sub" id="sWeightSub">doel: 90-92kg</div></div>
     </div>
 
+    <div class="card" id="sleepInputCard">
+      <div class="card-label">Slaap afgelopen nacht</div>
+      <div style="display:flex;align-items:center;gap:16px;margin-top:10px;flex-wrap:wrap">
+        <div>
+          <label style="font-size:11px;color:var(--muted)">Uren</label>
+          <input type="number" id="sleepHours" min="0" max="14" step="0.5" placeholder="7.5" style="width:70px;margin-left:8px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted)">Kwaliteit</label>
+          <span id="sleepStars" style="margin-left:8px;cursor:pointer;font-size:18px">☆☆☆☆☆</span>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="saveSleep()">Opslaan</button>
+      </div>
+      <div id="sleepDebtDisplay" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
     <div id="strengthOverview" class="card" style="display:none">
       <div class="card-label">Krachttraining</div>
       <div id="strengthOverviewContent"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
