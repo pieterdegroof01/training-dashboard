@@ -7,7 +7,7 @@ const multer = require('multer');
 const basicAuth = require('express-basic-auth');
 const compression = require('compression');
 const engine = require('./engine');
-const { classifySession } = require('./engine');
+const { classifySession, classifySessionFromHR } = require('./engine');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -66,7 +66,7 @@ async function loadData() {
       weight: {},
       weekPlan: {},
       activityCache: { lastSync: null, activities: [] },
-      settings: { unreliablePowerStart: '2020-01-01', unreliablePowerEnd: '2020-12-31', ftp: 280 },
+      settings: { unreliablePowerStart: '2020-01-01', unreliablePowerEnd: '2020-12-31', ftp: 280, lthr: null },
       aiInsights: {},
       weekAvailability: {}
     };
@@ -90,6 +90,14 @@ function simpleHash(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
   return Math.abs(h).toString(36);
+}
+
+function assignPowerSource(activity) {
+  if (!activity.average_watts) {
+    activity.powerSource = null;
+  } else {
+    activity.powerSource = activity.device_watts === true ? 'measured' : 'estimated';
+  }
 }
 
 function getMealTimings(settings) {
@@ -700,6 +708,11 @@ app.post('/api/strava/sync-all', async (req, res) => {
     cache.lastSync = new Date().toISOString();
     data.activityCache = cache;
 
+    // Backfill powerSource voor activiteiten zonder dat veld
+    cache.activities.forEach(a => {
+      if (a.powerSource === undefined) assignPowerSource(a);
+    });
+
     // Herbereken kalibratiefactor na sync
     const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
     data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
@@ -838,8 +851,6 @@ async function getActivityDetail(stravaId, data, settings) {
     }
   } catch(e) { console.warn('Power timeline:', e.message); }
 
-  const sessionClassification = classifySession(powerTimeline, FTP);
-
   let hrSummary = null;
   try {
     if (hrS?.data?.length) {
@@ -877,6 +888,12 @@ async function getActivityDetail(stravaId, data, settings) {
       if (raw.length > 1) hrTimeline = raw;
     }
   } catch(e) { console.warn('HR timeline:', e.message); }
+
+  // Sessie-classificatie: alleen power-based voor measured ritten, anders HR-based
+  const isMeasured = activity?.powerSource === 'measured';
+  const sessionClassification = (isMeasured && powerTimeline)
+    ? classifySession(powerTimeline, FTP)
+    : classifySessionFromHR(hrTimeline, settings);
 
   let altitudeTimeline = null;
   try {
@@ -2246,6 +2263,7 @@ app.post('/webhook/strava', (req, res) => {
         const cache = data.activityCache || { lastSync: null, activities: [] };
 
         if (!cache.activities.some(a => a.id === activity.id)) {
+          assignPowerSource(activity);
           cache.activities.unshift(activity);
           cache.lastSync = new Date().toISOString();
           data.activityCache = cache;
@@ -2276,7 +2294,17 @@ app.get('/activity/:id', (req, res) => res.sendFile('index.html', { root: 'publi
     const data = await loadData();
     const versionBefore = data.schemaVersion;
     migrateData(data);
-    if (data.schemaVersion !== versionBefore) await saveData(data);
+
+    // Eenmalige backfill powerSource voor gecachte activiteiten
+    let backfilled = 0;
+    (data.activityCache?.activities || []).forEach(a => {
+      if (a.powerSource !== undefined) return;
+      assignPowerSource(a);
+      backfilled++;
+    });
+    if (backfilled > 0) console.info(`Startup backfill: powerSource gezet voor ${backfilled} activiteiten`);
+
+    if (data.schemaVersion !== versionBefore || backfilled > 0) await saveData(data);
   } catch(e) { console.error('Startup migratie mislukt:', e.message); }
 })();
 

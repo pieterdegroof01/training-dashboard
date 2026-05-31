@@ -37,6 +37,17 @@ function pctile(arr, p) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// HARTSLAG-GEBASEERDE TSS (hrTSS)
+// ────────────────────────────────────────────────────────────────────────────
+function computeHrTSS(activity, lthr) {
+  if (!lthr || !activity.average_heartrate) return null;
+  const durSec = activity.moving_time || 0;
+  if (durSec === 0) return null;
+  const hrIF = activity.average_heartrate / lthr;
+  return Math.round((durSec * hrIF * hrIF) / 3600 * 100);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // KALIBRATIE — suffer_score → TSS conversiefactor
 // ────────────────────────────────────────────────────────────────────────────
 function computeCalibrationFactor(activities, settings) {
@@ -71,6 +82,7 @@ function rollingFtp(activities, settings, asOfDate = null) {
 
   const candidates = activities.filter(a => {
     if (a.type !== 'Ride' && a.type !== 'VirtualRide') return false;
+    if (a.powerSource !== 'measured') return false;
     const d = a.start_date?.split('T')[0] || '';
     if (!d || isUnreliablePower(d, settings)) return false;
     const dt = new Date(d);
@@ -157,38 +169,51 @@ function computeETLForActivity(activity, settings) {
   const ftp = settings?.ftp || DEFAULT_FTP;
   const hrMax = settings?.hrMax || DEFAULT_HR_MAX;
   const sufferFactor = settings?.sufferToTSSFactor || 1.0;
+  const lthr = settings?.lthr || null;
 
-  // Cycling
+  // Cycling — prioriteitsvolgorde bronkeuze
   if (activity.type === 'Ride' || activity.type === 'VirtualRide') {
-    if (activity.average_watts && !inUnreliable && durH > 0) {
+    // Prioriteit 1: defect vermogensmeter-venster → bestaande fallback
+    if (inUnreliable) {
+      if (activity.suffer_score > 0) return { etl: Math.round(activity.suffer_score * sufferFactor), tssSource: 'fallback' };
+      return { etl: Math.round(durH * 50), tssSource: 'fallback' };
+    }
+    // Prioriteit 2: gemeten vermogen (powerSource === 'measured')
+    if (activity.powerSource === 'measured' && activity.average_watts && durH > 0) {
       const np = activity.weighted_average_watts || activity.average_watts;
       const IF = np / ftp;
-      return Math.min(Math.round(IF * IF * durH * 100), 400);
+      return { etl: Math.min(Math.round(IF * IF * durH * 100), 400), tssSource: 'power' };
     }
-    if (activity.suffer_score > 0) return Math.round(activity.suffer_score * sufferFactor);
-    return Math.round(durH * 50);
+    // Prioriteit 3: hrTSS via LTHR-instelling
+    if (lthr && activity.average_heartrate) {
+      const hrTss = computeHrTSS(activity, lthr);
+      if (hrTss !== null) return { etl: Math.min(hrTss, 400), tssSource: 'hr' };
+    }
+    // Prioriteit 4: fallback (suffer_score of duur)
+    if (activity.suffer_score > 0) return { etl: Math.round(activity.suffer_score * sufferFactor), tssSource: 'fallback' };
+    return { etl: Math.round(durH * 50), tssSource: 'fallback' };
   }
 
   // Running
   if (activity.type === 'Run' || activity.type === 'TrailRun') {
-    if (activity.suffer_score > 0) return Math.round(activity.suffer_score * 1.2);
+    if (activity.suffer_score > 0) return { etl: Math.round(activity.suffer_score * 1.2), tssSource: 'fallback' };
     if (activity.average_heartrate) {
       const hrR = (activity.average_heartrate - 60) / (hrMax - 60);
       const trimp = durH * 60 * hrR * (0.64 * Math.exp(1.92 * hrR));
-      return Math.min(Math.round(trimp * 1.2), 400);
+      return { etl: Math.min(Math.round(trimp * 1.2), 400), tssSource: 'fallback' };
     }
-    return Math.round(durH * 75 * 1.2);
+    return { etl: Math.round(durH * 75 * 1.2), tssSource: 'fallback' };
   }
 
-  if (activity.type === 'Swim') return Math.round(durH * 65);
-  if (activity.type === 'Hike') return Math.round(durH * 35);
-  if (activity.type === 'Walk') return Math.round(durH * 20);
+  if (activity.type === 'Swim') return { etl: Math.round(durH * 65), tssSource: 'fallback' };
+  if (activity.type === 'Hike') return { etl: Math.round(durH * 35), tssSource: 'fallback' };
+  if (activity.type === 'Walk') return { etl: Math.round(durH * 20), tssSource: 'fallback' };
 
   if (activity.type === 'WeightTraining' || activity.type === 'Workout') {
-    return Math.round(durH * 45);
+    return { etl: Math.round(durH * 45), tssSource: 'fallback' };
   }
 
-  return Math.round(durH * 40);
+  return { etl: Math.round(durH * 40), tssSource: 'fallback' };
 }
 
 // Krachttraining ETL uit Hevy workout data
@@ -260,10 +285,12 @@ function buildDailyETLSeries(activities, hevyWorkouts, settings) {
     const d = a.start_date?.split('T')[0];
     if (!d) return;
     a._unreliablePower = isUnreliablePower(d, settings);
-    const etl = computeETLForActivity(a, settings);
+    const result = computeETLForActivity(a, settings);
+    const etl = result.etl;
+    const tssSource = result.tssSource;
     if (!dailyETL[d]) { dailyETL[d] = 0; sources[d] = []; }
     dailyETL[d] += etl;
-    sources[d].push({ kind: 'strava', type: a.type, name: a.name, etl, durMin: Math.round((a.moving_time || 0) / 60) });
+    sources[d].push({ kind: 'strava', type: a.type, name: a.name, etl, tssSource, durMin: Math.round((a.moving_time || 0) / 60) });
     if (ENDURANCE_TYPES.has(a.type)) {
       enduranceDailyETL[d] = (enduranceDailyETL[d] || 0) + etl;
     } else {
@@ -896,6 +923,25 @@ function computeTrainingPlan(data, state) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// LTHR SUGGESTIE — schat lactaatdrempel-hartslag uit measured ritten
+// ────────────────────────────────────────────────────────────────────────────
+function suggestLTHR(activities) {
+  const now = new Date();
+  const cutoff = new Date(now); cutoff.setDate(now.getDate() - 90);
+  const eligible = activities.filter(a => {
+    if (a.type !== 'Ride' && a.type !== 'VirtualRide') return false;
+    if (a.powerSource !== 'measured') return false;
+    if (!a.average_heartrate) return false;
+    if ((a.moving_time || 0) < 1800) return false;
+    const d = new Date(a.start_date);
+    return d >= cutoff;
+  });
+  if (!eligible.length) return null;
+  const hrs = eligible.map(a => a.average_heartrate).sort((a, b) => a - b);
+  return { lthr: Math.round(hrs[Math.floor(hrs.length / 2)]), basedOn: eligible.length };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // COMPLETE STATE
 // ────────────────────────────────────────────────────────────────────────────
 function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan, settings, data = null) {
@@ -928,6 +974,7 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
     perfTrends, plateaus, overreaching,
     readiness, personalModel, adaptivePlan,
     currentWeight,
+    lthrSuggestion: suggestLTHR(activities),
     trainingPlan: computeTrainingPlan(data, { metrics: enduranceMetrics })
   };
 }
@@ -939,6 +986,41 @@ function computeLoadSlope(dailyETL) {
   const firstHalf  = dates.slice(0, half).reduce((s, d) => s + (dailyETL[d] || 0), 0) / half;
   const secondHalf = dates.slice(half).reduce((s, d) => s + (dailyETL[d] || 0), 0) / (dates.length - half);
   return secondHalf - firstHalf;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SESSIE-CLASSIFICATIE OP BASIS VAN HARTSLAG (voor estimated/niet-gemeten ritten)
+// ────────────────────────────────────────────────────────────────────────────
+function classifySessionFromHR(hrTimeline, settings) {
+  const hrMax = settings?.hrMax || DEFAULT_HR_MAX;
+  if (!hrTimeline || hrTimeline.length < 10) {
+    return { sessionType: 'onbekend', basis: 'hr', boutCount: 0, boutDurationCV: null, polarizationIndex: null, dominantBinFraction: null };
+  }
+  let timeLow = 0, timeMid = 0, timeHigh = 0;
+  for (const pt of hrTimeline) {
+    const hrPct = pt.hr / hrMax;
+    if (hrPct < 0.83) timeLow++;
+    else if (hrPct < 0.90) timeMid++;
+    else timeHigh++;
+  }
+  const total = timeLow + timeMid + timeHigh;
+  if (total === 0) return { sessionType: 'onbekend', basis: 'hr', boutCount: 0, boutDurationCV: null, polarizationIndex: null, dominantBinFraction: null };
+  const lowFrac = timeLow / total;
+  const midFrac = timeMid / total;
+  const highFrac = timeHigh / total;
+  let sessionType;
+  if (lowFrac >= 0.80 && highFrac < 0.10) sessionType = 'steady endurance';
+  else if (midFrac >= 0.35) sessionType = 'tempo/sweetspot';
+  else if (highFrac >= 0.15 && midFrac < 0.20) sessionType = 'gestructureerde intervals';
+  else sessionType = 'variabel';
+  const polarizationIndex = timeMid > 0 ? Math.round((timeLow + timeHigh) / timeMid * 100) / 100 : null;
+  return {
+    sessionType, basis: 'hr',
+    boutCount: 0, boutDurationCV: null,
+    polarizationIndex,
+    dominantBinFraction: Math.round(Math.max(lowFrac, midFrac, highFrac) * 100) / 100,
+    hrZoneBreakdown: { lowPct: Math.round(lowFrac * 100), midPct: Math.round(midFrac * 100), highPct: Math.round(highFrac * 100) }
+  };
 }
 
 function classifySession(powerTimeline, ftp) {
@@ -1052,5 +1134,8 @@ module.exports = {
   computeFullState,
   isUnreliablePower,
   classifySession,
+  classifySessionFromHR,
+  computeHrTSS,
+  suggestLTHR,
   ENDURANCE_TYPES, STRENGTH_TYPES
 };
