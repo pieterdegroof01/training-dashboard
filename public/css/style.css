@@ -360,6 +360,18 @@ body { overflow-x: hidden; }
 
 .readiness-card { background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%); }
 
+.pf-greeting { padding: 2px 2px 2px; }
+.pf-greeting-eyebrow { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: 1.4px; font-weight: 700; text-transform: uppercase; }
+.pf-greeting-title { font-family: 'Inter Tight', sans-serif; font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.05; margin-top: 6px; color: var(--text); }
+.pf-greeting-title em { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; color: var(--accent); letter-spacing: -0.3px; }
+@media (max-width: 600px) { .pf-greeting-title { font-size: 26px; } }
+
+.pf-briefing { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 16px 18px; }
+.pf-briefing-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.pf-briefing-label { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 1.4px; font-weight: 700; text-transform: uppercase; }
+.pf-briefing-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.pf-briefing .insight-text { font-size: 14.5px; line-height: 1.6; color: var(--text); font-weight: 500; }
+
 /* ═══ ACTIVITY PAGE ═══ */
 #activity-page { display:none; position:fixed; inset:0; background:var(--bg); overflow-y:auto; z-index:100; }
 .activity-header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10; gap:8px; }

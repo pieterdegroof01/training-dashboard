@@ -32,6 +32,7 @@ async function api(path, opts={}) {
 async function syncAll() {
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Laden...');
   await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability(), loadFullState()]);
+  renderGreeting();
   renderWeekGrid(); // re-render now that weekAvailability is guaranteed loaded
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Sync');
 }
@@ -44,6 +45,7 @@ async function loadAthlete() {
     document.getElementById('athSub').textContent = `${a.city||'Strava'} · ${a.country||''}`;
     document.getElementById('avatarInit').textContent = a.firstname?.[0]||'P';
     if (a.profile_medium) document.getElementById('avatarWrap').innerHTML = `<img class="avatar" src="${a.profile_medium}" alt="">`;
+    renderGreeting();
   } catch {
     // Tijdelijke fout (bv. Strava rate-limit tijdens sync): bestaande naam behouden.
     // Alleen tonen als er nog nooit een profiel is geladen.
@@ -213,9 +215,14 @@ async function loadFullState() {
     document.getElementById('readinessVal').textContent = r.total;
     document.getElementById('readinessInterp').textContent = r.interpretation.charAt(0).toUpperCase() + r.interpretation.slice(1);
     const ring = document.getElementById('readinessRing');
-    const offset = 251.2 - (r.total / 100) * 251.2;
+    const offset = 289.0 - (r.total / 100) * 289.0;
     ring.setAttribute('stroke-dashoffset', offset);
-    const ringColor = r.total >= 80 ? '#4ade80' : r.total >= 65 ? '#a3e635' : r.total >= 50 ? '#facc15' : r.total >= 35 ? '#fb923c' : '#f87171';
+    const cs = getComputedStyle(document.documentElement);
+    const accent = cs.getPropertyValue('--accent').trim() || '#012296';
+    const green = cs.getPropertyValue('--green').trim() || '#175a3b';
+    const yellow = cs.getPropertyValue('--yellow').trim() || '#8a6315';
+    const red = cs.getPropertyValue('--red').trim() || '#8a2615';
+    const ringColor = r.total >= 80 ? green : r.total >= 65 ? accent : r.total >= 50 ? yellow : red;
     ring.setAttribute('stroke', ringColor);
     document.getElementById('readinessBreakdown').innerHTML =
       `TSB ${r.breakdown.tsb||0}/28 · ACWR ${r.breakdown.acwr||0}/16 · Monotony ${r.breakdown.monotony||0}/12<br>` +
@@ -3175,6 +3182,18 @@ async function loadActivityAnalysis(stravaId) {
     const aiContainer = document.getElementById('adm-ai-content');
     if (aiContainer) aiContainer.innerHTML = '<span style="font-size:13px;opacity:0.6">Fout bij laden.</span>';
   }
+}
+
+// ── Greeting ──────────────────────────────────────────────────────────────────
+function renderGreeting() {
+  const now = new Date();
+  const h = now.getHours();
+  const groet = h < 6 ? 'Goedenacht' : h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond';
+  const naam = (S.athlete && S.athlete.firstname) ? S.athlete.firstname : 'Pieter';
+  const titleEl = document.getElementById('greetingTitle');
+  if (titleEl) titleEl.innerHTML = `${groet}<em>, ${naam}</em>`;
+  const dateEl = document.getElementById('greetingDate');
+  if (dateEl) dateEl.textContent = now.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // ── Theme & branding ──────────────────────────────────────────────────────────
