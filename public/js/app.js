@@ -38,13 +38,19 @@ async function syncAll() {
 
 async function loadAthlete() {
   try {
-    S.athlete = await api('/api/strava/athlete');
-    const a = S.athlete;
+    const a = await api('/api/strava/athlete');
+    S.athlete = a;
     document.getElementById('athName').textContent = `${a.firstname} ${a.lastname}`;
     document.getElementById('athSub').textContent = `${a.city||'Strava'} · ${a.country||''}`;
     document.getElementById('avatarInit').textContent = a.firstname?.[0]||'P';
     if (a.profile_medium) document.getElementById('avatarWrap').innerHTML = `<img class="avatar" src="${a.profile_medium}" alt="">`;
-  } catch { document.getElementById('athName').textContent = 'Strava niet verbonden'; }
+  } catch {
+    // Tijdelijke fout (bv. Strava rate-limit tijdens sync): bestaande naam behouden.
+    // Alleen tonen als er nog nooit een profiel is geladen.
+    if (!S.athlete || !S.athlete.firstname) {
+      document.getElementById('athName').textContent = 'Strava niet verbonden';
+    }
+  }
 }
 
 async function loadRecentActs() {
