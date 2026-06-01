@@ -4,6 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<script>(function(){try{var t=localStorage.getItem('pf-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 <title>PeakForm</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="/css/style.css">
@@ -16,10 +17,20 @@
 
 <div class="header">
   <div class="header-left">
-    <div id="avatarWrap"><div class="avatar-ph" id="avatarInit">P</div></div>
-    <div><div class="name" id="athName">Laden...</div><div class="sub" id="athSub">Training Dashboard</div></div>
+    <a href="/" class="pf-brand" onclick="event.preventDefault();showTab('overview',document.querySelector('.nav-item'))" aria-label="PeakForm home">
+      <svg width="30" height="30" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+        <rect x="2" y="2" width="92" height="92" rx="22" fill="var(--accent)"/>
+        <path d="M18 64 L 48 28 L 78 64" stroke="var(--surface)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <circle cx="48" cy="74" r="5" fill="var(--surface)"/>
+      </svg>
+      <span class="pf-wordmark">Peak<em>Form</em></span>
+    </a>
+    <div class="pf-athlete"><div class="name" id="athName">Laden...</div><div class="sub" id="athSub">PeakForm</div></div>
   </div>
   <div class="header-right">
+    <button class="pf-icon-btn" id="themeToggle" onclick="toggleTheme()" aria-label="Wissel thema" title="Wissel licht/donker">
+      <span id="themeToggleIcon">☾</span>
+    </button>
     <button class="btn btn-secondary btn-sm" onclick="syncAll()">↻ Sync</button>
   </div>
 </div>
@@ -47,7 +58,7 @@
   <div id="tab-overview" class="section">
 
     <!-- Readiness card -->
-    <div class="card" style="background:linear-gradient(135deg, var(--card) 0%, #1a1a1a 100%)">
+    <div class="card readiness-card">
       <div style="display:flex;align-items:center;gap:16px">
         <div style="position:relative;width:90px;height:90px;flex-shrink:0">
           <svg width="90" height="90" viewBox="0 0 90 90">
@@ -438,6 +449,11 @@
 
   <!-- INSTELLINGEN -->
   <div id="tab-instellingen" class="section hidden">
+
+    <div class="card">
+      <div class="card-label">Verbonden bronnen</div>
+      <div id="sourcesStatus" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
 
     <div class="card">
       <div class="card-label">Trainingszones (% van FTP)</div>

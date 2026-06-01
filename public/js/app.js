@@ -1217,6 +1217,7 @@ function showTab(name, btn) {
   document.getElementById('tab-'+name).classList.remove('hidden');
   if (btn) btn.classList.add('active');
   currentTab = name;
+  if (name === 'instellingen') renderSourcesStatus();
   if (name !== 'analyse') {
     _coachReturnContext = null;
   } else {
@@ -3167,6 +3168,37 @@ async function loadActivityAnalysis(stravaId) {
     const aiContainer = document.getElementById('adm-ai-content');
     if (aiContainer) aiContainer.innerHTML = '<span style="font-size:13px;opacity:0.6">Fout bij laden.</span>';
   }
+}
+
+// ── Theme & branding ──────────────────────────────────────────────────────────
+function toggleTheme() {
+  const root = document.documentElement;
+  const isDark = root.getAttribute('data-theme') === 'dark';
+  if (isDark) { root.removeAttribute('data-theme'); try { localStorage.setItem('pf-theme', 'light'); } catch(e){} }
+  else { root.setAttribute('data-theme', 'dark'); try { localStorage.setItem('pf-theme', 'dark'); } catch(e){} }
+  const icon = document.getElementById('themeToggleIcon');
+  if (icon) icon.textContent = root.getAttribute('data-theme') === 'dark' ? '☀' : '☾';
+  if (typeof Chart !== 'undefined' && S._chartsLoaded) { S._chartsLoaded = false; if (currentTab === 'voortgang') { S._chartsLoaded = true; loadCharts(); } }
+}
+
+function renderSourcesStatus() {
+  const el = document.getElementById('sourcesStatus');
+  if (!el) return;
+  const lastSync = S.lastSync ? fmtD(S.lastSync, true) : 'onbekend';
+  const sources = [
+    { name: 'Strava', ok: (S.recentActs && S.recentActs.length > 0), detail: 'Laatste sync: ' + lastSync },
+    { name: 'Hevy', ok: (S.hevyWorkouts && S.hevyWorkouts.length > 0), detail: (S.hevyWorkouts && S.hevyWorkouts.length ? S.hevyWorkouts.length + ' workouts' : 'Geen data') },
+    { name: 'Voeding', ok: true, detail: 'Handmatig / Yazio-upload' },
+  ];
+  el.innerHTML = sources.map(s => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:10px">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--text)">${s.name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:5px">
+          <span style="width:6px;height:6px;border-radius:50%;background:${s.ok ? 'var(--green)' : 'var(--subtle)'}"></span>${s.detail}
+        </div>
+      </div>
+    </div>`).join('');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
