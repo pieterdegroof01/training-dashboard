@@ -159,6 +159,7 @@ async function syncFullHistory() {
 
 function updateSyncBanner(h) {
   if (h.total > 0) {
+    S.lastSync = h.lastSync || null;
     const d = h.lastSync ? new Date(h.lastSync).toLocaleDateString('nl-NL') : '–';
     document.getElementById('syncInfo').textContent = `${h.total} activiteiten gesynchroniseerd · Laatste sync: ${d}`;
     document.getElementById('btnSyncAll').textContent = '↻ Sync nieuw';
@@ -3184,10 +3185,11 @@ function toggleTheme() {
 function renderSourcesStatus() {
   const el = document.getElementById('sourcesStatus');
   if (!el) return;
-  const lastSync = S.lastSync ? fmtD(S.lastSync, true) : 'onbekend';
+  const stravaOk = !!(S.athlete && S.athlete.firstname);
+  const lastSync = S.lastSync ? fmtD(S.lastSync, true) : (S.recentActs && S.recentActs.length ? 'gesynchroniseerd' : 'onbekend');
   const sources = [
-    { name: 'Strava', ok: (S.recentActs && S.recentActs.length > 0), detail: 'Laatste sync: ' + lastSync },
-    { name: 'Hevy', ok: (S.hevyWorkouts && S.hevyWorkouts.length > 0), detail: (S.hevyWorkouts && S.hevyWorkouts.length ? S.hevyWorkouts.length + ' workouts' : 'Geen data') },
+    { name: 'Strava', ok: stravaOk, detail: stravaOk ? ('Laatste sync: ' + lastSync) : 'Profiel niet bereikbaar — activiteiten mogelijk wel gesynced' },
+    { name: 'Hevy', ok: !!(S.hevyWorkouts && S.hevyWorkouts.length), detail: (S.hevyWorkouts && S.hevyWorkouts.length ? S.hevyWorkouts.length + ' workouts' : 'Geen data') },
     { name: 'Voeding', ok: true, detail: 'Handmatig / Yazio-upload' },
   ];
   el.innerHTML = sources.map(s => `
@@ -3195,7 +3197,7 @@ function renderSourcesStatus() {
       <div>
         <div style="font-size:13px;font-weight:700;color:var(--text)">${s.name}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:5px">
-          <span style="width:6px;height:6px;border-radius:50%;background:${s.ok ? 'var(--green)' : 'var(--subtle)'}"></span>${s.detail}
+          <span style="width:6px;height:6px;border-radius:50%;background:${s.ok ? 'var(--green)' : 'var(--subtle)'};flex-shrink:0"></span>${s.detail}
         </div>
       </div>
     </div>`).join('');
