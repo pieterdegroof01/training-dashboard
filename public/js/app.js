@@ -1227,9 +1227,10 @@ const TAB_INSIGHTS = {
 
 function showTab(name, btn) {
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
-  document.querySelectorAll('.nav-item, .nav-item-small').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.nav-item, .nav-item-small, .nav-sm, .bn-item').forEach(el=>el.classList.remove('active'));
   document.getElementById('tab-'+name).classList.remove('hidden');
-  if (btn) btn.classList.add('active');
+  // Sync actief-status op tabnaam zodat sidebar EN bottom-nav correct oplichten
+  document.querySelectorAll('[data-tab="'+name+'"]').forEach(el=>el.classList.add('active'));
   currentTab = name;
   if (name === 'instellingen') renderSourcesStatus();
   if (name !== 'analyse') {

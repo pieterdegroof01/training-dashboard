@@ -17,7 +17,7 @@
 
 <div class="header">
   <div class="header-left">
-    <a href="/" class="pf-brand" onclick="event.preventDefault();showTab('overview',document.querySelector('.nav-item'))" aria-label="PeakForm home">
+    <a href="/" class="pf-brand" onclick="event.preventDefault();showTab('overview')" aria-label="PeakForm home">
       <svg width="30" height="30" viewBox="0 0 96 96" fill="none" aria-hidden="true">
         <rect x="2" y="2" width="92" height="92" rx="22" fill="var(--accent)"/>
         <path d="M18 64 L 48 28 L 78 64" stroke="var(--surface)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -25,30 +25,36 @@
       </svg>
       <span class="pf-wordmark">Peak<em>Form</em></span>
     </a>
-    <div class="pf-athlete"><div class="name" id="athName">Laden...</div><div class="sub" id="athSub">PeakForm</div></div>
   </div>
   <div class="header-right">
     <button class="pf-icon-btn" id="themeToggle" onclick="toggleTheme()" aria-label="Wissel thema" title="Wissel licht/donker">
-      <span id="themeToggleIcon">☾</span>
+      <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
     </button>
-    <button class="btn btn-secondary btn-sm" onclick="syncAll()">↻ Sync</button>
+    <button class="btn btn-secondary btn-sm" onclick="syncAll()"><svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Sync</button>
   </div>
 </div>
 
 <div class="app-layout">
 <nav class="sidebar">
+  <div class="sidebar-head">
+    <div class="side-prof">
+      <div class="side-av" id="sideAvatar">P</div>
+      <div><div class="side-name" id="athName">Pieter</div><div class="side-sub" id="athSub">PeakForm</div></div>
+    </div>
+  </div>
+  <div class="nav-cap">NAVIGATIE</div>
   <div class="sidebar-nav">
-    <button class="nav-item active" onclick="showTab('overview',this)">Vandaag</button>
-    <button class="nav-item" onclick="showTab('week',this)">Week</button>
-    <button class="nav-item" onclick="showTab('activiteiten',this)">Activiteiten</button>
-    <button class="nav-item" onclick="showTab('nutrition',this)">Voeding</button>
-    <button class="nav-item" onclick="showTab('analyse',this)">Coach</button>
-    <button class="nav-item" onclick="showTab('planning',this)">Doelen</button>
-    <button class="nav-item" onclick="showTab('voortgang',this)">Trends</button>
+    <button class="nav-item active" data-tab="overview" onclick="showTab('overview')"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Vandaag</span></button>
+    <button class="nav-item" data-tab="week" onclick="showTab('week')"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg><span>Week</span></button>
+    <button class="nav-item" data-tab="activiteiten" onclick="showTab('activiteiten')"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Activiteiten</span></button>
+    <button class="nav-item" data-tab="nutrition" onclick="showTab('nutrition')"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg><span>Voeding</span></button>
+    <button class="nav-item" data-tab="analyse" onclick="showTab('analyse')"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/></svg><span>Coach</span></button>
+    <button class="nav-item" data-tab="planning" onclick="showTab('planning')"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg><span>Doelen</span></button>
+    <button class="nav-item" data-tab="voortgang" onclick="showTab('voortgang')"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg><span>Trends</span></button>
   </div>
   <div class="sidebar-bottom">
-    <button class="nav-item-small" onclick="showTab('instellingen',this)">⚙ Settings</button>
-    <button class="nav-item-small" id="helpBtn" onclick="openHelp()">? Help</button>
+    <button class="nav-sm" data-tab="instellingen" onclick="showTab('instellingen')"><svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></button>
+    <button class="nav-sm" id="helpBtn" onclick="openHelp()"><svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span>Help</span></button>
   </div>
 </nav>
 <div class="main-content">
@@ -775,6 +781,15 @@
 
 <script src="/js/app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<nav class="bottom-nav">
+  <button class="bn-item active" data-tab="overview" onclick="showTab('overview')"><svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="bn-lbl">Vandaag</span></button>
+  <button class="bn-item" data-tab="week" onclick="showTab('week')"><svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg><span class="bn-lbl">Week</span></button>
+  <button class="bn-item" data-tab="activiteiten" onclick="showTab('activiteiten')"><svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span class="bn-lbl">Activiteiten</span></button>
+  <button class="bn-item" data-tab="nutrition" onclick="showTab('nutrition')"><svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg><span class="bn-lbl">Voeding</span></button>
+  <button class="bn-item" data-tab="analyse" onclick="showTab('analyse')"><svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/></svg><span class="bn-lbl">Coach</span></button>
+  <button class="bn-item" data-tab="voortgang" onclick="showTab('voortgang')"><svg class="bn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg><span class="bn-lbl">Trends</span></button>
+</nav>
 </body>
 </html>
 

@@ -80,7 +80,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
-.content { padding: 18px 20px; max-width: 880px; margin: 0 auto; }
+.content { padding: 18px 20px; }
 .section { display: flex; flex-direction: column; gap: 14px; }
 .hidden { display: none !important; }
 
@@ -263,44 +263,61 @@ body { overflow-x: hidden; }
   .monthly-stats { min-width: auto; gap: 6px; }
 }
 
-/* ═══ SIDEBAR LAYOUT ═══ */
+/* ═══ SIDEBAR LAYOUT (paginavullend) ═══ */
 .app-layout { display: flex; min-height: calc(100vh - 53px); }
 .sidebar {
-  width: 180px; flex-shrink: 0; background: var(--surface);
+  width: 198px; flex-shrink: 0; background: var(--surface);
   border-right: 1px solid var(--border); display: flex; flex-direction: column;
   position: sticky; top: 53px; height: calc(100vh - 53px); overflow-y: auto;
 }
-.sidebar-nav { flex: 1; padding: 8px 8px; }
+.sidebar-head { padding: 16px 14px 4px; }
+.side-prof { display: flex; align-items: center; gap: 10px; }
+.side-av { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-family: 'Inter Tight', sans-serif; font-size: 14px; flex-shrink: 0; }
+.side-name { font-size: 13px; font-weight: 700; font-family: 'Inter Tight', sans-serif; line-height: 1.1; }
+.side-sub { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 1px; }
+.nav-cap { font-size: 9px; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: 1.4px; font-weight: 700; padding: 14px 16px 6px; }
+.sidebar-nav { flex: 1; padding: 0 10px; }
 .nav-item {
-  display: block; width: 100%; padding: 10px 12px; background: none; border: none;
-  border-left: 2px solid transparent; border-radius: 10px; color: var(--muted); cursor: pointer;
-  font-size: 13px; font-family: inherit; text-align: left; transition: all 0.15s; margin-bottom: 2px;
+  display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 12px;
+  background: none; border: none; border-radius: 10px; color: var(--muted); cursor: pointer;
+  font-size: 13.5px; font-family: 'Inter', sans-serif; font-weight: 500; text-align: left; margin-bottom: 2px;
+  transition: all 0.15s;
 }
 .nav-item:hover { color: var(--text); background: var(--surface2); }
-.nav-item.active { color: var(--accent); border-left-color: var(--accent); font-weight: 700; background: var(--accent-soft); }
-.sidebar-bottom { padding: 8px; border-top: 1px solid var(--border); }
-.nav-item-small {
-  display: block; width: 100%; padding: 8px 12px; background: none; border: none;
-  border-left: 2px solid transparent; border-radius: 8px; color: var(--muted); cursor: pointer;
-  font-size: 11px; font-family: inherit; text-align: left; transition: all 0.15s;
-}
-.nav-item-small:hover { color: var(--text); background: var(--surface2); }
-.nav-item-small.active { color: var(--accent); border-left-color: var(--accent); font-weight: 700; background: var(--accent-soft); }
+.nav-item.active { color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+.nav-ico { width: 18px; height: 18px; flex-shrink: 0; }
+.nav-item.active .nav-ico { stroke-width: 2.2; }
+.sidebar-bottom { padding: 10px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; }
+.nav-sm { background: none; border: none; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 7px; transition: all 0.15s; }
+.nav-sm:hover { color: var(--text); background: var(--surface2); }
+.nav-sm.active { color: var(--accent); }
+.ico-sm { width: 14px; height: 14px; }
 .main-content { flex: 1; min-width: 0; }
+.content { padding: 24px 32px 48px; }
 
+/* Header tweaks voor nieuwe shell */
+.header-left { display: flex; align-items: center; gap: 10px; }
+.pf-icon-btn .ico-sm, .btn .ico-sm { stroke: currentColor; fill: none; }
+
+/* ═══ BOTTOM NAV (mobiel) ═══ */
+.bottom-nav { display: none; }
 @media (max-width: 768px) {
   .app-layout { flex-direction: column; min-height: auto; }
-  .sidebar { width: 100%; height: auto; position: static; flex-direction: row;
-    overflow-x: auto; overflow-y: hidden; border-right: none; border-bottom: 1px solid var(--border); }
-  .sidebar-nav { display: flex; flex-direction: row; padding: 0; flex: 1; }
-  .nav-item { border-left: none; border-bottom: 2px solid transparent; border-radius: 0; white-space: nowrap;
-    flex-shrink: 0; min-height: 44px; display: inline-flex; align-items: center; padding: 10px 13px; }
-  .nav-item.active { border-left-color: transparent; border-bottom-color: var(--accent); background: transparent; }
-  .sidebar-bottom { display: flex; flex-direction: row; border-top: none;
-    border-left: 1px solid var(--border); padding: 0; }
-  .nav-item-small { border-left: none; border-bottom: 2px solid transparent; border-radius: 0; white-space: nowrap;
-    flex-shrink: 0; min-height: 44px; display: inline-flex; align-items: center; padding: 10px 10px; }
-  .nav-item-small.active { border-left-color: transparent; border-bottom-color: var(--accent); background: transparent; }
+  .sidebar { display: none; }
+  .content { padding: 14px 16px 90px; }
+  .bottom-nav {
+    display: flex; position: fixed; left: 8px; right: 8px; bottom: 8px;
+    background: var(--nav-bg); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--border); border-radius: 24px;
+    box-shadow: 0 10px 30px -10px rgba(1,34,150,0.28);
+    padding: 9px 4px; justify-content: space-around; z-index: 200;
+    padding-bottom: max(9px, env(safe-area-inset-bottom, 0px));
+  }
+  .bn-item { flex: 1; background: none; border: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); font-family: inherit; padding: 3px 2px; }
+  .bn-item.active { color: var(--accent); }
+  .bn-ico { width: 21px; height: 21px; stroke-width: 1.9; }
+  .bn-item.active .bn-ico { stroke-width: 2.2; }
+  .bn-lbl { font-size: 9px; font-weight: 700; font-family: 'Inter', sans-serif; }
 }
 
 /* ═══ NUTRITION HISTORY CARDS ═══ */
