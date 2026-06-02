@@ -282,9 +282,218 @@ async function loadFullState() {
         initSleepStars();
       }
     }).catch(() => {});
+
+    // Vandaag-tab: sessie, doelen-ringen, belasting-grafiek
+    renderTodaySession(s);
+    renderGoalRings(s);
+    renderOverviewLoad(_overviewLoadDays);
   } catch(e) {
     console.warn('loadFullState failed', e);
   }
+}
+
+function _todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function _sessionTypeLabel(t) {
+  return { Ride:'Wielrennen', VirtualRide:'Indoor rit', Run:'Hardlopen', WeightTraining:'Krachttraining', Gym:'Krachttraining', Rest:'Rust', rust:'Rust' }[t] || t || 'Sessie';
+}
+
+// Lucide bike-icoon (stroke 1.9, currentColor) + varianten voor run/strength/rest
+function _sessionIconSvg(type) {
+  const a = 'fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"';
+  if (type === 'Run' || type === 'Running' || type === 'TrailRun')
+    return '<svg viewBox="0 0 24 24"><circle cx="13" cy="4" r="1" '+a+'/><path '+a+' d="M4 17l5-1 1.5-3.5L7 11l-1 3M10 12.5l3 1.5 1 5M13.5 14l3.5-1 1-3"/></svg>';
+  if (type === 'WeightTraining' || type === 'Gym')
+    return '<svg viewBox="0 0 24 24"><path '+a+' d="M14.4 14.4 9.6 9.6M18.657 21.485l1.414-1.414M3.929 3.929 2.515 5.343M6.343 6.343 4.93 7.757l2.828 2.829M17.657 13.657l-2.828-2.829M21.485 18.657l-1.414 1.414"/></svg>';
+  if (type === 'Rest' || type === 'rust')
+    return '<svg viewBox="0 0 24 24"><path '+a+' d="M3 12h4l2-6 4 12 2-6h6"/></svg>';
+  // Lucide "bike" (default cycling)
+  return '<svg viewBox="0 0 24 24"><circle cx="18.5" cy="17.5" r="3.5" '+a+'/><circle cx="5.5" cy="17.5" r="3.5" '+a+'/><circle cx="15" cy="5" r="1" '+a+'/><path '+a+' d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>';
+}
+
+function _blokIntensity(zoneIdx) { return Math.max(0.18, Math.min(1, (zoneIdx + 1) / 5)); }
+
+function renderTodaySession(s) {
+  const body = document.getElementById('todaySessionBody');
+  if (!body) return;
+  const plan = (S.data && S.data.weekPlan) || {};
+  const sessions = plan[_todayISO()] || [];
+  const timeEl = document.getElementById('todaySessionTime');
+  if (!sessions.length) {
+    if (timeEl) timeEl.textContent = 'Vandaag';
+    body.innerHTML = '<div class="pf-session-empty">Geen sessie gepland vandaag. Rust of vrije training.</div>';
+    return;
+  }
+  const ses = sessions[0];
+  const type = ses.type || (ses.split ? 'WeightTraining' : 'Ride');
+  const title = ses.title || ses.description || (ses.split ? ('Kracht · ' + ses.split) : _sessionTypeLabel(type));
+  const dur = ses.duration || ses.duur_min;
+  const ftpPct = ses.ftpPct || (ses.IF ? Math.round(ses.IF * 100) : null);
+  if (timeEl) timeEl.textContent = ses.time || 'Vandaag';
+
+  // subtitel: bv "4×8 min @ 95% FTP · 75 min"
+  const metaParts = [];
+  if (ses.blokken && ses.blokken.length) {
+    const main = ses.blokken.find(b => _zoneIdx(b.zone) >= 3) || ses.blokken[0];
+    if (main && main.herhalingen > 1) metaParts.push(main.herhalingen + '×' + main.duration + ' min');
+  }
+  if (ftpPct) metaParts.push('@ ' + ftpPct + '% FTP');
+  if (dur) metaParts.push(dur + ' min');
+  const metaLine = metaParts.join(' · ');
+
+  let barsHtml = '';
+  const blokken = ses.blokken || [];
+  if (blokken.length) {
+    const segs = [];
+    blokken.forEach(b => {
+      const zi = _zoneIdx(b.zone);
+      const reps = b.herhalingen > 1 ? b.herhalingen : 1;
+      for (let i = 0; i < reps; i++) {
+        segs.push({ h: _blokIntensity(zi), work: true });
+        if (b.herstelBlok) segs.push({ h: _blokIntensity(_zoneIdx(b.herstelBlok.zone)), work: false });
+      }
+    });
+    barsHtml = '<div class="pf-interval-bars">' + segs.map(sg =>
+      '<div class="pf-interval-bar" style="height:' + Math.round(sg.h * 100) + '%;background:' +
+      (sg.work ? '#2633bd' : '#1a1d92') + '"></div>').join('') + '</div>';
+  }
+
+  const stats = [];
+  if (ses.targetWatts || ses.target_watts) stats.push({ v: (ses.targetWatts || ses.target_watts) + 'W', l: 'Target' });
+  if (ses.targetTSS) stats.push({ v: ses.targetTSS, l: 'TSS' });
+  if (ses.IF) stats.push({ v: ses.IF, l: 'IF' });
+  if (ses.kj) stats.push({ v: ses.kj, l: 'kJ' });
+  if (!stats.length && dur) stats.push({ v: dur + ' min', l: 'Duur' });
+  const statsHtml = stats.length ? '<div class="pf-session-stats">' + stats.map(st =>
+    '<div class="pf-session-stat"><div class="v">' + st.v + '</div><div class="l">' + st.l + '</div></div>').join('') + '</div>' : '';
+
+  body.innerHTML =
+    '<div class="pf-session-head">' +
+      '<div class="pf-session-icon">' + _sessionIconSvg(type) + '</div>' +
+      '<div><div class="pf-session-title">' + title + '</div>' +
+      (metaLine ? '<div class="pf-session-meta">' + metaLine + '</div>' : '') + '</div>' +
+    '</div>' + barsHtml + statsHtml;
+}
+
+function _setRing(id, fraction, circ) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const C = circ || 263.9;
+  el.setAttribute('stroke-dashoffset', C - Math.max(0, Math.min(1, fraction)) * C);
+}
+
+// Telt unieke actieve kalenderdagen in de laatste `windowDays` dagen uit S.recentActs (eerlijke data, geen verzinsel)
+function _activeDaysLast(windowDays) {
+  const acts = S.recentActs || [];
+  if (!acts.length) return null;
+  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate() - (windowDays - 1));
+  const days = new Set();
+  acts.forEach(a => {
+    if (!a.start_date) return;
+    const d = new Date(a.start_date);
+    if (d >= cutoff) days.add(a.start_date.split('T')[0]);
+  });
+  return days.size;
+}
+
+function _parseWeightTarget(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'number') return raw;
+  const nums = String(raw).match(/\d+(\.\d+)?/g);
+  if (!nums) return null;
+  if (nums.length >= 2) return (parseFloat(nums[0]) + parseFloat(nums[1])) / 2;
+  return parseFloat(nums[0]);
+}
+
+function renderGoalRings(s) {
+  // Gewicht
+  const cur = s.currentWeight;
+  const target = _parseWeightTarget(S.data?.goals?.weightTarget) ?? 91;
+  if (cur != null) {
+    const start = _parseWeightTarget(S.data?.goals?.weightStart) || (cur > target ? cur + 0.0001 : target + 8);
+    const frac = start <= target ? 1 : Math.max(0, Math.min(1, (start - cur) / (start - target)));
+    document.getElementById('goalWeightPct').textContent = Math.round(frac * 100) + '%';
+    _setRing('goalWeightRing', frac);
+    document.getElementById('goalWeightTitle').textContent = 'Naar ' + target + ' kg';
+    document.getElementById('goalWeightSub').textContent = cur + ' / ' + target + ' kg';
+  } else {
+    document.getElementById('goalWeightPct').textContent = '–';
+    document.getElementById('goalWeightSub').textContent = 'doel ' + target + ' kg';
+  }
+
+  // Event
+  const tp = s.trainingPlan || {};
+  if (tp.eventDate) {
+    const ev = new Date(tp.eventDate);
+    const days = Math.max(0, Math.ceil((ev - new Date()) / 86400000));
+    document.getElementById('goalEventNum').textContent = days;
+    const horizon = 84;
+    _setRing('goalEventRing', (horizon - Math.min(days, horizon)) / horizon);
+    document.getElementById('goalEventTitle').textContent = tp.eventName || 'Tot event';
+    document.getElementById('goalEventSub').textContent = _phaseLabel(tp.phase) + (tp.eventDate ? ' · ' + fmtD(tp.eventDate) : '');
+  } else {
+    document.getElementById('goalEventNum').textContent = '–';
+    document.getElementById('goalEventSub').textContent = 'geen event';
+  }
+
+  // Consistentie: unieke actieve dagen laatste 14d (uit recentActs)
+  const active = _activeDaysLast(14);
+  if (active != null) {
+    document.getElementById('goalConsistencyNum').textContent = active;
+    _setRing('goalConsistencyRing', active / 14);
+    document.getElementById('goalConsistencySub').textContent = active + ' van laatste 14 dagen actief';
+  } else {
+    document.getElementById('goalConsistencyNum').textContent = '–';
+    _setRing('goalConsistencyRing', 0);
+    document.getElementById('goalConsistencySub').textContent = 'sync activiteiten';
+  }
+}
+
+function _phaseLabel(p) {
+  return { base:'Basis', build:'Opbouw', peak:'Piek', taper_week1:'Taper', taper:'Taper', race_week:'Raceweek' }[p] || (p || '–');
+}
+
+let _overviewLoadDays = 56;
+let _overviewLoadChart = null;
+function setOverviewLoadRange(days, btn) {
+  _overviewLoadDays = days;
+  document.querySelectorAll('.pf-load-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const lbl = document.getElementById('loadRangeLabel');
+  if (lbl) lbl.textContent = days + ' dagen';
+  renderOverviewLoad(days);
+}
+
+async function renderOverviewLoad(days) {
+  days = days || _overviewLoadDays;
+  try {
+    const d = await api('/api/charts/data?days=' + days);
+    const series = (d && d.loadSeries) || [];
+    if (!series.length) return;
+    const cs = getComputedStyle(document.documentElement);
+    const muted = cs.getPropertyValue('--muted').trim() || '#4a5375';
+    const border = cs.getPropertyValue('--border').trim() || '#d8d1bf';
+    const labels = series.map(p => p.date);
+    if (_overviewLoadChart) { _overviewLoadChart.destroy(); _overviewLoadChart = null; }
+    _overviewLoadChart = makeChart('overviewLoadChart', {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'CTL', data: series.map(p => p.ctl), borderColor: '#012296', backgroundColor: 'rgba(1,34,150,0.10)', fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2.5 },
+        { label: 'ATL', data: series.map(p => p.atl), borderColor: '#8a2615', backgroundColor: 'transparent', fill: false, tension: 0.35, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] }
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10, family: 'JetBrains Mono' }, color: muted, padding: 12 } } },
+        scales: {
+          x: { ticks: { maxTicksLimit: 5, font: { size: 9 }, color: muted }, grid: { display: false }, border: { color: border } },
+          y: { ticks: { font: { size: 9 }, color: muted }, grid: { color: border }, border: { display: false } }
+        }
+      }
+    });
+  } catch (e) { console.warn('renderOverviewLoad failed', e); }
 }
 
 function renderAlerts(s) {
@@ -1271,6 +1480,25 @@ async function loadInsight(page, force = false) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ force })
     });
+
+    // Vandaag: gestructureerde hero-briefing (kop + accent + body met accentwoorden)
+    if (page === 'vandaag') {
+      if (result.empty) {
+        textEl.textContent = result.text;
+        textEl.style.color = 'var(--muted)';
+      } else if (result.briefing) {
+        renderHeroBriefing(textEl, result.briefing);
+      } else {
+        textEl.textContent = result.text;
+        textEl.style.color = '';
+      }
+      if (metaEl && !result.empty) metaEl.textContent = result.cached
+        ? `Gecached · ${new Date(result.cachedAt).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`
+        : 'Zojuist gegenereerd';
+      if (!result.empty) S.insightLoaded[page] = true;
+      return;
+    }
+
     if (result.empty) {
       textEl.textContent = result.text;
       textEl.style.color = 'var(--muted)';
@@ -1292,9 +1520,62 @@ async function loadInsight(page, force = false) {
       S.insightLoaded[page] = true;
     }
   } catch(e) {
-    textEl.textContent = 'Inzicht laden mislukt: ' + e.message;
-    textEl.style.color = 'var(--red)';
+    textEl.textContent = 'Briefing laden mislukt: ' + e.message;
+    textEl.style.color = 'var(--muted)';
   }
+}
+
+// Rendert de hero-briefing veilig: kop (Inter Tight) + kopAccent (serif italic), body met geaccentueerde fragmenten.
+// Gebruikt uitsluitend DOM-API's (createTextNode / span), nooit innerHTML met AI-tekst — geen XSS-vector.
+function renderHeroBriefing(el, b) {
+  el.style.color = '';
+  el.textContent = '';
+  // Kop + serif-accent
+  el.appendChild(document.createTextNode(b.kop ? b.kop + ' ' : ''));
+  if (b.kopAccent) {
+    const acc = document.createElement('span');
+    acc.className = 'hero-kop-accent';
+    acc.textContent = b.kopAccent;
+    el.appendChild(acc);
+    el.appendChild(document.createTextNode('.'));
+  }
+  // Body met geaccentueerde fragmenten
+  const body = document.createElement('span');
+  body.className = 'hero-body';
+  const accents = Array.isArray(b.accents) ? b.accents.filter(a => a && b.body.includes(a)) : [];
+  if (!accents.length) {
+    body.textContent = b.body || '';
+  } else {
+    // Splits body op de accent-fragmenten, behoud volgorde, injecteer spans veilig
+    let rest = b.body || '';
+    // bouw een gecombineerde zoekstrategie: herhaal tot geen accent meer voorkomt
+    const pieces = [];
+    let guard = 0;
+    while (rest.length && guard < 200) {
+      guard++;
+      // vind het vroegst voorkomende accent in rest
+      let bestIdx = -1, bestAcc = null;
+      for (const a of accents) {
+        const idx = rest.indexOf(a);
+        if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) { bestIdx = idx; bestAcc = a; }
+      }
+      if (bestIdx === -1) { pieces.push({ t: rest, acc: false }); break; }
+      if (bestIdx > 0) pieces.push({ t: rest.slice(0, bestIdx), acc: false });
+      pieces.push({ t: bestAcc, acc: true });
+      rest = rest.slice(bestIdx + bestAcc.length);
+    }
+    pieces.forEach(p => {
+      if (p.acc) {
+        const s = document.createElement('span');
+        s.className = 'hero-accent';
+        s.textContent = p.t;
+        body.appendChild(s);
+      } else {
+        body.appendChild(document.createTextNode(p.t));
+      }
+    });
+  }
+  el.appendChild(body);
 }
 
 async function saveSettingsMeals() {

@@ -68,49 +68,105 @@
       <h1 class="pf-greeting-title" id="greetingTitle">Goedemorgen<em>, Pieter</em></h1>
     </div>
 
-    <!-- Readiness card -->
-    <div class="card readiness-card">
-      <div style="display:flex;align-items:center;gap:20px">
-        <div style="position:relative;width:104px;height:104px;flex-shrink:0">
-          <svg width="104" height="104" viewBox="0 0 104 104">
-            <circle cx="52" cy="52" r="46" fill="none" stroke="var(--border)" stroke-width="8"/>
-            <circle cx="52" cy="52" r="46" fill="none" stroke-width="8" stroke-linecap="round"
-              id="readinessRing" transform="rotate(-90 52 52)" stroke-dasharray="289.0" stroke-dashoffset="289.0"/>
-          </svg>
-          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
-            <div style="font-size:30px;font-weight:800;font-family:'Inter Tight',sans-serif;letter-spacing:-1px;line-height:1" id="readinessVal">–</div>
-            <div style="font-size:9px;color:var(--muted);font-family:'JetBrains Mono',monospace;letter-spacing:1px;margin-top:1px">/ 100</div>
-          </div>
+    <!-- Hero: briefing + readiness-ring -->
+    <div class="pf-hero">
+      <div class="pf-hero-main">
+        <div class="pf-hero-eyebrow"><span class="pf-hero-dot"></span>Coach · dagelijkse briefing</div>
+        <div class="pf-hero-briefing" id="insight-text-vandaag"><div class="insight-loading">Briefing laden...</div></div>
+        <div class="pf-hero-actions">
+          <button class="pf-hero-btn pf-hero-btn-primary" onclick="showTab('week', document.querySelector('.nav-item[onclick*=&quot;week&quot;]'))">Bekijk weekplan →</button>
+          <button class="pf-hero-btn" onclick="loadInsight('vandaag',true)">Ververs briefing</button>
+          <button class="pf-hero-btn" onclick="showTab('analyse', document.querySelector('.nav-item[onclick*=&quot;analyse&quot;]'))">Vraag iets</button>
         </div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.4px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-bottom:4px">Readiness</div>
-          <div style="font-size:19px;font-weight:800;font-family:'Inter Tight',sans-serif;letter-spacing:-0.4px;margin-bottom:6px" id="readinessInterp">–</div>
-          <div style="font-size:11px;color:var(--muted);line-height:1.6" id="readinessBreakdown">Sync je data om de score te berekenen</div>
+        <span class="insight-meta" id="insight-meta-vandaag"></span>
+      </div>
+      <div class="pf-hero-ring">
+        <svg viewBox="0 0 116 116" width="116" height="116">
+          <defs>
+            <linearGradient id="readinessGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#2633bd"/>
+              <stop offset="100%" stop-color="#012296"/>
+            </linearGradient>
+          </defs>
+          <circle cx="58" cy="58" r="46" fill="none" stroke="var(--border)" stroke-width="9"/>
+          <circle cx="58" cy="58" r="46" fill="none" stroke="url(#readinessGrad)" stroke-width="9" stroke-linecap="round"
+            id="readinessRing" transform="rotate(-90 58 58)" stroke-dasharray="289.0" stroke-dashoffset="289.0"/>
+        </svg>
+        <div class="pf-hero-ring-center">
+          <div class="pf-hero-ring-val" id="readinessVal">–</div>
+          <div class="pf-hero-ring-lbl">readiness</div>
         </div>
+        <div class="pf-hero-ring-interp" id="readinessInterp">–</div>
       </div>
-    </div>
-
-    <!-- AI: DAGCOACHING (briefing) -->
-    <div class="pf-briefing">
-      <div class="pf-briefing-head">
-        <div class="pf-briefing-label"><span class="pf-briefing-dot"></span>Coach · dagelijkse briefing</div>
-        <button class="btn btn-ghost btn-sm" onclick="loadInsight('vandaag',true)" style="font-size:11px;padding:3px 9px">↻</button>
-      </div>
-      <div class="insight-text" id="insight-text-vandaag"><div class="insight-loading">Briefing laden...</div></div>
-      <span class="insight-meta" id="insight-meta-vandaag" style="display:block;margin-top:8px"></span>
+      <div class="pf-hero-vitals" id="readinessBreakdown">Sync je data om de score te berekenen</div>
     </div>
 
     <!-- Alerts -->
     <div id="alertsContainer"></div>
 
     <!-- Load metrics -->
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;padding:4px 2px 0">Duurtraining</div>
+    <div class="pf-section-cap">Duurtraining</div>
     <div class="stats-grid-5">
-      <div class="stat"><div class="stat-lbl">ATL</div><div class="stat-val c-red" id="sATL">–</div><div class="stat-sub">acuut (7d)</div></div>
-      <div class="stat"><div class="stat-lbl">CTL</div><div class="stat-val c-blue" id="sCTL">–</div><div class="stat-sub">chronisch (42d)</div></div>
       <div class="stat"><div class="stat-lbl">TSB</div><div class="stat-val" id="sTSB">–</div><div class="stat-sub" id="sTSBSub">form</div></div>
+      <div class="stat"><div class="stat-lbl">CTL</div><div class="stat-val c-blue" id="sCTL">–</div><div class="stat-sub">fitness 42d</div></div>
+      <div class="stat"><div class="stat-lbl">ATL</div><div class="stat-val c-red" id="sATL">–</div><div class="stat-sub">fatigue 7d</div></div>
       <div class="stat"><div class="stat-lbl">ACWR</div><div class="stat-val" id="sACWR">–</div><div class="stat-sub" id="sACWRSub">acute:chronic</div></div>
       <div class="stat"><div class="stat-lbl">Monotony</div><div class="stat-val c-purple" id="sMono">–</div><div class="stat-sub" id="sMonoSub">eentonigheid</div></div>
+    </div>
+
+    <!-- Geplande sessie + belasting -->
+    <div class="pf-two-col">
+      <div class="card pf-session-card">
+        <div class="pf-session-cap"><span id="todaySessionTime">Vandaag</span></div>
+        <div class="pf-session-body" id="todaySessionBody">
+          <div class="insight-loading">Laden...</div>
+        </div>
+      </div>
+      <div class="card pf-load-card">
+        <div class="pf-load-head">
+          <div class="pf-session-cap">Belasting · <span id="loadRangeLabel">56 dagen</span></div>
+          <div class="pf-load-toggle">
+            <button class="pf-load-tab" data-days="7" onclick="setOverviewLoadRange(7,this)">7d</button>
+            <button class="pf-load-tab" data-days="28" onclick="setOverviewLoadRange(28,this)">28d</button>
+            <button class="pf-load-tab active" data-days="56" onclick="setOverviewLoadRange(56,this)">56d</button>
+          </div>
+        </div>
+        <div class="pf-load-canvas-wrap"><canvas id="overviewLoadChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Doelen -->
+    <div class="pf-goals">
+      <div class="pf-goal">
+        <div class="pf-ring-wrap">
+          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="var(--border)" stroke-width="7"/>
+            <circle cx="50" cy="50" r="42" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round"
+              id="goalWeightRing" transform="rotate(-90 50 50)" stroke-dasharray="263.9" stroke-dashoffset="263.9"/></svg>
+          <div class="pf-ring-center"><div class="pf-ring-pct" id="goalWeightPct">–</div></div>
+        </div>
+        <div class="pf-goal-info"><div class="pf-goal-title" id="goalWeightTitle">Naar doelgewicht</div>
+          <div class="pf-goal-sub" id="goalWeightSub">–</div></div>
+      </div>
+      <div class="pf-goal">
+        <div class="pf-ring-wrap">
+          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="var(--border)" stroke-width="7"/>
+            <circle cx="50" cy="50" r="42" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round"
+              id="goalEventRing" transform="rotate(-90 50 50)" stroke-dasharray="263.9" stroke-dashoffset="263.9"/></svg>
+          <div class="pf-ring-center"><div class="pf-ring-num" id="goalEventNum">–</div><div class="pf-ring-unit">dagen</div></div>
+        </div>
+        <div class="pf-goal-info"><div class="pf-goal-title" id="goalEventTitle">Tot event</div>
+          <div class="pf-goal-sub" id="goalEventSub">–</div></div>
+      </div>
+      <div class="pf-goal">
+        <div class="pf-ring-wrap">
+          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="var(--border)" stroke-width="7"/>
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#175a3b" stroke-width="7" stroke-linecap="round"
+              id="goalConsistencyRing" transform="rotate(-90 50 50)" stroke-dasharray="263.9" stroke-dashoffset="263.9"/></svg>
+          <div class="pf-ring-center"><div class="pf-ring-num" id="goalConsistencyNum">–</div><div class="pf-ring-unit">/ 14d</div></div>
+        </div>
+        <div class="pf-goal-info"><div class="pf-goal-title">Consistentie</div>
+          <div class="pf-goal-sub" id="goalConsistencySub">actieve dagen</div></div>
+      </div>
     </div>
 
     <div class="stats-grid">
