@@ -92,6 +92,21 @@ function simpleHash(str) {
   return Math.abs(h).toString(36);
 }
 
+function parseBriefingJSON(raw) {
+  if (!raw) return null;
+  let s = raw.trim();
+  // strip eventuele codeblok-fences
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  // pak het eerste { tot het laatste }
+  const first = s.indexOf('{'), last = s.lastIndexOf('}');
+  if (first === -1 || last === -1 || last <= first) return null;
+  let obj;
+  try { obj = JSON.parse(s.slice(first, last + 1)); } catch { return null; }
+  if (!obj || typeof obj.kop !== 'string' || typeof obj.kopAccent !== 'string' || typeof obj.body !== 'string') return null;
+  const accents = Array.isArray(obj.accents) ? obj.accents.filter(a => typeof a === 'string' && a.length && obj.body.includes(a)).slice(0, 4) : [];
+  return { kop: obj.kop.trim(), kopAccent: obj.kopAccent.trim(), body: obj.body.trim(), accents };
+}
+
 function assignPowerSource(activity) {
   if (!activity.average_watts) {
     activity.powerSource = null;
@@ -2247,8 +2262,15 @@ app.post('/api/insights/:page', async (req, res) => {
       };
       dataForHash = JSON.stringify(compactState);
       context = JSON.stringify(compactState);
-      systemPrompt = 'Je bent een persoonlijke coach. Genereer een dagbriefing in maximaal 5 regels, in gewone zinnen, met concrete getallen uit de data. Sluit af met precies één concrete aanbeveling voor vandaag. Geen opsomming, geen headers, geen inleiding.';
-      maxTokens = 350;
+      systemPrompt = `Je bent een persoonlijke, evidence-based wielercoach die in het Nederlands een korte dagbriefing schrijft voor de atleet. Je krijgt de actuele trainingsstaat als JSON. Antwoord UITSLUITEND met geldig JSON, zonder enige tekst eromheen, zonder markdown, zonder codeblok-backticks. Het JSON-object heeft exact deze velden:
+{
+  "kop": "een korte koptekst van 4 tot 8 woorden die de dag karakteriseert, zonder het accentwoord",
+  "kopAccent": "één enkel woord dat het thema van de dag vat (bijvoorbeeld kwaliteit, herstel, volume, scherpte), dit woord wordt cursief benadrukt en mag NIET in het kop-veld voorkomen",
+  "body": "twee tot drie zinnen met concrete getallen uit de data en precies één concrete aanbeveling voor vandaag. Gewone lopende tekst, geen opsomming.",
+  "accents": ["een lijst van 2 tot 4 exacte tekstfragmenten die LETTERLIJK in body voorkomen en die visueel benadrukt moeten worden, bijvoorbeeld een wattage zoals 254W, een getal met eenheid zoals 60g carbs, of een metriek zoals TSB +4. Elk fragment moet een exacte substring van body zijn."]
+}
+De kop en kopAccent vormen samen een lopende zin: kop gevolgd door kopAccent. Voorbeeld: kop "Vandaag is een dag voor", kopAccent "kwaliteit". Gebruik concrete getallen uit de meegegeven staat in body. Verzin geen data die niet in de JSON staat.`;
+      maxTokens = 400;
     }
     else if (page === 'integratie') {
       if (!fullState) return res.json({ text: 'Sync je data voor geïntegreerde analyse.', cached: false, empty: true });
@@ -2415,7 +2437,8 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
     const hash = simpleHash(dataForHash);
     const cached = data.aiInsights[page];
     if (!force && cached && cached.hash === hash && (Date.now() - cached.ts) < ttlHours * 3600000) {
-      return res.json({ text: cached.text, cached: true, cachedAt: cached.ts });
+      const hit = cached.briefing ? { briefing: cached.briefing, text: cached.text } : { text: cached.text };
+      return res.json({ ...hit, cached: true, cachedAt: cached.ts });
     }
 
     // Check API key
@@ -2438,12 +2461,19 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
     });
 
     const text = resp.data.content?.[0]?.text || 'Geen inzicht gegenereerd.';
+
+    let payload = { text };
+    if (page === 'vandaag') {
+      const parsed = parseBriefingJSON(text);
+      if (parsed) payload = { briefing: parsed, text: parsed.body };
+    }
+
     const freshData = await loadData();
     if (!freshData.aiInsights) freshData.aiInsights = {};
-    freshData.aiInsights[page] = { text, hash, ts: Date.now() };
+    freshData.aiInsights[page] = { ...payload, hash, ts: Date.now() };
     await saveData(freshData);
 
-    res.json({ text, cached: false });
+    res.json({ ...payload, cached: false });
   } catch(err) {
     console.error('insights error:', err.response?.data || err.message);
     res.status(500).json({ error: 'Inzicht genereren mislukt: ' + (err.response?.data?.error?.message || err.message) });
