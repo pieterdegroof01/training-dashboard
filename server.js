@@ -4,7 +4,9 @@ const axios = require('axios');
 const fs = require('fs').promises;
 const path = require('path');
 const multer = require('multer');
-const basicAuth = require('express-basic-auth');
+const bcrypt = require('bcryptjs'); // bcryptjs i.p.v. bcrypt: pure-JS, geen native compilatie nodig op Railway
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
@@ -21,6 +23,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 
 app.use(compression());
 app.use(express.json({ limit: '50mb' }));
+app.use(cookieParser());
 app.use((req, res, next) => {
   if (req.path.endsWith('.html') || req.path === '/') {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -29,28 +32,75 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// ── Sessie-auth (JWT cookie) ──────────────────────────────────────────────────
+// Hash genereren (eenmalig, lokaal):
+//   node -e "console.log(require('bcryptjs').hashSync('jouwwachtwoord', 12))"
+// Zet de output als AUTH_PASSWORD_HASH in je environment variables.
+
+const AUTH_USERNAME     = process.env.AUTH_USERNAME;
+const AUTH_PASSWORD_HASH = process.env.AUTH_PASSWORD_HASH;
+const JWT_SECRET        = process.env.JWT_SECRET;
+
+const AUTH_EXCLUDED = [
+  '/auth/strava', '/auth/strava/callback', '/webhook/strava',
+  '/api/login', '/login.html',
+];
+
+app.use((req, res, next) => {
+  // Alleen HTML-pagina's en API-aanroepen vereisen een sessie; statische
+  // assets (CSS, JS, afbeeldingen) mogen altijd door.
+  const needsAuth = req.path === '/' || req.path.endsWith('.html') || req.path.startsWith('/api/');
+  if (!needsAuth) return next();
+  if (AUTH_EXCLUDED.includes(req.path)) return next();
+  const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
+  if (BYPASS_IPS.length && BYPASS_IPS.includes(clientIp)) return next();
+
+  const token = req.cookies?.peakform_session;
+  if (!token) {
+    if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/login.html');
+    return res.status(401).json({ error: 'Niet ingelogd' });
+  }
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/login.html');
+    return res.status(401).json({ error: 'Sessie verlopen' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!AUTH_USERNAME || !AUTH_PASSWORD_HASH || !JWT_SECRET) {
+      return res.status(500).json({ ok: false, error: 'Auth niet geconfigureerd' });
+    }
+    const valid = username === AUTH_USERNAME && !!password &&
+      await bcrypt.compare(password, AUTH_PASSWORD_HASH);
+    if (!valid) return res.status(401).json({ ok: false });
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '30d' });
+    res.cookie('peakform_session', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: true,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/logout', (req, res) => {
+  res.clearCookie('peakform_session');
+  res.json({ ok: true });
+});
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 app.use(express.static('public'));
-
-// ── HTTP Basic Auth ───────────────────────────────────────────────────────────
-
-const BASIC_AUTH_USER = process.env.BASIC_AUTH_USER;
-const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS;
-
-if (BASIC_AUTH_USER && BASIC_AUTH_PASS) {
-  const authMiddleware = basicAuth({ users: { [BASIC_AUTH_USER]: BASIC_AUTH_PASS }, challenge: true });
-  const AUTH_EXCLUDED = ['/auth/strava', '/auth/strava/callback', '/webhook/strava'];
-  app.use((req, res, next) => {
-    if (AUTH_EXCLUDED.includes(req.path)) return next();
-    const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
-    if (BYPASS_IPS.length && BYPASS_IPS.includes(clientIp)) return next();
-    authMiddleware(req, res, next);
-  });
-} else {
-  console.warn('⚠️  BASIC_AUTH_USER of BASIC_AUTH_PASS niet ingesteld — auth uitgeschakeld');
-}
 
 // ── Data persistence ──────────────────────────────────────────────────────────
 
@@ -2697,5 +2747,6 @@ app.listen(PORT, () => {
   console.log(`\n⚡ Training Dashboard draait op http://localhost:${PORT}\n`);
   if (!process.env.STRAVA_CLIENT_SECRET || process.env.STRAVA_CLIENT_SECRET.includes('jouw')) console.warn('⚠️  Strava credentials niet ingesteld');
   if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('jouw')) console.warn('⚠️  Anthropic API key niet ingesteld');
+  if (!AUTH_USERNAME || !AUTH_PASSWORD_HASH || !JWT_SECRET) console.warn('⚠️  AUTH_USERNAME / AUTH_PASSWORD_HASH / JWT_SECRET niet volledig ingesteld — auth uitgeschakeld');
   console.info(`Auth bypass: ${BYPASS_IPS.length} IP('s) geconfigureerd`);
 });

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){try{var t=localStorage.getItem('pf-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
+<title>Inloggen — PeakForm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800;900&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #efeadf;
+  --surface: #fdfbf5;
+  --surface2: #f4efe2;
+  --text: #06112e;
+  --muted: #4a5375;
+  --subtle: #bdb6a3;
+  --border: #d8d1bf;
+  --border2: #d0c8b6;
+  --accent: #012296;
+  --accent2: #0838c2;
+}
+
+[data-theme="dark"] {
+  --bg: #04081a;
+  --surface: #0d1530;
+  --surface2: #16204a;
+  --text: #f6f2e6;
+  --muted: #aab3d0;
+  --subtle: #2a3358;
+  --border: #1f2a52;
+  --border2: #243056;
+  --accent: #5b80ff;
+  --accent2: #9cb1ff;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
+}
+
+.login-wrap {
+  width: 100%;
+  max-width: 380px;
+  padding: 20px;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 32px;
+  text-decoration: none;
+}
+
+.pf-wordmark {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.8px;
+  color: var(--text);
+  line-height: 1;
+}
+
+.pf-wordmark em {
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 28px;
+}
+
+.login-title {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.3px;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+
+.fg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+label {
+  font-size: 10.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+input {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 9px 12px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input:focus { border-color: var(--accent); }
+
+.btn-login {
+  width: 100%;
+  padding: 11px;
+  margin-top: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-login:hover { background: var(--accent2); }
+.btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.login-error {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #8a2615;
+  min-height: 18px;
+}
+
+[data-theme="dark"] .login-error { color: #ff8a8a; }
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-brand">
+    <svg width="30" height="30" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <rect x="2" y="2" width="92" height="92" rx="22" fill="var(--accent)"/>
+      <path d="M18 64 L 48 28 L 78 64" stroke="#fdfbf5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <circle cx="48" cy="74" r="5" fill="#fdfbf5"/>
+    </svg>
+    <span class="pf-wordmark">Peak<em>Form</em></span>
+  </div>
+  <div class="login-card">
+    <div class="login-title">Inloggen</div>
+    <div class="fg">
+      <label for="username">Gebruikersnaam</label>
+      <input type="text" id="username" autocomplete="username" autofocus>
+    </div>
+    <div class="fg">
+      <label for="password">Wachtwoord</label>
+      <input type="password" id="password" autocomplete="current-password">
+    </div>
+    <button class="btn-login" id="loginBtn">Inloggen</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+<script>
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginError');
+
+  async function doLogin() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) { err.textContent = 'Vul gebruikersnaam en wachtwoord in.'; return; }
+    btn.disabled = true;
+    err.textContent = '';
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        window.location.href = '/';
+      } else {
+        err.textContent = 'Gebruikersnaam of wachtwoord onjuist.';
+        btn.disabled = false;
+      }
+    } catch {
+      err.textContent = 'Verbindingsfout. Probeer het opnieuw.';
+      btn.disabled = false;
+    }
+  }
+
+  btn.addEventListener('click', doLogin);
+  document.getElementById('password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('username').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('password').focus(); });
+</script>
+</body>
+</html>
