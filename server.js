@@ -717,11 +717,12 @@ app.get('/api/strava/activities', async (req, res) => {
 app.post('/api/strava/sync-all', async (req, res) => {
   try {
     const token = await getStravaToken();
+    const force = req.body?.force === true;
     const data = await loadData();
     const cache = data.activityCache || { lastSync: null, activities: [] };
     let newActs;
 
-    if (cache.lastSync && cache.activities.length > 0) {
+    if (!force && cache.lastSync && cache.activities.length > 0) {
       const afterTs = Math.floor(new Date(cache.lastSync).getTime() / 1000);
       newActs = await fetchActivitiesFromStrava(token, afterTs);
       const existingIds = new Set(cache.activities.map(a => a.id));
@@ -2381,15 +2382,18 @@ Primair doel: ${data.goals?.primary||'–'}`;
         catch(e) { return res.status(500).json({ error: 'AI retourneerde geen geldige JSON: ' + rawText.slice(0,200) }); }
         if (!Array.isArray(sessions)) sessions = [];
 
-        // Merge into weekPlan: keep existing non-cycling sessions, add AI cycling sessions
-        const updatedWp = { ...(data.weekPlan||{}) };
+        // Merge into weekPlan: keep existing non-cycling sessions, add AI cycling sessions.
+        // Herlaad verse data direct voor de save om gelijktijdige writes naar
+        // activityCache (Strava webhook / sync-all / Hevy) niet te overschrijven.
+        const freshData = await loadData();
+        const updatedWp = { ...(freshData.weekPlan||{}) };
         sessions.forEach(s => {
           if (!s.datum) return;
           const existing = (updatedWp[s.datum]||[]).filter(x => x.type !== 'cycling' || !x.aiGenerated);
           updatedWp[s.datum] = [...existing, s];
         });
-        data.weekPlan = updatedWp;
-        await saveData(data);
+        freshData.weekPlan = updatedWp;
+        await saveData(freshData);
 
         return res.json({ sessions });
       }
