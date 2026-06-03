@@ -741,21 +741,27 @@ app.post('/api/strava/sync-all', async (req, res) => {
       if (a.powerSource === undefined) assignPowerSource(a);
     });
 
-    // MMP cache voor nieuw gesyncte activiteiten met gemeten vermogen
+    // MMP cache voor nieuw gesyncte activiteiten met gemeten vermogen.
+    // Bij een geforceerde volledige rebuild slaan we de MMP-backfill over: MMP
+    // per activiteit berekenen (Strava streams, 150ms throttle) over de volledige
+    // history overschrijdt de Cloudflare 100s-timeout en geeft een 524. MMP wordt
+    // daarna apart bijgewerkt via /api/strava/mmp-batch.
     data.mmpCache = data.mmpCache || {};
-    const mmpCandidates = cache.activities.filter(a =>
-      (a.powerSource === 'measured' || a.powerSource === 'unknown') &&
-      a.average_watts > 0 &&
-      !data.mmpCache[String(a.id)]
-    );
     let mmpAdded = 0;
-    for (const a of mmpCandidates) {
-      const ok = await computeAndCacheMMP(a.id, a, token, data);
-      if (ok) mmpAdded++;
-      if (mmpCandidates.indexOf(a) < mmpCandidates.length - 1)
-        await new Promise(r => setTimeout(r, 150));
+    if (!force) {
+      const mmpCandidates = cache.activities.filter(a =>
+        (a.powerSource === 'measured' || a.powerSource === 'unknown') &&
+        a.average_watts > 0 &&
+        !data.mmpCache[String(a.id)]
+      );
+      for (const a of mmpCandidates) {
+        const ok = await computeAndCacheMMP(a.id, a, token, data);
+        if (ok) mmpAdded++;
+        if (mmpCandidates.indexOf(a) < mmpCandidates.length - 1)
+          await new Promise(r => setTimeout(r, 150));
+      }
+      if (mmpAdded > 0) console.info(`MMP berekend voor ${mmpAdded} nieuwe activiteiten`);
     }
-    if (mmpAdded > 0) console.info(`MMP berekend voor ${mmpAdded} nieuwe activiteiten`);
 
     // Herbereken kalibratiefactor na sync
     const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
