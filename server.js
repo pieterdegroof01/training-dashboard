@@ -730,7 +730,14 @@ app.post('/api/strava/sync-all', async (req, res) => {
       cache.activities = [...toAdd, ...cache.activities];
     } else {
       newActs = await fetchActivitiesFromStrava(token);
-      cache.activities = newActs;
+      // Merge op id i.p.v. blind vervangen: een lege of gedeeltelijke fetch
+      // (bv. Strava rate-limit) mag bestaande activiteiten nooit wissen.
+      const seen = new Set();
+      cache.activities = [...newActs, ...cache.activities].filter(a => {
+        if (seen.has(a.id)) return false;
+        seen.add(a.id);
+        return true;
+      });
     }
 
     cache.lastSync = new Date().toISOString();
