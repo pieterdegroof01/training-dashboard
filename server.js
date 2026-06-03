@@ -664,6 +664,13 @@ Retourneer JSON array. Per sessie exact dit formaat:
 
     const remainingSet = new Set(remainingDays);
     const adjustedAt   = new Date().toISOString();
+
+    // Herlaad verse data direct voor mutatie+save om gelijktijdige writes
+    // (Strava webhook / sync-all / Hevy) niet te overschrijven. De weekPlan
+    // van de remaining days wordt gelezen uit de verse staat.
+    const freshData = await loadData();
+    if (!freshData.weekPlan) freshData.weekPlan = {};
+
     sessions.forEach(s => {
       if (!s.date || !remainingSet.has(s.date)) return;
       // Normalize integer zones to 'Z1'-'Z5' for frontend compatibility
@@ -671,14 +678,14 @@ Retourneer JSON array. Per sessie exact dit formaat:
         if (typeof b.zone === 'number') b.zone = `Z${b.zone}`;
         if (b.herstelBlok && typeof b.herstelBlok.zone === 'number') b.herstelBlok.zone = `Z${b.herstelBlok.zone}`;
       });
-      const existing = data.weekPlan[s.date] || [];
+      const existing = freshData.weekPlan[s.date] || [];
       const kept     = existing.filter(x =>
         x.type !== 'cycling' || x.unplanned || x.completionScore !== undefined || x.missed
       );
-      data.weekPlan[s.date] = [...kept, { ...s, adjustedAt }];
+      freshData.weekPlan[s.date] = [...kept, { ...s, adjustedAt }];
     });
 
-    await saveData(data);
+    await saveData(freshData);
     console.log(`adjustCurrentWeek: ${sessions.length} sessie(s) bijgestuurd`);
   } catch(e) {
     console.error('adjustCurrentWeek API error:', e.message);
@@ -1548,14 +1555,18 @@ app.get('/api/hevy/workouts', async (req, res) => {
       page++;
     }
 
-    const existingIds = new Set(existing.map(w => w.id));
+    // Herlaad verse data direct voor de save om gelijktijdige writes naar
+    // activityCache (Strava webhook / sync-all) niet te overschrijven.
+    const freshData = await loadData();
+    const freshExisting = freshData.hevyWorkouts || [];
+    const freshIds = new Set(freshExisting.map(w => w.id));
     const merged = [
-      ...fetched.filter(w => !existingIds.has(w.id)),
-      ...existing,
+      ...fetched.filter(w => !freshIds.has(w.id)),
+      ...freshExisting,
     ].sort((a, b) => b.start_time.localeCompare(a.start_time));
 
-    data.hevyWorkouts = merged;
-    await saveData(data);
+    freshData.hevyWorkouts = merged;
+    await saveData(freshData);
     res.json(merged);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
