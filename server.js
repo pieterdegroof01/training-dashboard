@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition } = require('./db');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -562,11 +562,11 @@ async function matchPlannedToActual(data) {
     }
   }
 
-  if (changed) await saveData(data);
+  return data.weekPlan;
 }
 
 async function adjustCurrentWeek(data, state) {
-  if (!process.env.ANTHROPIC_API_KEY) return;
+  if (!process.env.ANTHROPIC_API_KEY) return data.weekPlan;
 
   const { monday, sunday, today } = getISOWeekBounds();
   const settings         = data.settings || {};
@@ -643,8 +643,8 @@ async function adjustCurrentWeek(data, state) {
   const tsbOverride = currentTSB < -20;
   const tidRisk     = completedWithZones.length >= 2 && weekHighPct > plannedHighPct + 0.10;
 
-  if (!tssDeficit && !tssSurplus && !acwrRisk && !tsbOverride && !tidRisk) return;
-  if (remainingDays.length === 0) return;
+  if (!tssDeficit && !tssSurplus && !acwrRisk && !tsbOverride && !tidRisk) return data.weekPlan;
+  if (remainingDays.length === 0) return data.weekPlan;
 
   const tp        = state.trainingPlan;
   const readiness = state.readiness || {};
@@ -710,17 +710,13 @@ Retourneer JSON array. Per sessie exact dit formaat:
 
     let sessions;
     try { sessions = JSON.parse(rawText); }
-    catch(e) { console.error('adjustCurrentWeek parse error:', e.message); return; }
-    if (!Array.isArray(sessions)) return;
+    catch(e) { console.error('adjustCurrentWeek parse error:', e.message); return data.weekPlan; }
+    if (!Array.isArray(sessions)) return data.weekPlan;
 
     const remainingSet = new Set(remainingDays);
     const adjustedAt   = new Date().toISOString();
 
-    // Herlaad verse data direct voor mutatie+save om gelijktijdige writes
-    // (Strava webhook / sync-all / Hevy) niet te overschrijven. De weekPlan
-    // van de remaining days wordt gelezen uit de verse staat.
-    const freshData = await loadData();
-    if (!freshData.weekPlan) freshData.weekPlan = {};
+    if (!data.weekPlan) data.weekPlan = {};
 
     sessions.forEach(s => {
       if (!s.date || !remainingSet.has(s.date)) return;
@@ -729,18 +725,19 @@ Retourneer JSON array. Per sessie exact dit formaat:
         if (typeof b.zone === 'number') b.zone = `Z${b.zone}`;
         if (b.herstelBlok && typeof b.herstelBlok.zone === 'number') b.herstelBlok.zone = `Z${b.herstelBlok.zone}`;
       });
-      const existing = freshData.weekPlan[s.date] || [];
+      const existing = data.weekPlan[s.date] || [];
       const kept     = existing.filter(x =>
         x.type !== 'cycling' || x.unplanned || x.completionScore !== undefined || x.missed
       );
-      freshData.weekPlan[s.date] = [...kept, { ...s, adjustedAt }];
+      data.weekPlan[s.date] = [...kept, { ...s, adjustedAt }];
     });
 
-    await saveData(freshData);
     console.log(`adjustCurrentWeek: ${sessions.length} sessie(s) bijgestuurd`);
+    return data.weekPlan;
   } catch(e) {
     console.error('adjustCurrentWeek API error:', e.message);
   }
+  return data.weekPlan;
 }
 
 // ── API Routes ────────────────────────────────────────────────────────────────
@@ -767,73 +764,67 @@ app.get('/api/strava/activities', async (req, res) => {
 
 app.post('/api/strava/sync-all', async (req, res) => {
   try {
+    const user = await getDefaultUser();
+    const userId = user.id;
     const token = await getStravaToken();
     const force = req.body?.force === true;
-    const data = await loadData();
-    const cache = data.activityCache || { lastSync: null, activities: [] };
-    let newActs;
 
-    if (!force && cache.lastSync && cache.activities.length > 0) {
-      const afterTs = Math.floor(new Date(cache.lastSync).getTime() / 1000);
+    const existingActivities = await getActivities(userId);
+    const lastSync = user.settings?.lastSync || null;
+
+    let newActs;
+    if (!force && lastSync && existingActivities.length > 0) {
+      const afterTs = Math.floor(new Date(lastSync).getTime() / 1000);
       newActs = await fetchActivitiesFromStrava(token, afterTs);
-      const existingIds = new Set(cache.activities.map(a => a.id));
-      const toAdd = newActs.filter(a => !existingIds.has(a.id));
-      cache.activities = [...toAdd, ...cache.activities];
     } else {
       newActs = await fetchActivitiesFromStrava(token);
-      // Merge op id i.p.v. blind vervangen: een lege of gedeeltelijke fetch
-      // (bv. Strava rate-limit) mag bestaande activiteiten nooit wissen.
-      const seen = new Set();
-      cache.activities = [...newActs, ...cache.activities].filter(a => {
-        if (seen.has(a.id)) return false;
-        seen.add(a.id);
-        return true;
-      });
     }
 
-    cache.lastSync = new Date().toISOString();
-    data.activityCache = cache;
-
-    // Backfill powerSource voor activiteiten zonder dat veld
-    cache.activities.forEach(a => {
+    for (const a of newActs) {
       if (a.powerSource === undefined) assignPowerSource(a);
-    });
-
-    // MMP cache voor nieuw gesyncte activiteiten met gemeten vermogen.
-    // Bij een geforceerde volledige rebuild slaan we de MMP-backfill over: MMP
-    // per activiteit berekenen (Strava streams, 150ms throttle) over de volledige
-    // history overschrijdt de Cloudflare 100s-timeout en geeft een 524. MMP wordt
-    // daarna apart bijgewerkt via /api/strava/mmp-batch.
-    data.mmpCache = data.mmpCache || {};
-    let mmpAdded = 0;
-    if (!force) {
-      const mmpCandidates = cache.activities.filter(a =>
-        (a.powerSource === 'measured' || a.powerSource === 'unknown') &&
-        a.average_watts > 0 &&
-        !data.mmpCache[String(a.id)]
-      );
-      for (const a of mmpCandidates) {
-        const ok = await computeAndCacheMMP(a.id, a, token, data);
-        if (ok) mmpAdded++;
-        if (mmpCandidates.indexOf(a) < mmpCandidates.length - 1)
-          await new Promise(r => setTimeout(r, 150));
-      }
-      if (mmpAdded > 0) console.info(`MMP berekend voor ${mmpAdded} nieuwe activiteiten`);
+      await upsertActivity(userId, a);
     }
 
-    // Herbereken kalibratiefactor na sync
-    const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
-    data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
-    data.calibration = calibration;
+    const allActivities = await getActivities(userId);
+    const calibration = engine.computeCalibrationFactor(allActivities, user.settings || {});
+    const newSettings = { ...(user.settings || {}), sufferToTSSFactor: calibration.factor, lastSync: new Date().toISOString() };
+    await saveUserFields(userId, { settings: newSettings, calibration });
 
-    data.activityStreams = {};
-    await saveData(data);
-    await matchPlannedToActual(data);
+    // Naweeën — verse user na cache-invalidatie door saveUserFields
+    const freshUser = await getDefaultUser();
+    const [hevyWorkouts, weight, nutrition, sleep] = await Promise.all([
+      getHevyWorkouts(userId),
+      getWeightMap(userId),
+      getNutrition(userId),
+      getSleep(userId),
+    ]);
+    const data = {
+      activityCache: { lastSync: newSettings.lastSync, activities: allActivities },
+      hevyWorkouts,
+      weight,
+      nutrition,
+      sleep,
+      weekPlan:         freshUser.week_plan         || {},
+      settings:         freshUser.settings          || {},
+      calibration:      freshUser.calibration        || { factor: 1.0, count: 0, reliable: false },
+      goals:            freshUser.goals              || {},
+      patterns:         freshUser.patterns           || [],
+      aiInsights:       freshUser.ai_insights        || {},
+      weekAvailability: freshUser.week_availability  || {},
+    };
+
+    const wp1 = await matchPlannedToActual(data);
+    data.weekPlan = wp1;
+
+    let finalWeekPlan = wp1;
     try {
-      const syncState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
-      await adjustCurrentWeek(data, syncState);
+      const syncState = engine.computeFullState(allActivities, data.hevyWorkouts, data.weight, data.nutrition, data.weekPlan, data.settings, data);
+      finalWeekPlan = await adjustCurrentWeek(data, syncState);
     } catch(e) { console.warn('adjustCurrentWeek (sync):', e.message); }
-    res.json({ total: cache.activities.length, new: newActs?.length || 0, lastSync: cache.lastSync, calibration });
+
+    await saveUserFields(userId, { week_plan: finalWeekPlan });
+
+    res.json({ total: allActivities.length, new: newActs?.length || 0, lastSync: newSettings.lastSync, calibration });
   } catch (err) {
     console.error('Sync-all fout:', err.message, err.stack);
     res.status(500).json({ error: err.message });
@@ -842,12 +833,12 @@ app.post('/api/strava/sync-all', async (req, res) => {
 
 app.get('/api/strava/history-summary', async (req, res) => {
   try {
-    const data = await loadData();
-    const activities = data.activityCache?.activities || [];
-    const settings = data.settings || {};
+    const user = await getDefaultUser();
+    const activities = await getActivities(user.id);
+    const settings = user.settings || {};
     const metrics = calcMetrics(activities, settings);
     const summary = buildHistorySummary(activities, settings);
-    res.json({ total: activities.length, lastSync: data.activityCache?.lastSync, metrics, summary });
+    res.json({ total: activities.length, lastSync: user.settings?.lastSync || null, metrics, summary });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2734,47 +2725,62 @@ app.post('/webhook/strava', (req, res) => {
 
   (async () => {
     try {
-      const data = await loadData();
-
-      // Verwijder stream cache voor dit activiteit-id
-      const sid = String(object_id);
-      if (data.activityStreams?.[sid]) {
-        delete data.activityStreams[sid];
-      }
-
       if (aspect_type === 'create') {
+        const user = await getDefaultUser();
+        const userId = user.id;
         const token = await getStravaToken();
         const { data: activity } = await axios.get(
           `https://www.strava.com/api/v3/activities/${object_id}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
-        const cache = data.activityCache || { lastSync: null, activities: [] };
-
-        if (!cache.activities.some(a => a.id === activity.id)) {
+        const existingActivities = await getActivities(userId);
+        if (!existingActivities.some(a => a.id === activity.id)) {
           assignPowerSource(activity);
-          cache.activities.unshift(activity);
-          cache.lastSync = new Date().toISOString();
-          data.activityCache = cache;
-          data.mmpCache = data.mmpCache || {};
+          await upsertActivity(userId, activity);
 
-          const calibration = engine.computeCalibrationFactor(cache.activities, data.settings || {});
-          data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
-          data.calibration = calibration;
+          const allActivities = await getActivities(userId);
+          const calibration = engine.computeCalibrationFactor(allActivities, user.settings || {});
+          await saveUserFields(userId, {
+            settings:    { ...(user.settings || {}), sufferToTSSFactor: calibration.factor, lastSync: new Date().toISOString() },
+            calibration,
+          });
 
-          if ((activity.powerSource === 'measured' || activity.powerSource === 'unknown') && activity.average_watts > 0) {
-            await computeAndCacheMMP(activity.id, activity, token, data);
-          }
+          // Naweeën — verse user na cache-invalidatie door saveUserFields
+          const freshUser = await getDefaultUser();
+          const [hevyWorkouts, weight, nutrition, sleep] = await Promise.all([
+            getHevyWorkouts(userId),
+            getWeightMap(userId),
+            getNutrition(userId),
+            getSleep(userId),
+          ]);
+          const data = {
+            activityCache: { lastSync: freshUser.settings?.lastSync, activities: allActivities },
+            hevyWorkouts,
+            weight,
+            nutrition,
+            sleep,
+            weekPlan:         freshUser.week_plan         || {},
+            settings:         freshUser.settings          || {},
+            calibration:      freshUser.calibration        || { factor: 1.0, count: 0, reliable: false },
+            goals:            freshUser.goals              || {},
+            patterns:         freshUser.patterns           || [],
+            aiInsights:       freshUser.ai_insights        || {},
+            weekAvailability: freshUser.week_availability  || {},
+          };
 
-          await matchPlannedToActual(data);
+          const wp1 = await matchPlannedToActual(data);
+          data.weekPlan = wp1;
+
+          let finalWeekPlan = wp1;
           try {
-            const wbState = engine.computeFullState(cache.activities, data.hevyWorkouts || [], data.weight || {}, data.nutrition || {}, data.weekPlan || {}, data.settings || {}, data);
-            await adjustCurrentWeek(data, wbState);
+            const wbState = engine.computeFullState(allActivities, data.hevyWorkouts, data.weight, data.nutrition, data.weekPlan, data.settings, data);
+            finalWeekPlan = await adjustCurrentWeek(data, wbState);
           } catch(e) { console.warn('adjustCurrentWeek (webhook):', e.message); }
+
+          await saveUserFields(userId, { week_plan: finalWeekPlan });
         }
       }
-
-      await saveData(data);
     } catch (err) {
       console.error('Webhook verwerking mislukt:', err.message);
     }
