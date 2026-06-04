@@ -2165,14 +2165,28 @@ async function runMmpBatch() {
   const status = document.getElementById('mmpBatchStatus');
   btn.disabled = true; btn.textContent = 'Bezig...';
   status.textContent = '';
+  let totalProcessed = 0;
+  const MAX_ROUNDS = 100;
   try {
-    const result = await api('/api/strava/mmp-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: 90 }) });
-    status.textContent = `Verwerkt: ${result.processed}, overgeslagen: ${result.skipped}, totaal in cache: ${result.cached}`;
-    await renderMmpCurve();
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      const result = await api('/api/strava/mmp-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 25 }) });
+      totalProcessed += result.processed;
+      status.textContent = `Verwerkt: ${totalProcessed}, resterend: ${result.remaining}`;
+      if (result.rateLimited) {
+        status.textContent = `Rate limit bereikt na ${totalProcessed} verwerkt. Klik opnieuw over enkele minuten om verder te gaan (reeds opgeslagen).`;
+        break;
+      }
+      if (result.remaining <= 0) break;
+    }
+    if (totalProcessed > 0) await renderMmpCurve();
+    if (status.textContent === '' || status.textContent.startsWith('Verwerkt') && !status.textContent.includes('Rate limit')) {
+      const msg = totalProcessed > 0 ? `Klaar — ${totalProcessed} MMP-curven berekend.` : 'Alles al berekend.';
+      status.textContent = msg;
+    }
   } catch(e) {
     status.textContent = 'Fout: ' + e.message;
   } finally {
-    btn.disabled = false; btn.textContent = 'Berekenen (laatste 90 dagen)';
+    btn.disabled = false; btn.textContent = 'MMP berekenen (volledige history)';
   }
 }
 

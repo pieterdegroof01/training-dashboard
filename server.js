@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition } = require('./db');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -844,9 +844,8 @@ app.get('/api/strava/history-summary', async (req, res) => {
 
 // ── MMP helper + endpoints ────────────────────────────────────────────────────
 
-async function computeAndCacheMMP(activityId, activityObj, token, data) {
-  const id = String(activityId);
-  if (data.mmpCache[id]?.v === 2) return false;
+async function computeMMPForActivity(userId, activityObj, token) {
+  const id = String(activityObj.id);
   const ps = activityObj.powerSource;
   if (ps !== 'measured' && ps !== 'unknown') return false;
   if (!activityObj.average_watts) return false;
@@ -862,9 +861,15 @@ async function computeAndCacheMMP(activityId, activityObj, token, data) {
     if (!mmpFull) return false;
     const date = activityObj.start_date?.split('T')[0] || '';
     const name = activityObj.name || '';
-    data.mmpCache[id] = { date, powerSource: ps, name, dur: powerTimeline.length, mmpArray: Array.from(mmpFull), v: 2 };
+    const mmpEntry = { date, powerSource: ps, name, dur: powerTimeline.length, mmpArray: Array.from(mmpFull), v: 2 };
+    await upsertActivityMMP(userId, id, mmpEntry);
     return true;
   } catch(e) {
+    if (e.response?.status === 429) {
+      const rl = new Error('Strava rate limit bereikt');
+      rl.rateLimited = true;
+      throw rl;
+    }
     console.warn(`MMP stream mislukt (${id}):`, e.message);
     return false;
   }
@@ -872,36 +877,42 @@ async function computeAndCacheMMP(activityId, activityObj, token, data) {
 
 app.post('/api/strava/mmp-batch', async (req, res) => {
   try {
-    const days = Math.min(parseInt(req.body?.days) || 90, 365);
+    const limit = Math.min(parseInt(req.body?.limit) || 25, 50);
+    const days  = parseInt(req.body?.days) || 3650;
+    const user  = await getDefaultUser();
+    const userId = user.id;
     const token = await getStravaToken();
-    const data = await loadData();
-    data.mmpCache = data.mmpCache || {};
-    const settings = data.settings || {};
+    const activities = await getActivities(userId);
+    const settings = user.settings || {};
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
 
-    const candidates = (data.activityCache?.activities || []).filter(a => {
+    const candidates = activities.filter(a => {
       if (a.type !== 'Ride' && a.type !== 'VirtualRide') return false;
       if (a.powerSource !== 'measured' && a.powerSource !== 'unknown') return false;
       if (!a.average_watts) return false;
       const date = a.start_date?.split('T')[0] || '';
       if (engine.isUnreliablePower(date, settings)) return false;
-      return new Date(date) >= cutoff;
+      if (new Date(date) < cutoff) return false;
+      return !(a.mmp && a.mmp.v === 2);
     });
 
-    let processed = 0, skipped = 0;
-    for (let i = 0; i < candidates.length; i++) {
-      const a = candidates[i];
-      if (data.mmpCache[String(a.id)]?.v === 2) { skipped++; continue; }
-      const ok = await computeAndCacheMMP(a.id, a, token, data);
-      if (ok) processed++; else skipped++;
-      if (i < candidates.length - 1) await new Promise(r => setTimeout(r, 150));
+    let processed = 0;
+    let rateLimited = false;
+    const batch = candidates.slice(0, limit);
+
+    for (let i = 0; i < batch.length; i++) {
+      try {
+        const ok = await computeMMPForActivity(userId, batch[i], token);
+        if (ok) processed++;
+      } catch(e) {
+        if (e.rateLimited) { rateLimited = true; break; }
+      }
+      if (i < batch.length - 1) await new Promise(r => setTimeout(r, 150));
     }
 
-    const freshData = await loadData();
-    freshData.mmpCache = { ...(freshData.mmpCache || {}), ...data.mmpCache };
-    await saveData(freshData);
+    const remaining = candidates.length - processed;
 
-    res.json({ processed, skipped, total: candidates.length, cached: Object.keys(freshData.mmpCache).length });
+    res.json({ processed, remaining, total: candidates.length, rateLimited });
   } catch(err) {
     console.error('MMP batch fout:', err.message);
     res.status(500).json({ error: err.message });

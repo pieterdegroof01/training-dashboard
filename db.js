@@ -295,10 +295,17 @@ async function upsertNutrition(userId, date, obj) {
   );
 }
 
+async function upsertActivityMMP(userId, stravaId, mmpEntry) {
+  await query(
+    'UPDATE activities SET mmp = $3 WHERE user_id = $1 AND strava_id = $2',
+    [userId, stravaId, JSON.stringify(mmpEntry)]
+  );
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
-  getActivities, upsertActivity,
+  getActivities, upsertActivity, upsertActivityMMP,
   getWeights, upsertWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
   upsertNutrition,
