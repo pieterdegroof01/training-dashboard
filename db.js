@@ -99,4 +99,107 @@ async function initSchema() {
   `);
 }
 
-module.exports = { pool, query, initSchema };
+const ALLOWED_USER_FIELDS = new Set([
+  'goals', 'patterns', 'settings', 'week_plan',
+  'ai_insights', 'week_availability', 'calibration',
+]);
+
+async function getUser(username) {
+  const { rows } = await query('SELECT * FROM users WHERE username = $1', [username]);
+  return rows[0] || null;
+}
+
+async function saveUserFields(userId, fields) {
+  const keys = Object.keys(fields);
+  if (keys.length === 0) return;
+  for (const key of keys) {
+    if (!ALLOWED_USER_FIELDS.has(key)) {
+      throw new Error(`saveUserFields: onbekende kolom '${key}'`);
+    }
+  }
+  const setClauses = keys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+  const values = keys.map(key => JSON.stringify(fields[key]));
+  values.push(userId);
+  await query(`UPDATE users SET ${setClauses} WHERE id = $${keys.length + 1}`, values);
+}
+
+async function getActivities(userId) {
+  const { rows } = await query(
+    'SELECT * FROM activities WHERE user_id = $1 ORDER BY start_date ASC',
+    [userId]
+  );
+  return rows.map(row => {
+    const base = { ...(row.raw || {}), id: Number(row.strava_id) };
+    if (row.tss !== null) base.tss = row.tss;
+    if (row.tss_source !== null) base.tss_source = row.tss_source;
+    if (row.mmp !== null) base.mmp = row.mmp;
+    if (row.streams !== null) base.streams = row.streams;
+    return base;
+  });
+}
+
+async function upsertActivity(userId, activity) {
+  await query(
+    `INSERT INTO activities (
+      user_id, strava_id, start_date, type, moving_time,
+      average_watts, weighted_average_watts, suffer_score,
+      device_watts, power_source, tss, tss_source, raw, mmp, streams
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    ON CONFLICT (user_id, strava_id) DO UPDATE SET
+      start_date             = EXCLUDED.start_date,
+      type                   = EXCLUDED.type,
+      moving_time            = EXCLUDED.moving_time,
+      average_watts          = EXCLUDED.average_watts,
+      weighted_average_watts = EXCLUDED.weighted_average_watts,
+      suffer_score           = EXCLUDED.suffer_score,
+      device_watts           = EXCLUDED.device_watts,
+      power_source           = EXCLUDED.power_source,
+      tss                    = EXCLUDED.tss,
+      tss_source             = EXCLUDED.tss_source,
+      raw                    = EXCLUDED.raw,
+      mmp                    = EXCLUDED.mmp,
+      streams                = EXCLUDED.streams`,
+    [
+      userId,
+      activity.id,
+      activity.start_date,
+      activity.type,
+      activity.moving_time,
+      activity.average_watts,
+      activity.weighted_average_watts,
+      activity.suffer_score,
+      activity.device_watts,
+      activity.power_source,
+      activity.tss,
+      activity.tss_source,
+      JSON.stringify(activity),
+      activity.mmp != null ? JSON.stringify(activity.mmp) : null,
+      activity.streams != null ? JSON.stringify(activity.streams) : null,
+    ]
+  );
+}
+
+async function getWeights(userId) {
+  const { rows } = await query(
+    'SELECT date, weight_kg, source FROM weights WHERE user_id = $1 ORDER BY date ASC',
+    [userId]
+  );
+  return rows.map(row => ({
+    date: row.date,
+    weight_kg: Number(row.weight_kg),
+    source: row.source,
+  }));
+}
+
+async function upsertWeight(userId, date, kg, source = 'manual') {
+  await query(
+    `INSERT INTO weights (user_id, date, weight_kg, source)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, date) DO UPDATE SET
+       weight_kg = EXCLUDED.weight_kg,
+       source    = EXCLUDED.source`,
+    [userId, date, kg, source]
+  );
+}
+
+module.exports = { pool, query, initSchema, getUser, saveUserFields, getActivities, upsertActivity, getWeights, upsertWeight };
