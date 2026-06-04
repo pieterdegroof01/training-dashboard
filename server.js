@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema } = require('./db');
+const { initSchema, pool } = require('./db');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -2724,6 +2724,147 @@ app.post('/webhook/strava', (req, res) => {
 });
 
 app.get('/activity/:id', (req, res) => res.sendFile('index.html', { root: 'public' }));
+
+// ── Eenmalige migratie: data.json → Postgres ──────────────────────────────────
+app.post('/api/admin/migrate-to-postgres', async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'Geen database geconfigureerd' });
+  if (req.body?.confirm !== 'MIGRATE') return res.status(400).json({ error: 'Bevestiging vereist' });
+  if (!process.env.AUTH_USERNAME || !process.env.AUTH_PASSWORD_HASH) {
+    return res.status(500).json({ error: 'AUTH_USERNAME of AUTH_PASSWORD_HASH niet geconfigureerd' });
+  }
+
+  const data = await loadData();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Stap A: gebruiker seeden
+    const userResult = await client.query(
+      `INSERT INTO users (username, password_hash, goals, patterns, settings, week_plan, ai_insights, week_availability, calibration)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (username) DO UPDATE SET
+         goals             = EXCLUDED.goals,
+         patterns          = EXCLUDED.patterns,
+         settings          = EXCLUDED.settings,
+         week_plan         = EXCLUDED.week_plan,
+         ai_insights       = EXCLUDED.ai_insights,
+         week_availability = EXCLUDED.week_availability,
+         calibration       = EXCLUDED.calibration
+       RETURNING id`,
+      [
+        process.env.AUTH_USERNAME,
+        process.env.AUTH_PASSWORD_HASH,
+        JSON.stringify(data.goals            || {}),
+        JSON.stringify(data.patterns         || []),
+        JSON.stringify(data.settings         || {}),
+        JSON.stringify(data.weekPlan         || {}),
+        JSON.stringify(data.aiInsights       || {}),
+        JSON.stringify(data.weekAvailability || {}),
+        JSON.stringify(data.calibration      || {}),
+      ]
+    );
+    const userId = userResult.rows[0].id;
+
+    // Stap B: activiteiten
+    let activities = 0;
+    for (const a of (data.activityCache?.activities || [])) {
+      const mmpVal = data.mmpCache?.[String(a.id)] ? JSON.stringify(data.mmpCache[String(a.id)]) : null;
+      await client.query(
+        `INSERT INTO activities
+           (user_id, strava_id, start_date, type, moving_time, average_watts,
+            weighted_average_watts, suffer_score, device_watts, power_source,
+            tss, tss_source, raw, mmp, streams)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         ON CONFLICT (user_id, strava_id) DO UPDATE SET
+           start_date             = EXCLUDED.start_date,
+           type                   = EXCLUDED.type,
+           moving_time            = EXCLUDED.moving_time,
+           average_watts          = EXCLUDED.average_watts,
+           weighted_average_watts = EXCLUDED.weighted_average_watts,
+           suffer_score           = EXCLUDED.suffer_score,
+           device_watts           = EXCLUDED.device_watts,
+           power_source           = EXCLUDED.power_source,
+           tss                    = EXCLUDED.tss,
+           tss_source             = EXCLUDED.tss_source,
+           raw                    = EXCLUDED.raw,
+           mmp                    = EXCLUDED.mmp,
+           streams                = EXCLUDED.streams`,
+        [
+          userId, a.id, a.start_date, a.type, a.moving_time,
+          a.average_watts, a.weighted_average_watts, a.suffer_score,
+          a.device_watts, a.powerSource,
+          a.tss ?? null, a.tss_source ?? null,
+          JSON.stringify(a), mmpVal, null,
+        ]
+      );
+      activities++;
+    }
+
+    // Stap C: gewicht
+    let weights = 0;
+    for (const [date, value] of Object.entries(data.weight || {})) {
+      const kg = parseFloat(value);
+      if (isNaN(kg)) continue;
+      await client.query(
+        `INSERT INTO weights (user_id, date, weight_kg, source)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (user_id, date) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, source = EXCLUDED.source`,
+        [userId, date, kg, null]
+      );
+      weights++;
+    }
+
+    // Stap D: slaap
+    let sleep = 0;
+    for (const [date, obj] of Object.entries(data.sleep || {})) {
+      await client.query(
+        `INSERT INTO sleep (user_id, date, hours, quality, source)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (user_id, date) DO UPDATE SET hours = EXCLUDED.hours, quality = EXCLUDED.quality, source = EXCLUDED.source`,
+        [userId, date, obj.hours, obj.quality ?? null, obj.source ?? null]
+      );
+      sleep++;
+    }
+
+    // Stap E: voeding
+    let nutrition = 0;
+    for (const [date, obj] of Object.entries(data.nutrition || {})) {
+      await client.query(
+        `INSERT INTO nutrition (user_id, date, kcal, protein_g, carbs_g, fat_g, raw)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (user_id, date) DO UPDATE SET
+           kcal      = EXCLUDED.kcal,
+           protein_g = EXCLUDED.protein_g,
+           carbs_g   = EXCLUDED.carbs_g,
+           fat_g     = EXCLUDED.fat_g,
+           raw       = EXCLUDED.raw`,
+        [userId, date, obj.kcal ?? null, obj.protein ?? null, obj.carbs ?? null, obj.fat ?? null, JSON.stringify(obj)]
+      );
+      nutrition++;
+    }
+
+    // Stap F: Hevy workouts
+    let hevy = 0;
+    for (const w of (data.hevyWorkouts || [])) {
+      await client.query(
+        `INSERT INTO hevy_workouts (user_id, hevy_id, start_date, raw)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (user_id, hevy_id) DO UPDATE SET start_date = EXCLUDED.start_date, raw = EXCLUDED.raw`,
+        [userId, w.id, w.start_time, JSON.stringify(w)]
+      );
+      hevy++;
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, user_id: userId, activities, weights, sleep, nutrition, hevy });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('migrate-to-postgres mislukt:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
 
 (async () => {
   try {
