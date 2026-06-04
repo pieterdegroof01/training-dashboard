@@ -921,8 +921,12 @@ const MMP_DURATIONS = [5,10,30,60,120,300,600,1200,1800,3600];
 
 app.get('/api/state/mmp-curve', async (req, res) => {
   try {
-    const data = await loadData();
-    const cache = data.mmpCache || {};
+    const user = await getDefaultUser();
+    const activities = await getActivities(user.id);
+    const cache = {};
+    for (const a of activities) {
+      if (a.mmp) cache[String(a.id)] = a.mmp;
+    }
     const now = new Date();
     const cut30 = new Date(now); cut30.setDate(now.getDate() - 30);
     const cut90 = new Date(now); cut90.setDate(now.getDate() - 90);
