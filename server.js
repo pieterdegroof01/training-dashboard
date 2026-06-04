@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
+const { initSchema } = require('./db');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -2749,4 +2750,6 @@ app.listen(PORT, () => {
   if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('jouw')) console.warn('⚠️  Anthropic API key niet ingesteld');
   if (!AUTH_USERNAME || !AUTH_PASSWORD_HASH || !JWT_SECRET) console.warn('⚠️  AUTH_USERNAME / AUTH_PASSWORD_HASH / JWT_SECRET niet volledig ingesteld — auth uitgeschakeld');
   console.info(`Auth bypass: ${BYPASS_IPS.length} IP('s) geconfigureerd`);
+  console.info(`Database: ${process.env.DATABASE_URL ? 'DATABASE_URL geconfigureerd' : 'geen DATABASE_URL — JSON-bestand is enige bron van waarheid'}`);
+  initSchema().catch(err => console.error('DB schema-initialisatie mislukt:', err.message));
 });
