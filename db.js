@@ -202,4 +202,81 @@ async function upsertWeight(userId, date, kg, source = 'manual') {
   );
 }
 
-module.exports = { pool, query, initSchema, getUser, saveUserFields, getActivities, upsertActivity, getWeights, upsertWeight };
+let _defaultUser = null;
+
+async function getDefaultUser() {
+  if (_defaultUser) return _defaultUser;
+  const username = process.env.AUTH_USERNAME;
+  if (username) {
+    const { rows } = await query('SELECT * FROM users WHERE username = $1', [username]);
+    if (rows[0]) { _defaultUser = rows[0]; return _defaultUser; }
+  }
+  const { rows } = await query('SELECT * FROM users ORDER BY id ASC LIMIT 1');
+  if (!rows[0]) throw new Error('getDefaultUser: geen user in database');
+  _defaultUser = rows[0];
+  return _defaultUser;
+}
+
+async function getSleep(userId) {
+  const { rows } = await query(
+    'SELECT date, hours, quality, source FROM sleep WHERE user_id = $1',
+    [userId]
+  );
+  const result = {};
+  for (const row of rows) {
+    const key = row.date.toISOString().split('T')[0];
+    result[key] = {
+      hours: Number(row.hours),
+      quality: row.quality !== null ? Number(row.quality) : null,
+      source: row.source,
+    };
+  }
+  return result;
+}
+
+async function getNutrition(userId) {
+  const { rows } = await query(
+    'SELECT date, kcal, protein_g, carbs_g, fat_g, raw FROM nutrition WHERE user_id = $1',
+    [userId]
+  );
+  const result = {};
+  for (const row of rows) {
+    const key = row.date.toISOString().split('T')[0];
+    result[key] = row.raw || {
+      kcal: row.kcal !== null ? Number(row.kcal) : null,
+      protein: row.protein_g !== null ? Number(row.protein_g) : null,
+      carbs: row.carbs_g !== null ? Number(row.carbs_g) : null,
+      fat: row.fat_g !== null ? Number(row.fat_g) : null,
+    };
+  }
+  return result;
+}
+
+async function getHevyWorkouts(userId) {
+  const { rows } = await query(
+    'SELECT raw FROM hevy_workouts WHERE user_id = $1 ORDER BY start_date ASC',
+    [userId]
+  );
+  return rows.map(row => row.raw);
+}
+
+async function getWeightMap(userId) {
+  const { rows } = await query(
+    'SELECT date, weight_kg FROM weights WHERE user_id = $1',
+    [userId]
+  );
+  const result = {};
+  for (const row of rows) {
+    const key = row.date.toISOString().split('T')[0];
+    result[key] = Number(row.weight_kg);
+  }
+  return result;
+}
+
+module.exports = {
+  pool, query, initSchema,
+  getUser, saveUserFields,
+  getActivities, upsertActivity,
+  getWeights, upsertWeight,
+  getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
+};

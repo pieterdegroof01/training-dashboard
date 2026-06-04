@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool } = require('./db');
+const { initSchema, pool, getDefaultUser, getActivities, getHevyWorkouts, getWeightMap, getNutrition, getSleep } = require('./db');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -2077,16 +2077,36 @@ Nederlands. Mechanistisch en concreet. Citeer waar passend. Minimaal ~1200 woord
 
 app.get('/api/state/full', async (req, res) => {
   try {
-    const data = await loadData();
-    const allActivities = data.activityCache?.activities || [];
-    const settings = data.settings || {};
-    const hevyWorkouts = data.hevyWorkouts || [];
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const [activities, hevyWorkouts, weight, nutrition, sleep] = await Promise.all([
+      getActivities(userId),
+      getHevyWorkouts(userId),
+      getWeightMap(userId),
+      getNutrition(userId),
+      getSleep(userId),
+    ]);
+    const data = {
+      activityCache: { lastSync: null, activities },
+      hevyWorkouts,
+      weight,
+      nutrition,
+      sleep,
+      weekPlan: user.week_plan || {},
+      settings: user.settings || {},
+      calibration: user.calibration || { factor: 1.0, count: 0, reliable: false },
+      goals: user.goals || {},
+      patterns: user.patterns || [],
+      aiInsights: user.ai_insights || {},
+      weekAvailability: user.week_availability || {},
+    };
+    const allActivities = activities;
+    const settings = data.settings;
     const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings, data);
     const { enduranceDailyETL, strengthDailyETL, dailyETL, sources, ...rest } = state;
     rest.enduranceMetrics = { ...rest.enduranceMetrics, history: undefined };
     rest.metrics = rest.enduranceMetrics;
     // Slaapdata laatste 14 dagen (ontbrekende dagen = null)
-    const sleep = data.sleep || {};
     const sleepData14 = [];
     for (let i = 13; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
@@ -2105,10 +2125,13 @@ app.get('/api/state/full', async (req, res) => {
 
 app.get('/api/state/load-series', async (req, res) => {
   try {
-    const data = await loadData();
-    const allActivities = data.activityCache?.activities || [];
-    const settings = data.settings || {};
-    const hevyWorkouts = data.hevyWorkouts || [];
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const [allActivities, hevyWorkouts] = await Promise.all([
+      getActivities(userId),
+      getHevyWorkouts(userId),
+    ]);
+    const settings = user.settings || {};
     const { enduranceDailyETL } = engine.buildDailyETLSeries(allActivities, hevyWorkouts, settings);
     const m = engine.computeLoadMetrics(enduranceDailyETL);
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 180);
@@ -2122,9 +2145,10 @@ app.get('/api/state/load-series', async (req, res) => {
 
 app.get('/api/state/zones', async (req, res) => {
   try {
-    const data = await loadData();
-    const allActivities = data.activityCache?.activities || [];
-    const settings = data.settings || {};
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const allActivities = await getActivities(userId);
+    const settings = user.settings || {};
     const breakdown = engine.weeklyZoneBreakdown(allActivities, settings);
     const ftpInfo = engine.rollingFtp(allActivities, settings);
     res.json({ weekly: breakdown.slice(-26), currentFtp: ftpInfo });
