@@ -34,8 +34,11 @@ async function initSchema() {
       week_plan        JSONB NOT NULL DEFAULT '{}'::jsonb,
       ai_insights      JSONB NOT NULL DEFAULT '{}'::jsonb,
       week_availability JSONB NOT NULL DEFAULT '{}'::jsonb,
-      calibration      JSONB NOT NULL DEFAULT '{}'::jsonb
+      calibration      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      literature       JSONB NOT NULL DEFAULT '[]'::jsonb
     );
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS literature JSONB NOT NULL DEFAULT '[]'::jsonb;
 
     CREATE TABLE IF NOT EXISTS activities (
       user_id                 BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -101,7 +104,7 @@ async function initSchema() {
 
 const ALLOWED_USER_FIELDS = new Set([
   'goals', 'patterns', 'settings', 'week_plan',
-  'ai_insights', 'week_availability', 'calibration',
+  'ai_insights', 'week_availability', 'calibration', 'literature',
 ]);
 
 async function getUser(username) {
@@ -121,6 +124,7 @@ async function saveUserFields(userId, fields) {
   const values = keys.map(key => JSON.stringify(fields[key]));
   values.push(userId);
   await query(`UPDATE users SET ${setClauses} WHERE id = $${keys.length + 1}`, values);
+  _defaultUser = null;
 }
 
 async function getActivities(userId) {
@@ -273,10 +277,29 @@ async function getWeightMap(userId) {
   return result;
 }
 
+async function upsertNutrition(userId, date, obj) {
+  const kcal      = obj.kcal      != null ? parseInt(obj.kcal)      || null : null;
+  const protein_g = obj.protein   != null ? parseFloat(obj.protein) || null : null;
+  const carbs_g   = obj.carbs     != null ? parseFloat(obj.carbs)   || null : null;
+  const fat_g     = obj.fat       != null ? parseFloat(obj.fat)     || null : null;
+  await query(
+    `INSERT INTO nutrition (user_id, date, kcal, protein_g, carbs_g, fat_g, raw)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (user_id, date) DO UPDATE SET
+       kcal      = EXCLUDED.kcal,
+       protein_g = EXCLUDED.protein_g,
+       carbs_g   = EXCLUDED.carbs_g,
+       fat_g     = EXCLUDED.fat_g,
+       raw       = EXCLUDED.raw`,
+    [userId, date, kcal, protein_g, carbs_g, fat_g, JSON.stringify(obj)]
+  );
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
   getActivities, upsertActivity,
   getWeights, upsertWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
+  upsertNutrition,
 };

@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, getActivities, getHevyWorkouts, getWeightMap, getNutrition, getSleep } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition } = require('./db');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -1662,6 +1662,16 @@ app.get('/api/sleep/today', async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
+app.post('/api/nutrition', async (req, res) => {
+  try {
+    const { date, nutr } = req.body || {};
+    if (!date || typeof nutr !== 'object' || nutr === null) return res.status(400).json({ error: 'date en nutr (object) vereist' });
+    const user = await getDefaultUser();
+    await upsertNutrition(user.id, date, nutr);
+    res.json({ ok: true });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/nutrition/parse-screenshot', upload.single('screenshot'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen afbeelding ontvangen' });
@@ -2160,23 +2170,44 @@ app.get('/api/state/zones', async (req, res) => {
 });
 
 app.get('/api/data', async (req, res) => {
-  const data = await loadData();
-  const { activityCache, ...rest } = data;
-  res.json(rest);
+  try {
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const [nutrition, weight, sleep, hevyWorkouts, activities] = await Promise.all([
+      getNutrition(userId),
+      getWeightMap(userId),
+      getSleep(userId),
+      getHevyWorkouts(userId),
+      getActivities(userId),
+    ]);
+    res.json({
+      goals:            user.goals            || {},
+      patterns:         user.patterns         || [],
+      settings:         user.settings         || {},
+      weekPlan:         user.week_plan         || {},
+      aiInsights:       user.ai_insights       || {},
+      weekAvailability: user.week_availability || {},
+      calibration:      user.calibration       || { factor: 1.0, count: 0, reliable: false },
+      literature:       user.literature        || [],
+      nutrition,
+      weight,
+      sleep,
+      hevyWorkouts,
+      activityCache: { lastSync: null, activities },
+    });
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/data', async (req, res) => {
   try {
-    const current = await loadData();
-    const updates = req.body;
-    delete updates.activityCache;
-    // Merge settings diep (niet overschrijven met lege object)
-    if (updates.settings && current.settings) {
-      updates.settings = { ...current.settings, ...updates.settings };
-    }
-    const merged = { ...current, ...updates };
-    migrateData(merged);
-    await saveData(merged);
+    const user = await getDefaultUser();
+    const body = req.body || {};
+    const fields = {};
+    if (body.goals     !== undefined) fields.goals     = { ...(user.goals     || {}), ...body.goals };
+    if (body.settings  !== undefined) fields.settings  = { ...(user.settings  || {}), ...body.settings };
+    if (body.patterns  !== undefined) fields.patterns  = body.patterns;
+    if (body.weekPlan  !== undefined) fields.week_plan = body.weekPlan;
+    if (Object.keys(fields).length > 0) await saveUserFields(user.id, fields);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2184,29 +2215,29 @@ app.post('/api/data', async (req, res) => {
 // ── Literatuur ────────────────────────────────────────────────────────────────
 
 app.get('/api/literature', async (req, res) => {
-  const data = await loadData();
-  res.json(data.literature || []);
+  try {
+    const user = await getDefaultUser();
+    res.json(user.literature || []);
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/literature', async (req, res) => {
   try {
     const { title, content } = req.body;
     if (!title || !content) return res.status(400).json({ error: 'Titel en inhoud zijn verplicht' });
-    const data = await loadData();
-    const literature = data.literature || [];
+    const user = await getDefaultUser();
     const entry = { id: Date.now().toString(), title, content, addedDate: new Date().toISOString().split('T')[0] };
-    literature.push(entry);
-    data.literature = literature;
-    await saveData(data);
+    const literature = [...(user.literature || []), entry];
+    await saveUserFields(user.id, { literature });
     res.json(entry);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/literature/:id', async (req, res) => {
   try {
-    const data = await loadData();
-    data.literature = (data.literature || []).filter(l => l.id !== req.params.id);
-    await saveData(data);
+    const user = await getDefaultUser();
+    const literature = (user.literature || []).filter(l => l.id !== req.params.id);
+    await saveUserFields(user.id, { literature });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2235,12 +2266,10 @@ app.post('/api/literature/upload', upload.single('file'), async (req, res) => {
       content = req.file.buffer.toString('utf8').substring(0, 4000);
     }
 
-    const data = await loadData();
-    const literature = data.literature || [];
+    const user = await getDefaultUser();
     const entry = { id: Date.now().toString(), title, content, addedDate: new Date().toISOString().split('T')[0], source: req.file.originalname };
-    literature.push(entry);
-    data.literature = literature;
-    await saveData(data);
+    const literature = [...(user.literature || []), entry];
+    await saveUserFields(user.id, { literature });
     res.json(entry);
   } catch (err) { res.status(500).json({ error: 'Upload mislukt: ' + err.message }); }
 });
@@ -2284,16 +2313,17 @@ app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) =>
 // ── Week availability ─────────────────────────────────────────────────────────
 
 app.get('/api/week-availability', async (req, res) => {
-  const data = await loadData();
-  res.json(data.weekAvailability || {});
+  try {
+    const user = await getDefaultUser();
+    res.json(user.week_availability || {});
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/week-availability', async (req, res) => {
   try {
-    const data = await loadData();
-    data.weekAvailability = req.body;
-    await saveData(data);
-    res.json(data.weekAvailability);
+    const user = await getDefaultUser();
+    await saveUserFields(user.id, { week_availability: req.body });
+    res.json(req.body);
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2591,9 +2621,9 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
 
 app.post('/api/goals', async (req, res) => {
   try {
-    const data = await loadData();
-    data.goals = { ...(data.goals || {}), ...req.body };
-    await saveData(data);
+    const user = await getDefaultUser();
+    const goals = { ...(user.goals || {}), ...req.body };
+    await saveUserFields(user.id, { goals });
     res.json({ ok: true });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });

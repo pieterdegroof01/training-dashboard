@@ -1226,8 +1226,8 @@ async function saveQuick() {
 
 async function saveManualNutr() {
   const nutr = { kcal:document.getElementById('mKcal').value, protein:document.getElementById('mProt').value, carbs:document.getElementById('mCarb').value, fat:document.getElementById('mFat').value };
-  const updated = { ...(S.data.nutrition||{}), [today()]: nutr };
-  await saveDataPartial({ nutrition: updated });
+  await api('/api/nutrition', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: today(), nutr }) });
+  S.data.nutrition = { ...(S.data.nutrition || {}), [today()]: nutr };
   const b = document.getElementById('btnManualNutr');
   b.textContent='✓ Opgeslagen'; b.className='btn btn-success mt-3';
   setTimeout(()=>{b.textContent='Opslaan voor vandaag';b.className='btn btn-primary mt-3';},2000);
@@ -1381,16 +1381,17 @@ async function handleFile(file) {
 
 async function confirmNutr() {
   if(!S.parsedNutr) return;
-  const updated = {...(S.data.nutrition||{}),[today()]:S.parsedNutr};
-  await saveDataPartial({nutrition:updated});
+  const nutr = S.parsedNutr;
+  await api('/api/nutrition', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: today(), nutr }) });
+  S.data.nutrition = { ...(S.data.nutrition || {}), [today()]: nutr };
   document.getElementById('parsedPreview').classList.add('hidden');
   document.getElementById('parseMsg').className='alert alert-success mt-2';
   document.getElementById('parseMsg').textContent='✓ Opgeslagen voor vandaag';
   S.parsedNutr=null; renderNutrHistory();
-  document.getElementById('mKcal').value=updated[today()].kcal||'';
-  document.getElementById('mProt').value=updated[today()].protein||'';
-  document.getElementById('mCarb').value=updated[today()].carbs||'';
-  document.getElementById('mFat').value=updated[today()].fat||'';
+  document.getElementById('mKcal').value=nutr.kcal||'';
+  document.getElementById('mProt').value=nutr.protein||'';
+  document.getElementById('mCarb').value=nutr.carbs||'';
+  document.getElementById('mFat').value=nutr.fat||'';
 }
 
 function cancelNutr() { S.parsedNutr=null; document.getElementById('parsedPreview').classList.add('hidden'); }
@@ -1582,9 +1583,7 @@ async function saveSettingsMeals() {
   const btn = document.getElementById('btnSaveMeals');
   btn.textContent = 'Opslaan...'; btn.disabled = true;
   try {
-    const data = await api('/api/data');
-    if (!data.settings) data.settings = {};
-    data.settings.mealTimes = {
+    const mealTimes = {
       weekdayBreakfast: document.getElementById('mtWdBreakfast').value,
       weekdaySnack:     document.getElementById('mtWdSnack').value,
       weekdayLunch:     document.getElementById('mtWdLunch').value,
@@ -1594,7 +1593,7 @@ async function saveSettingsMeals() {
       weekendLunch:     document.getElementById('mtWeLunch').value,
       weekendDinner:    document.getElementById('mtWeDinner').value,
     };
-    await api('/api/data', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    await saveDataPartial({ settings: { mealTimes } });
     btn.textContent = '✓ Opgeslagen'; btn.disabled = false;
     setTimeout(() => { btn.textContent = 'Opslaan'; }, 2000);
   } catch(e) {
@@ -1627,11 +1626,9 @@ async function savePplPattern() {
     });
   });
   try {
-    const data = await api('/api/data');
-    const existing = (data.patterns || []).filter(p => !(p.type === 'gym' && p.split));
-    data.patterns = [...existing, ...pplPatterns];
-    await api('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    S.data.patterns = data.patterns;
+    const existing = (S.data.patterns || []).filter(p => !(p.type === 'gym' && p.split));
+    const patterns = [...existing, ...pplPatterns];
+    await saveDataPartial({ patterns });
     showSaved('btnSavePpl', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
   } catch(e) {
     const b = document.getElementById('btnSavePpl');
