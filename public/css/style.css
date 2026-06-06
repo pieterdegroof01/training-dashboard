@@ -243,8 +243,8 @@ body {
   padding-left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));
   padding-right: max(16px, calc(env(safe-area-inset-right, 0px) + 16px));
 }
-html { overflow-x: hidden; }
-body { overflow-x: hidden; }
+html { overflow-x: clip; }
+body { overflow-x: clip; }
 @media (max-width: 768px) {
   input, select, textarea { font-size: 16px; }
 }
