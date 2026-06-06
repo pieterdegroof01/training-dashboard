@@ -11,7 +11,7 @@ const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight, getActivityStream, upsertActivityStream } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -1001,10 +1001,10 @@ app.get('/api/state/mmp-curve', async (req, res) => {
 
 // ── Activity detail helper ────────────────────────────────────────────────────
 
-async function getActivityDetail(stravaId, data, settings) {
+async function getActivityDetail(stravaId, userId, activities, weekPlan, settings) {
   const sid  = String(stravaId);
   const FTP  = settings.ftp || 280;
-  const acts = data.activityCache?.activities || [];
+  const acts = activities || [];
   const activity = acts.find(a => String(a.id) === sid);
   const actDate  = activity?.start_date?.split('T')[0] || '';
 
@@ -1027,7 +1027,7 @@ async function getActivityDetail(stravaId, data, settings) {
   }
 
   function findPlanned(date) {
-    const dayPlan = data.weekPlan?.[date] || [];
+    const dayPlan = weekPlan?.[date] || [];
     const s = dayPlan.find(s =>
       s.type === 'cycling' && (
         String(s.matchedActivityId) === sid ||
@@ -1052,12 +1052,15 @@ async function getActivityDetail(stravaId, data, settings) {
       }
       const sampledIndices = [...sampledSet].sort((a, b) => a - b);
       const actCurve = sampledIndices.map(i => ({ dur: i + 1, watts: mmpFull[i] || null }));
-      const mmpCache = data.mmpCache || {};
       const cut90 = new Date(); cut90.setDate(cut90.getDate() - 90);
       const best90 = new Array(actDur).fill(0);
       const bestAttr90 = new Array(actDur).fill(null);
-      for (const [entryId, entry] of Object.entries(mmpCache)) {
-        if (entry.v !== 2 || new Date(entry.date) < cut90) continue;
+      const mmpById = {};
+      for (const act of acts) {
+        const entry = act.mmp;
+        if (!entry || entry.v !== 2 || new Date(entry.date) < cut90) continue;
+        const entryId = String(act.id);
+        mmpById[entryId] = entry;
         const arr = entry.mmpArray, len = Math.min(arr.length, actDur);
         for (let i = 0; i < len; i++) {
           if (arr[i] > best90[i]) { best90[i] = arr[i]; bestAttr90[i] = entryId; }
@@ -1065,14 +1068,14 @@ async function getActivityDetail(stravaId, data, settings) {
       }
       const bestCurve = sampledIndices.map(i => {
         const actId = bestAttr90[i];
-        const entry = actId ? mmpCache[actId] : null;
+        const entry = actId ? mmpById[actId] : null;
         return { dur: i + 1, watts: best90[i] || null, activityId: actId || null, name: entry?.name || null, date: entry?.date || null };
       });
       return { activityMmpCurve: actCurve, bestMmpCurve: bestCurve };
     } catch(e) { console.warn('buildActivityMmpCurves:', e.message); return { activityMmpCurve: null, bestMmpCurve: null }; }
   }
 
-  const cached = data.activityStreams?.[sid];
+  const cached = await getActivityStream(userId, sid);
   if (cached) {
     const { activityMmpCurve, bestMmpCurve } = buildActivityMmpCurves(cached.powerTimeline, activity?.powerSource);
     return {
@@ -1370,28 +1373,14 @@ async function getActivityDetail(stravaId, data, settings) {
 
   // Persist cache
   try {
-    const freshData = await loadData();
-    freshData.activityStreams = freshData.activityStreams || {};
-    freshData.activityStreams[sid] = {
+    await upsertActivityStream(userId, sid, {
       cachedAt: new Date().toISOString(),
       zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null,
       hrTimeline, altitudeTimeline, mmpCurve,
       aerobicDecoupling, vi, ef,
       velocityTimeline, cadenceTimeline, gradientTimeline,
       distanceTimeline, gpsTrack, sessionClassification
-    };
-    const MAX_CACHED = 50;
-    const streamKeys = Object.keys(freshData.activityStreams || {});
-    if (streamKeys.length > MAX_CACHED) {
-      streamKeys
-        .sort((a, b) =>
-          new Date(freshData.activityStreams[a].cachedAt) -
-          new Date(freshData.activityStreams[b].cachedAt)
-        )
-        .slice(0, streamKeys.length - MAX_CACHED)
-        .forEach(k => delete freshData.activityStreams[k]);
-    }
-    await saveData(freshData);
+    });
   } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
 
   return {
@@ -1411,9 +1400,10 @@ async function getActivityDetail(stravaId, data, settings) {
 
 app.get('/api/activity/:stravaId/detail', async (req, res) => {
   try {
-    const data     = await loadData();
-    const settings = data.settings || {};
-    const result   = await getActivityDetail(req.params.stravaId, data, settings);
+    const user = await getDefaultUser();
+    const activities = await getActivities(user.id);
+    const settings = user.settings || {};
+    const result = await getActivityDetail(req.params.stravaId, user.id, activities, user.week_plan || {}, settings);
     if (!result.activity) return res.status(404).json({ error: 'Activiteit niet gevonden in cache' });
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1424,25 +1414,32 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
     if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key niet ingesteld' });
     const { stravaId } = req.params;
     const computed  = req.body?.computed || {};
-    const data     = await loadData();
-    const settings = data.settings || {};
+    const user      = await getDefaultUser();
+    const settings  = user.settings || {};
 
     // 7-day cache
     const cacheKey = 'activity_v7_' + stravaId;
-    const cached   = data.aiInsights?.[cacheKey];
+    const cached   = user.ai_insights?.[cacheKey];
     if (cached?.ts && (Date.now() - cached.ts) < 7 * 24 * 60 * 60 * 1000) {
       return res.json({ text: cached.text });
     }
 
-    const detail = await getActivityDetail(stravaId, data, settings);
+    const [activities, hevyWkts, weight, nutrition] = await Promise.all([
+      getActivities(user.id),
+      getHevyWorkouts(user.id),
+      getWeightMap(user.id),
+      getNutrition(user.id),
+    ]);
+
+    const detail = await getActivityDetail(stravaId, user.id, activities, user.week_plan || {}, settings);
     if (!detail.activity) return res.status(404).json({ error: 'Activiteit niet gevonden in cache' });
 
     const state = engine.computeFullState(
-      data.activityCache?.activities || [],
-      data.hevyWorkouts || [],
-      data.weight || {},
-      data.nutrition || {},
-      data.weekPlan || {},
+      activities,
+      hevyWkts,
+      weight,
+      nutrition,
+      user.week_plan || {},
       settings
     );
 
@@ -1480,10 +1477,10 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
 
     const responseText = aiResp.data.content?.[0]?.text || '';
 
-    const freshData = await loadData();
-    freshData.aiInsights = freshData.aiInsights || {};
-    freshData.aiInsights[cacheKey] = { text: responseText, ts: Date.now() };
-    await saveData(freshData);
+    const freshUser = await getDefaultUser();
+    const updatedInsights = { ...(freshUser.ai_insights || {}) };
+    updatedInsights[cacheKey] = { text: responseText, ts: Date.now() };
+    await saveUserFields(freshUser.id, { ai_insights: updatedInsights });
 
     res.json({ text: responseText });
   } catch (err) { res.status(500).json({ error: err.message }); }

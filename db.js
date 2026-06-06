@@ -99,6 +99,16 @@ async function initSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_hevy_user_date ON hevy_workouts (user_id, start_date);
+
+    CREATE TABLE IF NOT EXISTS activity_streams (
+      user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      strava_id  TEXT NOT NULL,
+      cached_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      raw        JSONB NOT NULL,
+      PRIMARY KEY (user_id, strava_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_streams_user_cached ON activity_streams (user_id, cached_at);
   `);
 }
 
@@ -264,6 +274,36 @@ async function getHevyWorkouts(userId) {
   return rows.map(row => row.raw);
 }
 
+async function getActivityStream(userId, stravaId) {
+  const { rows } = await query(
+    'SELECT raw FROM activity_streams WHERE user_id = $1 AND strava_id = $2',
+    [userId, String(stravaId)]
+  );
+  return rows[0] ? rows[0].raw : null;
+}
+
+async function upsertActivityStream(userId, stravaId, obj) {
+  await query(
+    `INSERT INTO activity_streams (user_id, strava_id, cached_at, raw)
+     VALUES ($1, $2, now(), $3)
+     ON CONFLICT (user_id, strava_id) DO UPDATE SET
+       cached_at = now(),
+       raw       = EXCLUDED.raw`,
+    [userId, String(stravaId), JSON.stringify(obj)]
+  );
+  await query(
+    `DELETE FROM activity_streams
+     WHERE user_id = $1
+       AND strava_id NOT IN (
+         SELECT strava_id FROM activity_streams
+         WHERE user_id = $1
+         ORDER BY cached_at DESC
+         LIMIT 200
+       )`,
+    [userId]
+  );
+}
+
 async function upsertHevyWorkout(userId, workout) {
   await query(
     `INSERT INTO hevy_workouts (user_id, hevy_id, start_date, raw)
@@ -335,4 +375,5 @@ module.exports = {
   getWeights, upsertWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
   upsertNutrition, upsertSleep, upsertHevyWorkout,
+  getActivityStream, upsertActivityStream,
 };
