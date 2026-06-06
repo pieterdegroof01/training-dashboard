@@ -2635,17 +2635,29 @@ app.post('/api/weekplan/generate', async (req, res) => {
   try {
     if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'ANTHROPIC_API_KEY niet ingesteld' });
 
-    const data = await loadData();
-    const allActivities = data.activityCache?.activities || [];
-    const hevyWorkouts = data.hevyWorkouts || [];
-    const settings = data.settings || {};
+    const user = await getDefaultUser();
+    const [allActivities, hevyWorkouts, weight, nutrition, sleep] = await Promise.all([
+      getActivities(user.id),
+      getHevyWorkouts(user.id),
+      getWeightMap(user.id),
+      getNutrition(user.id),
+      getSleep(user.id),
+    ]);
+    const settings = user.settings || {};
+    const weekPlan = user.week_plan || {};
+    const weekAvailability = user.week_availability || {};
+    const engineData = {
+      sleep,
+      goals:            user.goals    || {},
+      patterns:         user.patterns || [],
+      weekAvailability,
+    };
 
-    const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings, data);
+    const state = engine.computeFullState(allActivities, hevyWorkouts, weight, nutrition, weekPlan, settings, engineData);
     const tp = state.trainingPlan;
     if (!tp) return res.status(400).json({ error: 'Geen eventdatum ingesteld. Stel eerst een event in bij Settings.' });
 
     const ftp = state.ftpInfo?.ftp || settings.ftp || 280;
-    const weekAvailability = data.weekAvailability || {};
     const availDays = Object.entries(weekAvailability).filter(([, v]) => v.cycling);
     if (!availDays.length) return res.json({ sessions: [], message: 'Geen beschikbare fietsdagen ingesteld.' });
 
@@ -2701,12 +2713,13 @@ Retourneer uitsluitend een valide JSON array zonder markdown of uitleg. Formaat 
     if (!Array.isArray(sessions)) sessions = [];
     sessions = sessions.filter(s => s.date && s.type === 'cycling' && Array.isArray(s.blokken));
 
-    const freshData = await loadData();
+    const freshUser = await getDefaultUser();
+    const updatedWp = { ...(freshUser.week_plan || {}) };
     sessions.forEach(s => {
-      const existing = (freshData.weekPlan[s.date] || []).filter(x => x.type !== 'cycling' || !x.aiGenerated);
-      freshData.weekPlan[s.date] = [...existing, s];
+      const existing = (updatedWp[s.date] || []).filter(x => x.type !== 'cycling' || !x.aiGenerated);
+      updatedWp[s.date] = [...existing, s];
     });
-    await saveData(freshData);
+    await saveUserFields(freshUser.id, { week_plan: updatedWp });
 
     res.json({ sessions });
   } catch(err) { res.status(500).json({ error: err.message }); }
