@@ -1505,7 +1505,7 @@ async function loadInsight(page, force = false) {
       textEl.style.color = 'var(--muted)';
       if (metaEl) metaEl.textContent = '';
     } else {
-      textEl.textContent = result.text;
+      textEl.innerHTML = renderMarkdown(result.text);
       textEl.style.color = '';
       const coachBtn = document.createElement('button');
       coachBtn.className = 'ap-coach-link';
@@ -1523,6 +1523,52 @@ async function loadInsight(page, force = false) {
   } catch(e) {
     textEl.textContent = 'Briefing laden mislukt: ' + e.message;
     textEl.style.color = 'var(--muted)';
+  }
+}
+
+// Zet een veilige markdown-subset om naar HTML. Escapet eerst alle HTML-tekens,
+// zodat AI-tekst nooit rauwe HTML/script kan injecteren (zelfde XSS-principe als renderHeroBriefing).
+function renderMarkdown(raw) {
+  if (!raw) return '';
+  const esc = String(raw)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const lines = esc.split('\n');
+  const out = [];
+  let inList = false;
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+  for (let line of lines) {
+    const t = line.trim();
+    if (t === '') { closeList(); continue; }
+
+    // Koppen
+    let m;
+    if ((m = t.match(/^###\s+(.*)$/))) { closeList(); out.push('<h4>' + inline(m[1]) + '</h4>'); continue; }
+    if ((m = t.match(/^##\s+(.*)$/)))  { closeList(); out.push('<h3>' + inline(m[1]) + '</h3>'); continue; }
+    if ((m = t.match(/^#\s+(.*)$/)))   { closeList(); out.push('<h3>' + inline(m[1]) + '</h3>'); continue; }
+
+    // Lijst-items
+    if ((m = t.match(/^[-*]\s+(.*)$/))) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push('<li>' + inline(m[1]) + '</li>');
+      continue;
+    }
+
+    // Gewone alinea-regel
+    closeList();
+    out.push('<p>' + inline(t) + '</p>');
+  }
+  closeList();
+  return out.join('');
+
+  // Inline-opmaak binnen een regel: vet en cursief. Input is al HTML-geëscaped.
+  function inline(s) {
+    return s
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>');
   }
 }
 
