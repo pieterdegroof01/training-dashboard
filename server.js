@@ -1902,10 +1902,11 @@ app.post('/api/analyse', async (req, res) => {
     if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key niet ingesteld' });
 
     const { hevyWorkouts, goals, patterns, nutrition, weight, weekPlan, todayNote, athlete } = req.body;
-    const data = await loadData();
-    const allActivities = data.activityCache?.activities || [];
-    const settings = data.settings || {};
-    const calibration = data.calibration || { factor: 1.0, count: 0, reliable: false };
+    const user = await getDefaultUser();
+    const allActivities = await getActivities(user.id);
+    const settings = user.settings || {};
+    const calibration = user.calibration || { factor: 1.0, count: 0, reliable: false };
+    const literature = user.literature || [];
 
     const state = engine.computeFullState(allActivities, hevyWorkouts || [], weight || {}, nutrition || {}, weekPlan || {}, settings);
 
@@ -1960,7 +1961,6 @@ app.post('/api/analyse', async (req, res) => {
     const sm = state.strengthMetrics;
     const targetWtLoss = settings.targetWeightLossPerWeek || 0.7;
 
-    const literature = data.literature || [];
     const literatureContext = literature.length
       ? literature.map(l => `--- ${l.title} ---\n${l.content}`).join('\n\n')
       : 'Geen literatuur toegevoegd door gebruiker.';
@@ -2319,13 +2319,29 @@ app.post('/api/insights/:page', async (req, res) => {
   try {
     const { page } = req.params;
     const force = req.body?.force === true;
-    const data = await loadData();
+    const user = await getDefaultUser();
+    const [nutrition, weight, hevyWkts, acts] = await Promise.all([
+      getNutrition(user.id),
+      getWeightMap(user.id),
+      getHevyWorkouts(user.id),
+      getActivities(user.id),
+    ]);
+    const data = {
+      goals:            user.goals            || {},
+      patterns:         user.patterns         || [],
+      settings:         user.settings         || {},
+      weekPlan:         user.week_plan         || {},
+      aiInsights:       user.ai_insights       || {},
+      weekAvailability: user.week_availability || {},
+      calibration:      user.calibration       || { factor: 1.0, count: 0, reliable: false },
+      literature:       user.literature        || [],
+      nutrition,
+      weight,
+      hevyWorkouts:     hevyWkts,
+      activityCache:    { lastSync: null, activities: acts },
+    };
     if (!data.aiInsights) data.aiInsights = {};
 
-    const acts       = data.activityCache?.activities || [];
-    const hevyWkts   = data.hevyWorkouts || [];
-    const weight     = data.weight || {};
-    const nutrition  = data.nutrition || {};
     const weekPlan   = data.weekPlan || {};
     const settings   = data.settings || {};
     const mealTimings = getMealTimings(settings);
@@ -2491,17 +2507,14 @@ Primair doel: ${data.goals?.primary||'–'}`;
         if (!Array.isArray(sessions)) sessions = [];
 
         // Merge into weekPlan: keep existing non-cycling sessions, add AI cycling sessions.
-        // Herlaad verse data direct voor de save om gelijktijdige writes naar
-        // activityCache (Strava webhook / sync-all / Hevy) niet te overschrijven.
-        const freshData = await loadData();
-        const updatedWp = { ...(freshData.weekPlan||{}) };
+        const freshUser = await getDefaultUser();
+        const updatedWp = { ...(freshUser.week_plan||{}) };
         sessions.forEach(s => {
           if (!s.datum) return;
           const existing = (updatedWp[s.datum]||[]).filter(x => x.type !== 'cycling' || !x.aiGenerated);
           updatedWp[s.datum] = [...existing, s];
         });
-        freshData.weekPlan = updatedWp;
-        await saveData(freshData);
+        await saveUserFields(freshUser.id, { week_plan: updatedWp });
 
         return res.json({ sessions });
       }
@@ -2591,10 +2604,10 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
       if (parsed) payload = { briefing: parsed, text: parsed.body };
     }
 
-    const freshData = await loadData();
-    if (!freshData.aiInsights) freshData.aiInsights = {};
-    freshData.aiInsights[page] = { ...payload, hash, ts: Date.now() };
-    await saveData(freshData);
+    const freshUser = await getDefaultUser();
+    const updatedInsights = { ...(freshUser.ai_insights || {}) };
+    updatedInsights[page] = { ...payload, hash, ts: Date.now() };
+    await saveUserFields(freshUser.id, { ai_insights: updatedInsights });
 
     res.json({ ...payload, cached: false });
   } catch(err) {
