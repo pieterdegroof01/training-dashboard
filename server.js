@@ -11,7 +11,7 @@ const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -1491,12 +1491,20 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
 
 app.get('/api/calibration', async (req, res) => {
   try {
-    const data = await loadData();
-    const activities = data.activityCache?.activities || [];
-    const calibration = engine.computeCalibrationFactor(activities, data.settings || {});
-    data.settings = { ...(data.settings || {}), sufferToTSSFactor: calibration.factor };
-    data.calibration = calibration;
-    await saveData(data);
+    const user = await getDefaultUser();
+    res.json(user.calibration || { factor: 1.0, count: 0, reliable: false });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/calibration/recompute', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    const activities = await getActivities(user.id);
+    const calibration = engine.computeCalibrationFactor(activities, user.settings || {});
+    await saveUserFields(user.id, {
+      settings:    { ...(user.settings || {}), sufferToTSSFactor: calibration.factor },
+      calibration: calibration,
+    });
     res.json(calibration);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1607,12 +1615,14 @@ app.get('/api/charts/data', async (req, res) => {
 
 app.get('/api/hevy/workouts', async (req, res) => {
   try {
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const existing = await getHevyWorkouts(userId);
+
     if (!process.env.HEVY_API_KEY) {
-      const data = await loadData();
-      return res.json(data.hevyWorkouts || []);
+      return res.json(existing);
     }
-    const data = await loadData();
-    const existing = data.hevyWorkouts || [];
+
     const cutoff = existing.length > 0
       ? existing.reduce((max, w) => (w.start_time > max ? w.start_time : max), existing[0].start_time)
       : null;
@@ -1640,18 +1650,12 @@ app.get('/api/hevy/workouts', async (req, res) => {
       page++;
     }
 
-    // Herlaad verse data direct voor de save om gelijktijdige writes naar
-    // activityCache (Strava webhook / sync-all) niet te overschrijven.
-    const freshData = await loadData();
-    const freshExisting = freshData.hevyWorkouts || [];
-    const freshIds = new Set(freshExisting.map(w => w.id));
-    const merged = [
-      ...fetched.filter(w => !freshIds.has(w.id)),
-      ...freshExisting,
-    ].sort((a, b) => b.start_time.localeCompare(a.start_time));
+    for (const w of fetched) {
+      await upsertHevyWorkout(userId, w);
+    }
 
-    freshData.hevyWorkouts = merged;
-    await saveData(freshData);
+    const merged = await getHevyWorkouts(userId);
+    merged.sort((a, b) => b.start_time.localeCompare(a.start_time));
     res.json(merged);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

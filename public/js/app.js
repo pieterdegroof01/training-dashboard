@@ -1295,7 +1295,7 @@ async function recalibrate() {
   const btn = document.getElementById('btnRecalibrate');
   btn.textContent = 'Bezig...'; btn.disabled = true;
   try {
-    const r = await api('/api/calibration');
+    const r = await api('/api/calibration/recompute', { method: 'POST' });
     renderCalibrationInfo(r);
   } catch(e) {
     document.getElementById('calibrationInfo').textContent = 'Mislukt: ' + e.message;

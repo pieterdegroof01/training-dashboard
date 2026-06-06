@@ -264,6 +264,17 @@ async function getHevyWorkouts(userId) {
   return rows.map(row => row.raw);
 }
 
+async function upsertHevyWorkout(userId, workout) {
+  await query(
+    `INSERT INTO hevy_workouts (user_id, hevy_id, start_date, raw)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, hevy_id) DO UPDATE SET
+       start_date = EXCLUDED.start_date,
+       raw        = EXCLUDED.raw`,
+    [userId, workout.id, workout.start_time || null, JSON.stringify(workout)]
+  );
+}
+
 async function getWeightMap(userId) {
   const { rows } = await query(
     'SELECT date, weight_kg FROM weights WHERE user_id = $1',
@@ -323,5 +334,5 @@ module.exports = {
   getActivities, upsertActivity, upsertActivityMMP,
   getWeights, upsertWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
-  upsertNutrition, upsertSleep,
+  upsertNutrition, upsertSleep, upsertHevyWorkout,
 };
