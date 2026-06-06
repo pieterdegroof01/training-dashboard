@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight } = require('./db');
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -1648,19 +1648,18 @@ app.post('/api/sleep', async (req, res) => {
   try {
     const { date, hours, quality } = req.body || {};
     if (!date || typeof hours !== 'number' || isNaN(hours)) return res.status(400).json({ error: 'date en hours vereist' });
-    const freshData = await loadData();
-    freshData.sleep = freshData.sleep || {};
-    freshData.sleep[date] = { hours: parseFloat(hours), quality: parseInt(quality) || 3, source: 'manual' };
-    await saveData(freshData);
+    const user = await getDefaultUser();
+    await upsertSleep(user.id, date, { hours, quality, source: 'manual' });
     res.json({ ok: true });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/sleep/today', async (req, res) => {
   try {
-    const data = await loadData();
+    const user = await getDefaultUser();
+    const sleep = await getSleep(user.id);
     const today = new Date().toISOString().split('T')[0];
-    res.json(data.sleep?.[today] || null);
+    res.json(sleep[today] || null);
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1866,14 +1865,17 @@ app.post('/api/weight/import', upload.single('csvfile'), async (req, res) => {
     const count = Object.keys(imported).length;
     if (count === 0) return res.status(400).json({ error: `Geen geldige metingen gevonden. ${weightImportErrorMsg(parsed)}` });
 
-    const data = await loadData();
-    const existing = data.weight || {};
-    data.weight = { ...imported, ...existing }; // bestaande handmatige invoer wint
-    await saveData(data);
+    const user = await getDefaultUser();
+    const existing = await getWeightMap(user.id);
+    for (const [date, wStr] of Object.entries(imported)) {
+      if (existing[date] != null) continue; // bestaande invoer wint, niet overschrijven
+      await upsertWeight(user.id, date, parseFloat(wStr), 'import');
+    }
 
     const sorted = Object.keys(imported).sort();
     const skipped = parsed.measureRowsFound - count;
-    res.json({ imported: count, skipped: Math.max(0, skipped), total: Object.keys(data.weight).length, oldest: sorted[0], newest: sorted[sorted.length - 1], unit: isLbs ? 'lbs omgezet naar kg' : 'kg' });
+    const totalAfter = Object.keys({ ...existing, ...imported }).length;
+    res.json({ imported: count, skipped: Math.max(0, skipped), total: totalAfter, oldest: sorted[0], newest: sorted[sorted.length - 1], unit: isLbs ? 'lbs omgezet naar kg' : 'kg' });
   } catch (err) { res.status(500).json({ error: 'Import mislukt: ' + err.message }); }
 });
 
@@ -2274,42 +2276,6 @@ app.post('/api/literature/upload', upload.single('file'), async (req, res) => {
     await saveUserFields(user.id, { literature });
     res.json(entry);
   } catch (err) { res.status(500).json({ error: 'Upload mislukt: ' + err.message }); }
-});
-
-app.post('/api/weight/upload-history', upload.single('csv'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'Geen bestand ontvangen' });
-
-    const parsed = parseWeightCsv(req.file.buffer);
-    if (parsed.error) return res.status(400).json({ error: parsed.error });
-
-    const { entries, isLbs } = parsed;
-    if (!entries.length) return res.status(400).json({ error: `Geen geldige gewichtsinvoeren gevonden. ${weightImportErrorMsg(parsed)}` });
-
-    const converted = entries.map(e => ({
-      date: e.date,
-      weight: isLbs ? Math.round(e.weight * 0.453592 * 10) / 10 : Math.round(e.weight * 10) / 10
-    }));
-
-    const data = await loadData();
-    const existing = data.weight || {};
-    let added = 0, skipped = 0;
-    converted.forEach(({ date, weight }) => {
-      if (existing[date]) { skipped++; } else { existing[date] = String(weight); added++; }
-    });
-    data.weight = existing;
-    await saveData(data);
-
-    const byDate = [...converted].sort((a, b) => a.date.localeCompare(b.date));
-    res.json({
-      ok: true, total: converted.length, added, skipped,
-      unit: isLbs ? 'lbs → omgezet naar kg' : 'kg',
-      eerste: byDate[0]?.date,
-      laatste: byDate[byDate.length - 1]?.date
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Upload mislukt: ' + err.message });
-  }
 });
 
 // ── Week availability ─────────────────────────────────────────────────────────

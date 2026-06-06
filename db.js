@@ -295,6 +295,21 @@ async function upsertNutrition(userId, date, obj) {
   );
 }
 
+async function upsertSleep(userId, date, obj) {
+  const hours   = obj.hours   != null ? parseFloat(obj.hours) || null : null;
+  const quality = obj.quality != null ? parseInt(obj.quality) || null : null;
+  const source  = obj.source || 'manual';
+  await query(
+    `INSERT INTO sleep (user_id, date, hours, quality, source)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id, date) DO UPDATE SET
+       hours   = EXCLUDED.hours,
+       quality = EXCLUDED.quality,
+       source  = EXCLUDED.source`,
+    [userId, date, hours, quality, source]
+  );
+}
+
 async function upsertActivityMMP(userId, stravaId, mmpEntry) {
   await query(
     'UPDATE activities SET mmp = $3 WHERE user_id = $1 AND strava_id = $2',
@@ -308,5 +323,5 @@ module.exports = {
   getActivities, upsertActivity, upsertActivityMMP,
   getWeights, upsertWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
-  upsertNutrition,
+  upsertNutrition, upsertSleep,
 };
