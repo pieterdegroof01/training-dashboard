@@ -8,9 +8,18 @@ const bcrypt = require('bcryptjs'); // bcryptjs i.p.v. bcrypt: pure-JS, geen nat
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
+const crypto = require('crypto');
 const engine = require('./engine');
 const { classifySession, classifySessionFromHR } = require('./engine');
 const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight } = require('./db');
+
+// ── Cache-busted index HTML ───────────────────────────────────────────────────
+const _fss = require('fs');
+const _styleHash = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'css', 'style.css'))).digest('hex').slice(0, 10);
+const _appHash   = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'js', 'app.js'))).digest('hex').slice(0, 10);
+const INDEX_HTML = _fss.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+  .replace(/\/css\/style\.css(\?[^"]*)?/g, `/css/style.css?v=${_styleHash}`)
+  .replace(/\/js\/app\.js(\?[^"]*)?/g,     `/js/app.js?v=${_appHash}`);
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -99,7 +108,7 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.type('html').send(INDEX_HTML);
 });
 app.use(express.static('public'));
 
@@ -2769,7 +2778,7 @@ app.post('/webhook/strava', (req, res) => {
   })();
 });
 
-app.get('/activity/:id', (req, res) => res.sendFile('index.html', { root: 'public' }));
+app.get('/activity/:id', (req, res) => res.type('html').send(INDEX_HTML));
 
 // ── Eenmalige migratie: data.json → Postgres ──────────────────────────────────
 app.post('/api/admin/migrate-to-postgres', async (req, res) => {
