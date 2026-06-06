@@ -2227,6 +2227,17 @@ app.post('/api/data', async (req, res) => {
     if (body.patterns  !== undefined) fields.patterns  = body.patterns;
     if (body.weekPlan  !== undefined) fields.week_plan = body.weekPlan;
     if (Object.keys(fields).length > 0) await saveUserFields(user.id, fields);
+
+    // Gewicht woont in de aparte weights-tabel, niet als JSONB op de user-rij.
+    // De frontend stuurt de volledige weight-map (datum -> waarde, waarden als string);
+    // upsert elke entry afzonderlijk. ON CONFLICT maakt dit idempotent.
+    if (body.weight !== undefined && body.weight && typeof body.weight === 'object') {
+      for (const [date, val] of Object.entries(body.weight)) {
+        const kg = parseFloat(val);
+        if (!isNaN(kg) && date) await upsertWeight(user.id, date, kg, 'manual');
+      }
+    }
+
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
