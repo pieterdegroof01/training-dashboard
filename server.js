@@ -1495,12 +1495,17 @@ app.get('/api/calibration', async (req, res) => {
 app.get('/api/charts/data', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 365;
-    const data = await loadData();
-    const activities = data.activityCache?.activities || [];
-    const settings = data.settings || {};
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const [activities, weightMap, nutrition] = await Promise.all([
+      getActivities(userId),
+      getWeightMap(userId),
+      getNutrition(userId),
+    ]);
+    const settings = user.settings || {};
     const cfg = { ftp: settings.ftp || 280, unreliablePowerStart: settings.unreliablePowerStart || '2020-01-01', unreliablePowerEnd: settings.unreliablePowerEnd || '2020-12-31', sufferToTSSFactor: settings.sufferToTSSFactor || 1.0 };
 
-    const weightSeries = Object.entries(data.weight || {})
+    const weightSeries = Object.entries(weightMap || {})
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, kg]) => ({ date, kg: parseFloat(kg) }));
 
@@ -1550,7 +1555,7 @@ app.get('/api/charts/data', async (req, res) => {
       .map(([wk, v]) => ({ week: wk, sessions: v.sessions, hours: Math.round(v.hours * 10) / 10, km: Math.round(v.km), gym: v.gym }));
 
     const nutrCutoff = new Date(); nutrCutoff.setDate(nutrCutoff.getDate() - 60);
-    const nutritionSeries = Object.entries(data.nutrition || {})
+    const nutritionSeries = Object.entries(nutrition || {})
       .filter(([d]) => new Date(d) >= nutrCutoff)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, v]) => ({ date, kcal: parseInt(v.kcal) || 0, protein: parseInt(v.protein) || 0, carbs: parseInt(v.carbs) || 0, fat: parseInt(v.fat) || 0 }))
