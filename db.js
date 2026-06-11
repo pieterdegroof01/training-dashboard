@@ -109,6 +109,55 @@ async function initSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_streams_user_cached ON activity_streams (user_id, cached_at);
+
+    CREATE TABLE IF NOT EXISTS training_prescriptions (
+      id                  BIGSERIAL PRIMARY KEY,
+      user_id             BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      prescribed_date     DATE NOT NULL,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+      plan_run_id         TEXT NOT NULL,
+      session_type        TEXT,
+      target_duration_min INTEGER,
+      target_tss          REAL,
+      target_if           REAL,
+      blocks              JSONB,
+      mesocycle           JSONB,
+      distribution_model  TEXT,
+      planner_params      JSONB,
+      rationale           TEXT,
+      status              TEXT NOT NULL DEFAULT 'active',
+      superseded_by       BIGINT
+    );
+    CREATE INDEX IF NOT EXISTS idx_presc_user_date   ON training_prescriptions (user_id, prescribed_date);
+    CREATE INDEX IF NOT EXISTS idx_presc_user_status ON training_prescriptions (user_id, status);
+
+    CREATE TABLE IF NOT EXISTS session_outcomes (
+      id                  BIGSERIAL PRIMARY KEY,
+      user_id             BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      prescription_id     BIGINT,
+      strava_id           BIGINT,
+      outcome_date        DATE NOT NULL,
+      match_type          TEXT NOT NULL,
+      match_confidence    REAL,
+      actual_duration_min INTEGER,
+      actual_tss          REAL,
+      actual_if           REAL,
+      actual_avg_power    REAL,
+      deltas              JSONB,
+      execution_quality   REAL,
+      pre_session_state   JSONB,
+      response_markers    JSONB,
+      reconciled_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_outcome_presc ON session_outcomes (user_id, prescription_id) WHERE prescription_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_outcome_act   ON session_outcomes (user_id, strava_id)       WHERE strava_id IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS athlete_model_params (
+      user_id     BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      params      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      sample_size INTEGER NOT NULL DEFAULT 0,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 }
 
@@ -361,6 +410,106 @@ async function upsertSleep(userId, date, obj) {
   );
 }
 
+async function insertPrescription(userId, p) {
+  const { rows } = await query(
+    `INSERT INTO training_prescriptions
+       (user_id, prescribed_date, plan_run_id, session_type, target_duration_min,
+        target_tss, target_if, blocks, mesocycle, distribution_model, planner_params, rationale)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     RETURNING id`,
+    [userId, p.prescribed_date, p.plan_run_id, p.session_type || null,
+     p.target_duration_min ?? null, p.target_tss ?? null, p.target_if ?? null,
+     p.blocks != null ? JSON.stringify(p.blocks) : null,
+     p.mesocycle != null ? JSON.stringify(p.mesocycle) : null,
+     p.distribution_model || null,
+     p.planner_params != null ? JSON.stringify(p.planner_params) : null,
+     p.rationale || null]
+  );
+  return rows[0].id;
+}
+
+async function supersedePrescription(oldId, newId) {
+  await query(
+    `UPDATE training_prescriptions SET status = 'superseded', superseded_by = $2 WHERE id = $1`,
+    [oldId, newId]
+  );
+}
+
+async function getActivePrescriptions(userId, fromDate, toDate) {
+  const { rows } = await query(
+    `SELECT * FROM training_prescriptions
+     WHERE user_id = $1 AND status = 'active' AND prescribed_date BETWEEN $2 AND $3
+     ORDER BY prescribed_date ASC`,
+    [userId, fromDate, toDate]
+  );
+  return rows;
+}
+
+async function upsertSessionOutcome(userId, o) {
+  const vals = [
+    userId, o.prescription_id ?? null, o.strava_id ?? null, o.outcome_date,
+    o.match_type, o.match_confidence ?? null, o.actual_duration_min ?? null,
+    o.actual_tss ?? null, o.actual_if ?? null, o.actual_avg_power ?? null,
+    o.deltas != null ? JSON.stringify(o.deltas) : null,
+    o.execution_quality ?? null,
+    o.pre_session_state != null ? JSON.stringify(o.pre_session_state) : null,
+    o.response_markers != null ? JSON.stringify(o.response_markers) : null,
+  ];
+  const insertCols = `(user_id, prescription_id, strava_id, outcome_date, match_type,
+    match_confidence, actual_duration_min, actual_tss, actual_if, actual_avg_power,
+    deltas, execution_quality, pre_session_state, response_markers)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`;
+  const updateBody = `
+    outcome_date = EXCLUDED.outcome_date,
+    match_type = EXCLUDED.match_type,
+    match_confidence = EXCLUDED.match_confidence,
+    actual_duration_min = EXCLUDED.actual_duration_min,
+    actual_tss = EXCLUDED.actual_tss,
+    actual_if = EXCLUDED.actual_if,
+    actual_avg_power = EXCLUDED.actual_avg_power,
+    deltas = EXCLUDED.deltas,
+    execution_quality = EXCLUDED.execution_quality,
+    pre_session_state = EXCLUDED.pre_session_state,
+    response_markers = EXCLUDED.response_markers,
+    reconciled_at = now()`;
+  if (o.prescription_id != null) {
+    await query(
+      `INSERT INTO session_outcomes ${insertCols}
+       ON CONFLICT (user_id, prescription_id) WHERE prescription_id IS NOT NULL
+       DO UPDATE SET strava_id = EXCLUDED.strava_id, ${updateBody}`,
+      vals
+    );
+  } else {
+    await query(
+      `INSERT INTO session_outcomes ${insertCols}
+       ON CONFLICT (user_id, strava_id) WHERE strava_id IS NOT NULL
+       DO UPDATE SET prescription_id = EXCLUDED.prescription_id, ${updateBody}`,
+      vals
+    );
+  }
+}
+
+async function getLearnedParams(userId) {
+  const { rows } = await query(
+    `SELECT params, sample_size FROM athlete_model_params WHERE user_id = $1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+async function getOutcomeHistory(userId, sessionType = null) {
+  const { rows } = await query(
+    `SELECT o.*, p.session_type AS presc_session_type, p.target_tss AS presc_target_tss,
+            p.target_if AS presc_target_if, p.distribution_model, p.mesocycle, p.planner_params
+     FROM session_outcomes o
+     LEFT JOIN training_prescriptions p ON p.id = o.prescription_id
+     WHERE o.user_id = $1 AND ($2::text IS NULL OR p.session_type = $2)
+     ORDER BY o.outcome_date ASC`,
+    [userId, sessionType]
+  );
+  return rows;
+}
+
 async function upsertActivityMMP(userId, stravaId, mmpEntry) {
   await query(
     'UPDATE activities SET mmp = $3 WHERE user_id = $1 AND strava_id = $2',
@@ -376,4 +525,6 @@ module.exports = {
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
   upsertNutrition, upsertSleep, upsertHevyWorkout,
   getActivityStream, upsertActivityStream,
+  insertPrescription, supersedePrescription, getActivePrescriptions,
+  upsertSessionOutcome, getLearnedParams, getOutcomeHistory,
 };
