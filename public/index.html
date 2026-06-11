@@ -476,6 +476,17 @@
     <div class="card">
       <div class="card-label">Doelen</div>
       <div class="form-grid">
+        <div class="fg full"><label>Trainingsdoel (bepaalt het schema)</label>
+          <select id="gMode">
+            <option value="auto">Automatisch (op basis van data)</option>
+            <option value="event">Piek op datum (event)</option>
+            <option value="base">Aerobe basis opbouwen</option>
+            <option value="ftp">FTP / drempel verbeteren</option>
+            <option value="vo2max">VO2max verbeteren</option>
+            <option value="fatloss">Vetverlies met behoud vermogen</option>
+            <option value="maintenance">Onderhoud (weinig tijd)</option>
+          </select>
+        </div>
         <div class="fg full"><label>Primair doel</label><input type="text" id="gPrimary" placeholder="Lichaamscompositie verbeteren, cut naar 90kg"></div>
         <div class="fg"><label>Doelgewicht (kg)</label><input type="text" id="gWeight" placeholder="90-92"></div>
         <div class="fg"><label>Tijdlijn</label><input type="text" id="gTimeline" placeholder="Voor september"></div>

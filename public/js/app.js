@@ -84,6 +84,7 @@ async function loadUserData() {
     // Fill forms
     const g = S.data.goals||{};
     document.getElementById('gPrimary').value = g.primary||'';
+    document.getElementById('gMode').value = g.mode || 'auto';
     document.getElementById('gWeight').value = g.weightTarget||'90-92';
     document.getElementById('gTimeline').value = g.timeline||'';
     document.getElementById('gNotes').value = g.notes||'';
@@ -1235,7 +1236,7 @@ async function saveManualNutr() {
 }
 
 async function saveGoals() {
-  const goals = { primary:document.getElementById('gPrimary').value, weightTarget:document.getElementById('gWeight').value, timeline:document.getElementById('gTimeline').value, notes:document.getElementById('gNotes').value };
+  const goals = { mode:document.getElementById('gMode').value, primary:document.getElementById('gPrimary').value, weightTarget:document.getElementById('gWeight').value, timeline:document.getElementById('gTimeline').value, notes:document.getElementById('gNotes').value };
   await saveDataPartial({ goals });
   if (goals.weightTarget) document.getElementById('sWeightSub').textContent = `doel: ${goals.weightTarget}kg`;
   const b = document.getElementById('btnGoals');
