@@ -288,38 +288,12 @@ function buildPlan(input, params) {
   }
   const isRecoveryWeek = mesocycleWeek === cadence;
 
-  // 6. weeklyTSSTarget
-  let weeklyTSSTarget;
+  // 5.5. hitType vooraf bepalen — nodig voor distributie-gewogen cap (FIX 1)
+  const hitType = isRecoveryWeek ? null : resolveHitType(mode, phase);
+  const hitMinZone = hitType === 'vo2max' ? 5 : 4;
+
+  // 7 (verplaatst vóór 6). Distributie (FIX 1)
   const profile = GOAL_PROFILES[mode];
-  const rampEff = Math.min(rampCap, rampCap * profile.rampMultiplier);
-
-  if (isRecoveryWeek) {
-    weeklyTSSTarget = Math.round(ctl * 7 * 0.55);
-  } else if (mode === 'maintenance') {
-    weeklyTSSTarget = Math.round(ctl * 7);
-  } else if (mode === 'event' && weeksToEvent !== null) {
-    if      (phase === 'taper')     weeklyTSSTarget = Math.round(ctl * 7 * 0.5);
-    else if (phase === 'race_week') weeklyTSSTarget = Math.round(ctl * 7 * 0.3);
-    else {
-      const r = phase === 'peak' ? rampEff * 0.6 : rampEff;
-      weeklyTSSTarget = Math.round((ctl + r) * 7);
-    }
-  } else {
-    weeklyTSSTarget = Math.round((ctl + rampEff) * 7);
-    if (mode === 'fatloss') weeklyTSSTarget = Math.round(weeklyTSSTarget * (profile.deficitVolumeFactor || 1));
-  }
-
-  weeklyTSSTarget = Math.max(50, weeklyTSSTarget);
-
-  // Cap op haalbaar maximum
-  const maxFeasible = sortedDays.reduce((s, d) => {
-    const z = 'Z' + Math.min(d.maxZone, 4);
-    const ifv = ZONE_IF[z];
-    return s + (d.maxDuration / 60) * ifv * ifv * 100;
-  }, 0);
-  weeklyTSSTarget = Math.min(weeklyTSSTarget, Math.round(maxFeasible));
-
-  // 7. Distributie
   let distribution;
   if (isRecoveryWeek) {
     distribution = { low: 1, mid: 0, high: 0 };
@@ -343,9 +317,42 @@ function buildPlan(input, params) {
     }
   }
 
+  // 6. weeklyTSSAim (CTL-ramp) + distributie-gewogen maxFeasible + weeklyTSSTarget (FIX 1)
+  const rampEff = Math.min(rampCap, rampCap * profile.rampMultiplier);
+  let weeklyTSSAim;
+
+  if (isRecoveryWeek) {
+    weeklyTSSAim = Math.round(ctl * 7 * 0.55);
+  } else if (mode === 'maintenance') {
+    weeklyTSSAim = Math.round(ctl * 7);
+  } else if (mode === 'event' && weeksToEvent !== null) {
+    if      (phase === 'taper')     weeklyTSSAim = Math.round(ctl * 7 * 0.5);
+    else if (phase === 'race_week') weeklyTSSAim = Math.round(ctl * 7 * 0.3);
+    else {
+      const r = phase === 'peak' ? rampEff * 0.6 : rampEff;
+      weeklyTSSAim = Math.round((ctl + r) * 7);
+    }
+  } else {
+    weeklyTSSAim = Math.round((ctl + rampEff) * 7);
+    if (mode === 'fatloss') weeklyTSSAim = Math.round(weeklyTSSAim * (profile.deficitVolumeFactor || 1));
+  }
+  weeklyTSSAim = Math.max(50, weeklyTSSAim);
+
+  const bandIF = {
+    low:  ZONE_IF.Z2,
+    mid:  ZONE_IF.SS,
+    high: hitType === 'vo2max' ? ZONE_IF.Z5 : ZONE_IF.Z4,
+  };
+  const effIF2 = distribution.low * bandIF.low ** 2
+               + distribution.mid * bandIF.mid ** 2
+               + distribution.high * bandIF.high ** 2;
+  const totalHours = sortedDays.reduce((s, d) => s + d.maxDuration, 0) / 60;
+  const maxFeasible = Math.round(totalHours * effIF2 * 100);
+
+  let weeklyTSSTarget = Math.max(50, Math.min(weeklyTSSAim, maxFeasible));
+  const volumeLimited = weeklyTSSAim > maxFeasible;
+
   // 8a. HIT-dagen
-  const hitType = isRecoveryWeek ? null : resolveHitType(mode, phase);
-  const hitMinZone = hitType === 'vo2max' ? 5 : 4;
   const minDaysBetweenHIT = (minHoursBetweenHit || 48) / 24;
   let hitCount = 0;
 
@@ -380,8 +387,8 @@ function buildPlan(input, params) {
 
   if (longestDay) {
     dayAssignment[longestDay.date] = 'endurance';
-    const cap = Math.round((longestDay.maxDuration / 60) * ZONE_IF['Z2'] ** 2 * 100);
-    dayTargetTSS[longestDay.date] = Math.min(longestDayTSS, cap);
+    const capZ2 = Math.round((longestDay.maxDuration / 60) * ZONE_IF['Z2'] ** 2 * 100);
+    dayTargetTSS[longestDay.date] = Math.min(longestDayTSS, capZ2);
   }
 
   for (const d of hitDays) {
@@ -392,12 +399,28 @@ function buildPlan(input, params) {
     dayTargetTSS[d.date] = Math.max(20, tss);
   }
 
-  for (const d of otherNonHit) {
-    const useSS = distribution.mid > 0.20 && d.maxZone >= 4;
-    const sType = d.maxZone <= 2 ? 'endurance' : (useSS ? 'sweetspot' : 'endurance');
+  // FIX 2: minuten-gestuurd mid-budget voor otherNonHit
+  const sortedOtherNonHit = [...otherNonHit].sort((a, b) => {
+    if (b.maxZone !== a.maxZone) return b.maxZone - a.maxZone;
+    return b.maxDuration - a.maxDuration;
+  });
+  const totalOtherMin = otherNonHit.reduce((s, d) => s + d.maxDuration, 0);
+  let midBudgetMin = Math.round(totalOtherMin * distribution.mid);
+  let midUsedMin = 0;
+
+  for (const d of sortedOtherNonHit) {
+    let sType;
+    if (d.maxZone <= 2) {
+      sType = 'endurance';
+    } else if (midUsedMin < midBudgetMin) {
+      sType = d.maxZone >= 4 ? 'sweetspot' : 'tempo';
+      midUsedMin += d.maxDuration;
+    } else {
+      sType = 'endurance';
+    }
     dayAssignment[d.date] = sType;
     const prop = d.maxDuration / totalOtherDur;
-    const tssIfKey = sType === 'sweetspot' ? 'SS' : 'Z2';
+    const tssIfKey = sType === 'sweetspot' ? 'SS' : sType === 'tempo' ? 'Z3' : 'Z2';
     const ifv = ZONE_IF[tssIfKey];
     const feasible = Math.round((d.maxDuration / 60) * ifv * ifv * 100);
     const tss = Math.min(Math.round(remainingTSS * prop), feasible, Math.round(weeklyTSSTarget * 0.20));
@@ -431,21 +454,35 @@ function buildPlan(input, params) {
     });
   }
 
-  // tidMinutes uit daadwerkelijk gebouwde sessies
-  const tidMinutes = { low: 0, mid: 0, high: 0, total: 0 };
-  for (const daySessions of Object.values(sessions)) {
-    for (const s of daySessions) {
-      for (const b of s.blokken) {
-        const n = b.herhalingen || 1;
-        addZoneTime(tidMinutes, b.zone, b.duration * n);
-        if (b.herstelBlok) addZoneTime(tidMinutes, b.herstelBlok.zone, b.herstelBlok.duration * n);
+  // FIX 3: reconcilieer weeklyTSSTarget en tidMinutes met de werkelijk gebouwde sessies.
+  // Sweet spot werkblokken (zone='Z4', sessie='sweetspot') tellen als mid, niet als high.
+  let sumTSS = 0;
+  const tidMinutes = { low: 0, mid: 0, high: 0 };
+
+  for (const p of prescriptions) {
+    sumTSS += p.target_tss;
+    const isSweetspot = p.session_type === 'sweetspot';
+    for (const b of p.blocks) {
+      const n = b.herhalingen || 1;
+      const isSweetspotWork = isSweetspot && b.type === 'work' && b.zone === 'Z4';
+      const cat = isSweetspotWork ? 'mid'
+        : (b.zone === 'Z1' || b.zone === 'Z2') ? 'low'
+        : b.zone === 'Z3' ? 'mid' : 'high';
+      tidMinutes[cat] += b.duration * n;
+      if (b.herstelBlok) {
+        const hCat = (b.herstelBlok.zone === 'Z1' || b.herstelBlok.zone === 'Z2') ? 'low'
+          : b.herstelBlok.zone === 'Z3' ? 'mid' : 'high';
+        tidMinutes[hCat] += b.herstelBlok.duration * n;
       }
     }
   }
+  tidMinutes.total = tidMinutes.low + tidMinutes.mid + tidMinutes.high;
+  weeklyTSSTarget = Math.round(sumTSS);
 
   const skeleton = {
     mode, phase, mesocycleWeek, isRecoveryWeek, weeksToEvent,
-    weeklyTSSTarget, distributionModel, distribution, tidMinutes,
+    weeklyTSSAim, weeklyTSSTarget, volumeLimited,
+    distributionModel, distribution, tidMinutes,
     eventDate:  goals.eventDate  || null,
     eventName:  goals.eventName  || null,
     rationale:  buildRationale(null, mode, phase, isRecoveryWeek, ctl),
@@ -472,76 +509,81 @@ if (require.main === module) {
     distributionPyramidalMinHours: 5,
   };
 
-  // Test 1: basismodus, intermediate atleet, 5 dagen
+  // FIX 4: consistentiecheck per testcase
+  function runTest(label, plan, availDays) {
+    const sk = plan.skeleton;
+    const sumPrescribed = plan.prescriptions.reduce((s, p) => s + p.target_tss, 0);
+    const deviation = sk.weeklyTSSTarget > 0
+      ? Math.abs(sumPrescribed - sk.weeklyTSSTarget) / sk.weeklyTSSTarget
+      : 0;
+    const tssOk = deviation <= 0.05;
+
+    const hasMidSession = plan.prescriptions.some(p => p.session_type === 'sweetspot' || p.session_type === 'tempo');
+    const midEligible = sk.distribution.mid > 0.10 && availDays.some(d => d.maxZone >= 3);
+    const midOk = !midEligible || hasMidSession;
+
+    const verdict = (tssOk && midOk) ? 'CONSISTENT'
+      : 'INCONSISTENT' + (!tssOk ? ` — TSS-afwijking ${(deviation * 100).toFixed(1)}%` : '')
+                       + (!midOk ? ' — ontbrekende mid-sessie' : '');
+
+    console.log(`\n=== ${label} ===`);
+    console.log(`weeklyTSSAim=${sk.weeklyTSSAim} weeklyTSSTarget=${sk.weeklyTSSTarget} volumeLimited=${sk.volumeLimited}`);
+    console.log(`sumPrescribed=${sumPrescribed} afwijking=${(deviation * 100).toFixed(1)}%`);
+    console.log(`dist low=${sk.distribution.low.toFixed(2)} mid=${sk.distribution.mid.toFixed(2)} high=${sk.distribution.high.toFixed(2)}`);
+    console.log(`tidMinutes low=${sk.tidMinutes.low} mid=${sk.tidMinutes.mid} high=${sk.tidMinutes.high} total=${sk.tidMinutes.total}`);
+    console.log(verdict);
+    plan.prescriptions.forEach(p => {
+      console.log(`  ${p.prescribed_date} ${p.session_type.padEnd(12)} TSS=${p.target_tss} dur=${p.target_duration_min}min IF=${p.target_if} — ${p.rationale}`);
+    });
+  }
+
+  // Test 1: basismodus, intermediate atleet, 5 dagen (base → geen HIT, weinig mid)
+  const ad1 = [
+    { date: '2026-06-15', maxDuration: 60,  maxZone: 5 },
+    { date: '2026-06-16', maxDuration: 45,  maxZone: 3 },
+    { date: '2026-06-17', maxDuration: 120, maxZone: 5 },
+    { date: '2026-06-18', maxDuration: 90,  maxZone: 4 },
+    { date: '2026-06-20', maxDuration: 60,  maxZone: 5 },
+  ];
   const plan1 = buildPlan({
-    goals:         { mode: 'base' },
-    metrics:       { ctl: 55, atl: 58, tsb: -3, acwr: 1.05 },
-    currentWeight: 78,
-    ftp:           280,
-    settings:      { age: 35 },
-    availDays: [
-      { date: '2026-06-15', maxDuration: 60,  maxZone: 5 },
-      { date: '2026-06-16', maxDuration: 45,  maxZone: 3 },
-      { date: '2026-06-17', maxDuration: 120, maxZone: 5 },
-      { date: '2026-06-18', maxDuration: 90,  maxZone: 4 },
-      { date: '2026-06-20', maxDuration: 60,  maxZone: 5 },
-    ],
+    goals: { mode: 'base' }, metrics: { ctl: 55, atl: 58, tsb: -3, acwr: 1.05 },
+    currentWeight: 78, ftp: 280, settings: { age: 35 }, availDays: ad1,
   }, defaultParams);
+  runTest('TEST 1: base, CTL 55, 5 dagen', plan1, ad1);
 
-  console.log('\n=== TEST 1: base, CTL 55, 5 dagen ===');
-  console.log('skeleton:', JSON.stringify(plan1.skeleton, null, 2));
-  console.log('\nprescriptions:');
-  plan1.prescriptions.forEach(p => {
-    console.log(`  ${p.prescribed_date} ${p.session_type.padEnd(12)} TSS=${p.target_tss} dur=${p.target_duration_min}min IF=${p.target_if} — ${p.rationale}`);
-  });
-
-  // Test 2: event-modus, 6 weken tot wedstrijd
+  // Test 2: event-modus, 7 weken tot wedstrijd (build fase, threshold HIT)
+  const ad2 = [
+    { date: '2026-06-16', maxDuration: 75,  maxZone: 5 },
+    { date: '2026-06-17', maxDuration: 150, maxZone: 5 },
+    { date: '2026-06-18', maxDuration: 60,  maxZone: 3 },
+    { date: '2026-06-19', maxDuration: 75,  maxZone: 5 },
+    { date: '2026-06-21', maxDuration: 90,  maxZone: 5 },
+  ];
   const plan2 = buildPlan({
-    goals:         { mode: 'event', eventDate: '2026-07-28', eventName: 'Gran Fondo Limburg' },
-    metrics:       { ctl: 72, atl: 68, tsb: 4, acwr: 0.94 },
-    currentWeight: 75,
-    ftp:           300,
-    settings:      { age: 42 },
-    availDays: [
-      { date: '2026-06-16', maxDuration: 75,  maxZone: 5 },
-      { date: '2026-06-17', maxDuration: 150, maxZone: 5 },
-      { date: '2026-06-18', maxDuration: 60,  maxZone: 3 },
-      { date: '2026-06-19', maxDuration: 75,  maxZone: 5 },
-      { date: '2026-06-21', maxDuration: 90,  maxZone: 5 },
-    ],
+    goals: { mode: 'event', eventDate: '2026-07-28', eventName: 'Gran Fondo Limburg' },
+    metrics: { ctl: 72, atl: 68, tsb: 4, acwr: 0.94 },
+    currentWeight: 75, ftp: 300, settings: { age: 42 }, availDays: ad2,
   }, defaultParams);
-
-  console.log('\n=== TEST 2: event (6 wk), CTL 72, FTP 300 ===');
-  console.log('skeleton:', JSON.stringify(plan2.skeleton, null, 2));
-  console.log('\nprescriptions:');
-  plan2.prescriptions.forEach(p => {
-    console.log(`  ${p.prescribed_date} ${p.session_type.padEnd(12)} TSS=${p.target_tss} dur=${p.target_duration_min}min IF=${p.target_if}`);
+  runTest('TEST 2: event (7 wk, build), CTL 72, FTP 300', plan2, ad2);
+  // Toon blokken van de HIT-sessie
+  plan2.prescriptions.filter(p => ['threshold','vo2max'].includes(p.session_type)).forEach(p => {
+    console.log(`  → blokken ${p.prescribed_date} (${p.session_type}):`);
     p.blocks.forEach(b => {
       const reps = b.herhalingen ? ` ×${b.herhalingen}` : '';
-      const rec  = b.herstelBlok ? ` + ${b.herstelBlok.duration}min ${b.herstelBlok.zone} herstel` : '';
+      const rec  = b.herstelBlok ? ` + ${b.herstelBlok.duration}min ${b.herstelBlok.zone}` : '';
       console.log(`    [${b.type}] ${b.zone} ${b.duration}min${reps}${rec} ${b.wattMin}-${b.wattMax}W`);
     });
   });
 
-  // Test 3: herstelweek
+  // Test 3: ftp-modus, masters (51), cadence 3
+  const ad3 = [
+    { date: '2026-06-15', maxDuration: 60,  maxZone: 4 },
+    { date: '2026-06-17', maxDuration: 75,  maxZone: 5 },
+    { date: '2026-06-19', maxDuration: 90,  maxZone: 5 },
+  ];
   const plan3 = buildPlan({
-    goals:         { mode: 'ftp' },
-    metrics:       { ctl: 60, atl: 65, tsb: -5, acwr: 1.08 },
-    currentWeight: 80,
-    ftp:           260,
-    settings:      { age: 51 },
-    availDays: [
-      { date: '2026-06-15', maxDuration: 60,  maxZone: 4 },
-      { date: '2026-06-17', maxDuration: 75,  maxZone: 5 },
-      { date: '2026-06-19', maxDuration: 90,  maxZone: 5 },
-    ],
+    goals: { mode: 'ftp' }, metrics: { ctl: 60, atl: 65, tsb: -5, acwr: 1.08 },
+    currentWeight: 80, ftp: 260, settings: { age: 51 }, availDays: ad3,
   }, { ...defaultParams, loadWeeksBeforeRecovery: 2 });
-
-  console.log('\n=== TEST 3: ftp, masters (51), cadence 3 ===');
-  console.log('skeleton.mesocycleWeek:', plan3.skeleton.mesocycleWeek, 'isRecovery:', plan3.skeleton.isRecoveryWeek);
-  console.log('weeklyTSSTarget:', plan3.skeleton.weeklyTSSTarget);
-  console.log('distribution:', plan3.skeleton.distribution);
-  plan3.prescriptions.forEach(p => {
-    console.log(`  ${p.prescribed_date} ${p.session_type.padEnd(12)} TSS=${p.target_tss} dur=${p.target_duration_min}min`);
-  });
+  runTest('TEST 3: ftp, masters (51), cadence 3', plan3, ad3);
 }
