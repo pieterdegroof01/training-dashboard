@@ -2325,6 +2325,53 @@ app.post('/api/week-availability', async (req, res) => {
 
 // ── AI Insights (cached per page) ────────────────────────────────────────────
 
+const PLAN_PREAMBLE = 'Onder PLAN krijg je het deterministisch berekende trainingsplan voor vandaag en deze week. Dat plan is leidend: herbereken het niet, spreek het niet tegen en verzin geen andere sessie of andere getallen. Vertaal vanuit je paginafocus uitsluitend het relevante deel ervan naar concreet advies, en verwijs expliciet naar de voorgeschreven sessie van vandaag waar dat past.';
+
+const PLAN_PAGE_TASKS = {
+  voeding:      'Richt je advies primair op de voorgeschreven sessie van vandaag uit het PLAN: hoeveel koolhydraten ervoor, of er tijdens de sessie bijgevoed moet worden (bij hoge TSS of lange duur), en herstel (eiwit plus koolhydraten) erna, afgestemd op de duur en intensiteit van die sessie. Houd de bredere macro-analyse kort.',
+  activiteiten: 'Benoem expliciet welke van de recente activiteiten het dichtst bij de voorgeschreven sessie van vandaag uit het PLAN liggen qua duur, intensiteit en zoneverdeling, en wat die historie zegt over hoe de atleet die sessie waarschijnlijk uitvoert.',
+  integratie:   'Betrek de voorgeschreven sessie van vandaag uit het PLAN in de geïntegreerde analyse: hoe past die bij de actuele kracht- en voedingsstaat en het herstel.',
+  week:         'Gebruik het week-skelet uit het PLAN (doelmodus, fase, weekdoel-TSS, verdeling) als kader voor je weekanalyse, in plaats van een eigen weekstructuur te bedenken.',
+  weekplanning: 'Plan de PPL-gymsessies rond de voorgeschreven fietssessies uit het PLAN: vermijd Legs op de dag vóór een zware fietssessie (threshold, VO2max of de lange rit) en benoem concreet welke gymdag je waarheen zou schuiven gezien die sessies.',
+  voorspelling: 'Laat je prognose aansluiten op de doelmodus en fase uit het PLAN.',
+};
+
+function summarizeBlokken(blokken) {
+  if (!Array.isArray(blokken) || !blokken.length) return '';
+  return blokken.map(b => {
+    const reps = b.herhalingen && b.herhalingen > 1 ? `${b.herhalingen}×` : '';
+    const w = (b.wattMin != null && b.wattMax != null) ? ` @${b.wattMin}-${b.wattMax}W` : '';
+    let s = `${reps}${b.duration}min ${b.zone}${w}`;
+    if (b.herstelBlok) s += ` (herstel ${b.herstelBlok.duration}min ${b.herstelBlok.zone})`;
+    return s;
+  }).join(', ');
+}
+
+function buildPrescriptionBlock(weekPlan, planSkeleton, todayStr) {
+  const sk = planSkeleton || {};
+  const todaySessions = (weekPlan[todayStr] || []).filter(s => s.type === 'cycling' && !s.unplanned);
+  const lines = [];
+  if (sk.weeklyTSSTarget) {
+    const rd = sk.realizedDistribution || sk.distribution || {};
+    const pct = v => (v != null ? Math.round(v * 100) : '–');
+    const rec = sk.isRecoveryWeek ? ', HERSTELWEEK' : '';
+    lines.push(`Week: doelmodus ${sk.mode || '–'}, fase ${sk.phase || '–'}, mesocycle week ${sk.mesocycleWeek || '–'}${rec}, weekdoel ${sk.weeklyTSSTarget} TSS, verdeling ${sk.distributionModel || '–'} (laag ${pct(rd.low)}% / mid ${pct(rd.mid)}% / hoog ${pct(rd.high)}%).`);
+  }
+  if (todaySessions.length) {
+    todaySessions.forEach(s => {
+      const dur = s.duration || s.duur_min || '–';
+      const tss = s.targetTSS || s.tss || '–';
+      const bl  = summarizeBlokken(s.blokken);
+      lines.push(`Vandaag (${todayStr}): ${s.title || s.titel || 'Fietssessie'} — ${dur}min, doel ${tss} TSS${bl ? `. Blokken: ${bl}` : ''}.`);
+    });
+  } else {
+    lines.push(`Vandaag (${todayStr}): geen fietssessie gepland (rustdag).`);
+  }
+  const active = !!(sk.weeklyTSSTarget || todaySessions.length);
+  const seed = `${sk.weeklyTSSTarget || ''}|${sk.phase || ''}|${todaySessions.map(s => `${s.title || s.titel}:${s.targetTSS || s.tss}`).join(',')}`;
+  return { active, text: 'PLAN (deterministisch berekend, leidend):\n' + lines.join('\n'), seed };
+}
+
 app.post('/api/insights/:page', async (req, res) => {
   try {
     const { page } = req.params;
@@ -2345,6 +2392,7 @@ app.post('/api/insights/:page', async (req, res) => {
       weekAvailability: user.week_availability || {},
       calibration:      user.calibration       || { factor: 1.0, count: 0, reliable: false },
       literature:       user.literature        || [],
+      planSkeleton:     user.plan_skeleton     || {},
       nutrition,
       weight,
       hevyWorkouts:     hevyWkts,
@@ -2521,6 +2569,18 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
     }
     else {
       return res.status(400).json({ error: 'Onbekende pagina: ' + page });
+    }
+
+    // ── Gedeelde plan-context: injecteer het deterministische plan als vaste input ──
+    const PLAN_INJECT_PAGES = new Set(['integratie', 'activiteiten', 'voeding', 'week', 'weekplanning', 'trends', 'voorspelling']);
+    if (PLAN_INJECT_PAGES.has(page)) {
+      const planInfo = buildPrescriptionBlock(weekPlan, data.planSkeleton, todayStr);
+      if (planInfo.active) {
+        context      = planInfo.text + '\n\n' + context;
+        systemPrompt = PLAN_PREAMBLE + '\n' + systemPrompt + (PLAN_PAGE_TASKS[page] ? '\n' + PLAN_PAGE_TASKS[page] : '');
+        dataForHash += '|plan:' + planInfo.seed;
+        maxTokens    = Math.max(maxTokens, 220);
+      }
     }
 
     // Cache check
