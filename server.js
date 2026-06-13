@@ -2416,6 +2416,8 @@ app.post('/api/insights/:page', async (req, res) => {
 
     const m  = fullState?.enduranceMetrics || fullState?.metrics || {};
     const sm = fullState?.strengthMetrics;
+    const canonicalWeight       = fullState?.currentWeight ?? recentWt[0]?.[1];
+    const canonicalWeightTarget = data.goals?.weightTarget || '90-92';
 
     let systemPrompt = 'Je bent een persoonlijke sport- en voedingscoach die evidence-based, gepersonaliseerd advies geeft in het Nederlands. Wees concreet, bondig en bruikbaar.';
     let context = '';
@@ -2449,7 +2451,7 @@ app.post('/api/insights/:page', async (req, res) => {
           },
           e1RMTrends: (fullState.strengthMetrics.e1RMTrends || []).slice(0,5).map(e => ({ exercise: e.exercise, recent: e.sessions?.slice(-2).map(s => ({ date: s.date, e1rm: s.e1rm })) || [] }))
         } : null,
-        gewicht: { huidig: weight[todayStr] || recentWt[0]?.[1] || null, doel: data.goals?.weightTarget || null },
+        gewicht: { huidig: canonicalWeight ?? null, doel: canonicalWeightTarget },
         primairDoel: data.goals?.primary || null,
         weekplan: { vandaag: weekPlan[todayStr] || [], morgen: weekPlan[tomorrowStr] || [], overmorgen: weekPlan[dayAfterStr] || [] },
         recenteActiviteiten: recentActs.slice(0,3).map(a => ({ naam: a.name, type: a.type, datum: a.start_date?.split('T')[0], duur_min: Math.round((a.moving_time||0)/60), avg_watts: a.average_watts ? Math.round(a.average_watts) : null, tss: a.suffer_score || null })),
@@ -2474,7 +2476,7 @@ De kop en kopAccent vormen samen een lopende zin: kop gevolgd door kopAccent. Vo
 Duurtraining: ATL ${m.atl||'–'}, CTL ${m.ctl||'–'}, TSB ${m.tsb||'–'}, ACWR ${m.acwr||'–'}
 Kracht (Hevy): ${sm?`${sm.daysSinceLastSession} dagen geleden, weekbelasting ${sm.weeklyLoad}`:'geen data'}
 Voeding vandaag: ${nutrition[todayStr]?`${nutrition[todayStr].kcal||'–'} kcal, ${nutrition[todayStr].protein||'–'}g eiwit, ${nutrition[todayStr].carbs||'–'}g koolhydraten`:'niet gelogd'}
-Gewicht: ${weight[todayStr]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Gewicht: ${canonicalWeight||'–'} kg | Doel: ${canonicalWeightTarget} kg
 Doel: ${data.goals?.primary||'–'}
 Maaltijdtijden weekdag: ${JSON.stringify(mealTimings.weekday)}`;
       maxTokens = 400;
@@ -2495,7 +2497,7 @@ FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W | Doel: ${data.goals?.prim
       const avgKcal = n7.length ? Math.round(n7.reduce((s,[,v])=>s+(v.kcal||0),0)/n7.length) : '–';
       const avgProt = n7.length ? Math.round(n7.reduce((s,[,v])=>s+(v.protein||0),0)/n7.length) : '–';
       context = `Voeding laatste 7 dagen:\n${nutrLines}\nGemiddeld: ${avgKcal} kcal/dag, ${avgProt}g eiwit/dag
-Huidig gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Huidig gewicht: ${canonicalWeight||'–'} kg | Doel: ${canonicalWeightTarget} kg
 Maaltijdtijden: ontbijt ${mealTimings.weekday.breakfast}, lunch ${mealTimings.weekday.lunch}, diner ${mealTimings.weekday.dinner}
 CTL (activiteitenniveau): ${m.ctl||'–'}`;
       systemPrompt += ' Analyseer de voeding van de afgelopen week: eiwitinname vs. lichaamsgewicht, caloriebalans tov het doel, en geef concrete aanbevelingen voor timing en macroverdeling. Antwoord in maximaal 80 woorden. Geen inleiding, geen afsluiting, direct to the point.';
@@ -2509,7 +2511,7 @@ CTL (activiteitenniveau): ${m.ctl||'–'}`;
 ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'} | ACWR: ${m.acwr||'–'} | Monotony: ${m.monotony||'–'}
 Wekelijkse load: ${m.weeklyLoad||'–'} ETL | Overreaching: ${fullState?.overreaching?.level||'geen'}
 Voeding deze week gem.: ${avgKcalWk} kcal/dag
-Gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Gewicht: ${canonicalWeight||'–'} kg | Doel: ${canonicalWeightTarget} kg
 Trainingspatronen: ${(data.patterns||[]).map(p=>`${p.day}: ${p.type} ${p.duration}min`).join(', ')||'–'}
 Doel: ${data.goals?.primary||'–'}`;
       systemPrompt += ' Geef een weekanalyse: belasting deze week tov chronische, ACWR acceptabel, sterkste en zwakste punten, en optimale focus voor de komende 7 dagen. Antwoord in maximaal 80 woorden. Geen inleiding, geen afsluiting, direct to the point.';
@@ -2563,7 +2565,7 @@ Doel: ${data.goals?.primary||'–'}`;
       context = `Trainingsdata: ${acts.length} activiteiten
 Huidige status: CTL ${m.ctl||'–'}, ATL ${m.atl||'–'}, TSB ${m.tsb||'–'}
 FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W
-Gewicht: ${recentWt[0]?.[1]||'–'} kg | Doel: ${data.goals?.weightTarget||'90-92'} kg
+Gewicht: ${canonicalWeight||'–'} kg | Doel: ${canonicalWeightTarget} kg
 Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
       maxTokens = 500;
       systemPrompt += ' Geef een 12-weken prognose: verwachte CTL-groei bij consistent trainen, wanneer bereikt de atleet de doelen, welke risico\'s (overtraining, blessure) verwacht je? Geef streefwaarden (CTL, gewicht, FTP) per maand. Antwoord in maximaal 200 woorden. Geen inleiding, geen afsluiting, direct to the point.';
@@ -2580,6 +2582,7 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
         context      = planInfo.text + '\n\n' + context;
         systemPrompt = PLAN_PREAMBLE + '\n' + systemPrompt + (PLAN_PAGE_TASKS[page] ? '\n' + PLAN_PAGE_TASKS[page] : '');
         dataForHash += '|plan:' + planInfo.seed;
+        dataForHash += '|w:' + (canonicalWeight || '');
         maxTokens    = Math.max(maxTokens, 220);
       }
     }
