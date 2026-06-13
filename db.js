@@ -39,6 +39,7 @@ async function initSchema() {
     );
 
     ALTER TABLE users ADD COLUMN IF NOT EXISTS literature JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_skeleton JSONB NOT NULL DEFAULT '{}'::jsonb;
 
     CREATE TABLE IF NOT EXISTS activities (
       user_id                 BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -163,7 +164,7 @@ async function initSchema() {
 
 const ALLOWED_USER_FIELDS = new Set([
   'goals', 'patterns', 'settings', 'week_plan',
-  'ai_insights', 'week_availability', 'calibration', 'literature',
+  'ai_insights', 'week_availability', 'calibration', 'literature', 'plan_skeleton',
 ]);
 
 async function getUser(username) {

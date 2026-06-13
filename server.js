@@ -10,8 +10,10 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
+const { buildPlan } = require('./planner');
+const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight, getActivityStream, upsertActivityStream } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight, getActivityStream, upsertActivityStream, insertPrescription } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -2466,65 +2468,9 @@ Doel: ${data.goals?.primary||'–'}`;
     else if (page === 'weekplanning') {
       maxTokens = 400;
 
-      // ── generateSessions path ──────────────────────────────────────────────
       if (req.body?.generateSessions === true) {
-        if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('jouw'))
-          return res.status(500).json({ error: 'ANTHROPIC_API_KEY niet ingesteld.' });
-
-        const weekAvailability = data.weekAvailability || {};
-        const availDays = Object.entries(weekAvailability).filter(([,v])=>v.cycling);
-        if (!availDays.length)
-          return res.json({ sessions: [], message: 'Geen beschikbare fietsdagen ingesteld.' });
-
-        const fourWeeksAgoGs = new Date(todayStr); fourWeeksAgoGs.setDate(fourWeeksAgoGs.getDate()-28);
-        const recentHevyGs = (hevyWkts||[])
-          .filter(w => new Date(w.start_time) >= fourWeeksAgoGs)
-          .sort((a,b) => new Date(b.start_time)-new Date(a.start_time)).slice(0,20)
-          .map(w => `${w.start_time?.split('T')[0]||'–'}: ${w.name||'Workout'} ${w.duration_seconds?Math.round(w.duration_seconds/60)+'min':''}`);
-        const upcomingGymGs = Object.entries(weekPlan)
-          .filter(([d]) => { const diff=(new Date(d)-new Date(todayStr))/86400000; return diff>=-1&&diff<=7; })
-          .sort(([a],[b])=>a.localeCompare(b))
-          .flatMap(([d,ss])=>(ss||[]).filter(s=>s.type==='gym').map(s=>`${d}: gym ${s.split||'?'} ${s.duration}min`));
-
-        const genContext = `Datum vandaag: ${todayStr}
-ATL: ${m.atl||'–'} | CTL: ${m.ctl||'–'} | TSB: ${m.tsb||'–'} | ACWR: ${m.acwr||'–'} | Overreaching: ${fullState?.overreaching?.level||'geen'}
-FTP: ${fullState?.ftpInfo?.ftp||settings.ftp||'–'}W
-Beschikbare fietsdagen (cycling=true):
-${availDays.map(([d,v])=>`${d}: maxDuur=${v.maxDuration||90}min`).join('\n')}
-Geplande gymsessies komende week:
-${upcomingGymGs.join('\n')||'Geen'}
-Hevy workouts afgelopen 4 weken:
-${recentHevyGs.join('\n')||'Geen data'}
-Primair doel: ${data.goals?.primary||'–'}`;
-
-        const genSystem = 'Genereer concrete fietstrainingen voor de beschikbare dagen. Respecteer de maxDuration per dag. Houd rekening met de geplande gymsessies (PPL-volgorde, interferentierisico Legs). Stem de intensiteit af op TSB, ACWR en het primaire doel. Retourneer alleen een JSON-array van sessie-objecten met de velden: datum, type ("cycling"), aiGenerated (true), titel, beschrijving, duur_min, tss, zone, reden, blokken. Elk blok heeft: naam, duur (minuten, number), zone, kleur (hex). Geen tekst buiten de JSON.';
-
-        const genResp = await axios.post('https://api.anthropic.com/v1/messages', {
-          model: 'claude-sonnet-4-5',
-          max_tokens: 2000,
-          system: genSystem,
-          messages: [{ role: 'user', content: genContext }]
-        }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
-
-        let rawText = genResp.data.content?.[0]?.text || '[]';
-        // Strip markdown code fences if present
-        rawText = rawText.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
-        let sessions;
-        try { sessions = JSON.parse(rawText); }
-        catch(e) { return res.status(500).json({ error: 'AI retourneerde geen geldige JSON: ' + rawText.slice(0,200) }); }
-        if (!Array.isArray(sessions)) sessions = [];
-
-        // Merge into weekPlan: keep existing non-cycling sessions, add AI cycling sessions.
-        const freshUser = await getDefaultUser();
-        const updatedWp = { ...(freshUser.week_plan||{}) };
-        sessions.forEach(s => {
-          if (!s.datum) return;
-          const existing = (updatedWp[s.datum]||[]).filter(x => x.type !== 'cycling' || !x.aiGenerated);
-          updatedWp[s.datum] = [...existing, s];
-        });
-        await saveUserFields(freshUser.id, { week_plan: updatedWp });
-
-        return res.json({ sessions });
+        const result = await runWeekplanGeneration();
+        return res.json(result);
       }
       // ── end generateSessions ───────────────────────────────────────────────
 
@@ -2637,15 +2583,29 @@ app.post('/api/goals', async (req, res) => {
 
 // ── Week plan generation ──────────────────────────────────────────────────────
 
-function dayNameFromDate(dateStr) {
-  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  return days[new Date(dateStr + 'T12:00:00').getDay()];
-}
+  function buildAvailDays(weekAvailability, patterns) {
+    const dayOrder = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+    const legsDays = new Set(
+      (patterns || [])
+        .filter(p => p.type === 'gym' && p.split === 'legs')
+        .map(p => (p.day || '').toLowerCase())
+    );
+    function maxZoneForDate(dateStr) {
+      const name = dayNameFromDate(dateStr);
+      const idx  = dayOrder.indexOf(name);
+      if (idx < 0) return 5;
+      if (legsDays.has(name)) return 2;
+      if (legsDays.has(dayOrder[(idx + 6) % 7])) return 2;
+      if (legsDays.has(dayOrder[(idx + 5) % 7])) return 3;
+      return 5;
+    }
+    return Object.entries(weekAvailability)
+      .filter(([, v]) => v.cycling)
+      .map(([date, v]) => ({ date, maxDuration: v.maxDuration || 90, maxZone: maxZoneForDate(date) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
 
-app.post('/api/weekplan/generate', async (req, res) => {
-  try {
-    if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'ANTHROPIC_API_KEY niet ingesteld' });
-
+  async function runWeekplanGeneration() {
     const user = await getDefaultUser();
     const [allActivities, hevyWorkouts, weight, nutrition, sleep] = await Promise.all([
       getActivities(user.id),
@@ -2654,87 +2614,76 @@ app.post('/api/weekplan/generate', async (req, res) => {
       getNutrition(user.id),
       getSleep(user.id),
     ]);
-    const settings = user.settings || {};
-    const weekPlan = user.week_plan || {};
+    const settings         = user.settings          || {};
     const weekAvailability = user.week_availability || {};
-    const engineData = {
-      sleep,
-      goals:            user.goals    || {},
-      patterns:         user.patterns || [],
-      weekAvailability,
-    };
+    const goals            = user.goals             || {};
+    const patterns         = user.patterns          || [];
 
-    const state = engine.computeFullState(allActivities, hevyWorkouts, weight, nutrition, weekPlan, settings, engineData);
-    const tp = state.trainingPlan;
-    if (!tp) return res.status(400).json({ error: 'Geen eventdatum ingesteld. Stel eerst een event in bij Settings.' });
+    const availDays = buildAvailDays(weekAvailability, patterns);
+    if (!availDays.length) return { sessions: [], message: 'Geen beschikbare fietsdagen ingesteld.' };
 
-    const ftp = state.ftpInfo?.ftp || settings.ftp || 280;
-    const availDays = Object.entries(weekAvailability).filter(([, v]) => v.cycling);
-    if (!availDays.length) return res.json({ sessions: [], message: 'Geen beschikbare fietsdagen ingesteld.' });
+    const engineData = { sleep, goals, patterns, weekAvailability };
+    const state = engine.computeFullState(allActivities, hevyWorkouts, weight, nutrition,
+                                          user.week_plan || {}, settings, engineData);
 
-    const dayLines = availDays.map(([date, v]) => {
-      const dayName = dayNameFromDate(date);
-      const restriction = tp.cyclingRestrictions[dayName] || { maxZone: 5 };
-      return `${date} (${dayName}): maxDuur=${v.maxDuration || 90}min, maxZone=Z${restriction.maxZone}`;
-    });
+    const ftp    = state.ftpInfo?.ftp || settings.ftp || 280;
+    const params = await getAthleteParams(user.id);
 
-    const wattageSchema = [
-      `Z1: 0–${Math.round(ftp * 0.55)}W`,
-      `Z2: ${Math.round(ftp * 0.56)}–${Math.round(ftp * 0.75)}W`,
-      `Z3: ${Math.round(ftp * 0.76)}–${Math.round(ftp * 0.90)}W`,
-      `Z4: ${Math.round(ftp * 0.91)}–${Math.round(ftp * 1.05)}W`,
-      `Z5: ${Math.round(ftp * 1.06)}–${Math.round(ftp * 1.20)}W`,
-    ].join(' | ');
+    const plan = buildPlan({
+      goals,
+      metrics:       state.enduranceMetrics || { ctl: 0, atl: 0, tsb: 0, acwr: 0 },
+      currentWeight: state.currentWeight || 80,
+      availDays,
+      ftp,
+      settings,
+    }, params);
 
-    let taperNote = '';
-    if (tp.phase === 'taper_week1') {
-      taperNote = '\nTAPER: Gebruik dezelfde sessietypen als een build week maar halveer de duur van alle werkblokken. Behoud dezelfde wattages/zones.';
-    } else if (tp.phase === 'race_week') {
-      taperNote = '\nRACE WEEK: Maximaal 2 activatiesessies van max 60 min. Per sessie: 15 min Z2 inrijden, 3×3–5 min Z4 werkblokken met Z1-herstel ertussen, 10 min Z2 uitrijden.';
-    }
-
-    const prompt = `Genereer fietstrainingen voor de beschikbare dagen.
-
-FTP: ${ftp}W
-Event: ${tp.eventName || 'Event'} over ${tp.weeksToEvent} weken
-Fase: ${tp.phase} | Mesocycle week: ${tp.mesocycleWeek}${tp.isRecoveryWeek ? ' (HERSTELWEEK — alleen Z1-Z2)' : ''}
-Wekelijkse TSS-doelstelling: ${tp.weeklyTSSTarget}
-TID doel: Z1-Z2 ${tp.tidMinutes.low}min · Z3 ${tp.tidMinutes.mid}min · Z4-Z5 ${tp.tidMinutes.high}min · Totaal ${tp.tidMinutes.total}min
-
-Wattage schema: ${wattageSchema}
-
-Beschikbare dagen (maxZone = maximale intensiteitszone op die dag):
-${dayLines.join('\n')}${taperNote}
-
-Retourneer uitsluitend een valide JSON array zonder markdown of uitleg. Formaat per sessie:
-{"date":"YYYY-MM-DD","type":"cycling","aiGenerated":true,"title":"string","targetTSS":number,"duration":number,"blokken":[{"type":"warmup"|"work"|"recovery"|"cooldown","duration":number,"zone":"Z1"|"Z2"|"Z3"|"Z4"|"Z5","wattMin":number,"wattMax":number,"herhalingen":number(optioneel),"herstelBlok":{"duration":number,"zone":"Z1","wattMin":number,"wattMax":number}(optioneel)}]}`;
-
-    const genResp = await axios.post('https://api.anthropic.com/v1/messages', {
-      model: 'claude-sonnet-4-5',
-      max_tokens: 3000,
-      messages: [{ role: 'user', content: prompt }]
-    }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
-
-    let rawText = genResp.data.content?.[0]?.text || '[]';
-    rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-
-    let sessions;
-    try { sessions = JSON.parse(rawText); }
-    catch(e) { return res.status(500).json({ error: 'AI retourneerde geen geldige JSON: ' + rawText.slice(0, 200) }); }
-    if (!Array.isArray(sessions)) sessions = [];
-    sessions = sessions.filter(s => s.date && s.type === 'cycling' && Array.isArray(s.blokken));
-
+    // Defensieve write: verse user vlak voor de merge.
     const freshUser = await getDefaultUser();
     const updatedWp = { ...(freshUser.week_plan || {}) };
-    sessions.forEach(s => {
-      const existing = (updatedWp[s.date] || []).filter(x => x.type !== 'cycling' || !x.aiGenerated);
-      updatedWp[s.date] = [...existing, s];
+    Object.entries(plan.sessions).forEach(([date, newSessions]) => {
+      const kept = (updatedWp[date] || []).filter(x =>
+        x.type !== 'cycling' || x.unplanned || x.completionScore !== undefined || x.missed
+      );
+      updatedWp[date] = [...kept, ...newSessions];
     });
-    await saveUserFields(freshUser.id, { week_plan: updatedWp });
+    await saveUserFields(freshUser.id, { week_plan: updatedWp, plan_skeleton: plan.skeleton });
 
-    res.json({ sessions });
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
+    // Prescriptions verrijken met run-id en belief-state, dan wegschrijven.
+    const runId = crypto.randomUUID();
+    const plannerParams = {
+      athleteParams: params,
+      metricsAtPlan: state.enduranceMetrics
+        ? { ctl: state.enduranceMetrics.ctl, atl: state.enduranceMetrics.atl,
+            tsb: state.enduranceMetrics.tsb, acwr: state.enduranceMetrics.acwr }
+        : null,
+      skeleton: plan.skeleton,
+    };
+    for (const p of plan.prescriptions) {
+      try {
+        await insertPrescription(freshUser.id, { ...p, plan_run_id: runId, planner_params: plannerParams });
+      } catch (e) {
+        console.error('insertPrescription mislukt:', e.message);
+      }
+    }
+
+    return { sessions: Object.values(plan.sessions).flat(), skeleton: plan.skeleton };
+  }
+
+function dayNameFromDate(dateStr) {
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  return days[new Date(dateStr + 'T12:00:00').getDay()];
+}
+
+app.post('/api/weekplan/generate', async (req, res) => {
+    try {
+      const result = await runWeekplanGeneration();
+      res.json(result);
+    } catch (err) {
+      console.error('/api/weekplan/generate:', err.message, err.stack);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
 // ── Strava Webhooks ───────────────────────────────────────────────────────────
 
