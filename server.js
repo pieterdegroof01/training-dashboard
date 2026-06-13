@@ -2328,6 +2328,7 @@ app.post('/api/week-availability', async (req, res) => {
 const PLAN_PREAMBLE = 'Onder PLAN krijg je het deterministisch berekende trainingsplan voor vandaag en deze week. Dat plan is leidend: herbereken het niet, spreek het niet tegen en verzin geen andere sessie of andere getallen. Vertaal vanuit je paginafocus uitsluitend het relevante deel ervan naar concreet advies, en verwijs expliciet naar de voorgeschreven sessie van vandaag waar dat past.';
 
 const PLAN_PAGE_TASKS = {
+  vandaag:      'Neem de voorgeschreven sessie van vandaag uit het PLAN letterlijk over in het body-veld: noem de exacte duur, het doel-TSS en het wattagebereik. Noem geen andere sessie dan die in het PLAN staat. De accents-eis blijft gelden: kies exacte tekstfragmenten die letterlijk in body voorkomen.',
   voeding:      'Richt je advies primair op de voorgeschreven sessie van vandaag uit het PLAN: hoeveel koolhydraten ervoor, of er tijdens de sessie bijgevoed moet worden (bij hoge TSS of lange duur), en herstel (eiwit plus koolhydraten) erna, afgestemd op de duur en intensiteit van die sessie. Houd de bredere macro-analyse kort.',
   activiteiten: 'Benoem expliciet welke van de recente activiteiten het dichtst bij de voorgeschreven sessie van vandaag uit het PLAN liggen qua duur, intensiteit en zoneverdeling, en wat die historie zegt over hoe de atleet die sessie waarschijnlijk uitvoert.',
   integratie:   'Betrek de voorgeschreven sessie van vandaag uit het PLAN in de geïntegreerde analyse: hoe past die bij de actuele kracht- en voedingsstaat en het herstel.',
@@ -2572,7 +2573,7 @@ Tijdlijn: ${data.goals?.timeline||'–'} | Doel: ${data.goals?.primary||'–'}`;
     }
 
     // ── Gedeelde plan-context: injecteer het deterministische plan als vaste input ──
-    const PLAN_INJECT_PAGES = new Set(['integratie', 'activiteiten', 'voeding', 'week', 'weekplanning', 'trends', 'voorspelling']);
+    const PLAN_INJECT_PAGES = new Set(['vandaag', 'integratie', 'activiteiten', 'voeding', 'week', 'weekplanning', 'trends', 'voorspelling']);
     if (PLAN_INJECT_PAGES.has(page)) {
       const planInfo = buildPrescriptionBlock(weekPlan, data.planSkeleton, todayStr);
       if (planInfo.active) {
@@ -2707,7 +2708,10 @@ app.post('/api/goals', async (req, res) => {
       );
       updatedWp[date] = [...kept, ...newSessions];
     });
-    await saveUserFields(freshUser.id, { week_plan: updatedWp, plan_skeleton: plan.skeleton });
+    const planInvalidatePages = ['vandaag', 'integratie', 'activiteiten', 'voeding', 'week', 'weekplanning', 'trends', 'voorspelling'];
+    const wipedInsights = { ...(freshUser.ai_insights || {}) };
+    planInvalidatePages.forEach(k => { delete wipedInsights[k]; });
+    await saveUserFields(freshUser.id, { week_plan: updatedWp, plan_skeleton: plan.skeleton, ai_insights: wipedInsights });
 
     // Prescriptions verrijken met run-id en belief-state, dan wegschrijven.
     const runId = crypto.randomUUID();
