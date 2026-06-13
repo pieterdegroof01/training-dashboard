@@ -414,7 +414,7 @@ function buildPlan(input, params) {
       sType = 'endurance';
     } else if (midUsedMin < midBudgetMin) {
       sType = d.maxZone >= 4 ? 'sweetspot' : 'tempo';
-      midUsedMin += d.maxDuration;
+      midUsedMin += Math.round(d.maxDuration * 0.7);
     } else {
       sType = 'endurance';
     }
@@ -479,10 +479,17 @@ function buildPlan(input, params) {
   tidMinutes.total = tidMinutes.low + tidMinutes.mid + tidMinutes.high;
   weeklyTSSTarget = Math.round(sumTSS);
 
+  const _t = tidMinutes.total || 1;
+  const realizedDistribution = {
+    low:  Math.round(tidMinutes.low  / _t * 100) / 100,
+    mid:  Math.round(tidMinutes.mid  / _t * 100) / 100,
+    high: Math.round(tidMinutes.high / _t * 100) / 100,
+  };
+
   const skeleton = {
     mode, phase, mesocycleWeek, isRecoveryWeek, weeksToEvent,
     weeklyTSSAim, weeklyTSSTarget, volumeLimited,
-    distributionModel, distribution, tidMinutes,
+    distributionModel, distribution, realizedDistribution, tidMinutes,
     eventDate:  goals.eventDate  || null,
     eventName:  goals.eventName  || null,
     rationale:  buildRationale(null, mode, phase, isRecoveryWeek, ctl),
@@ -518,18 +525,19 @@ if (require.main === module) {
       : 0;
     const tssOk = deviation <= 0.05;
 
-    const hasMidSession = plan.prescriptions.some(p => p.session_type === 'sweetspot' || p.session_type === 'tempo');
+    const rd = sk.realizedDistribution;
     const midEligible = sk.distribution.mid > 0.10 && availDays.some(d => d.maxZone >= 3);
-    const midOk = !midEligible || hasMidSession;
+    const midOk = !midEligible || rd.mid >= 0.6 * sk.distribution.mid;
 
     const verdict = (tssOk && midOk) ? 'CONSISTENT'
       : 'INCONSISTENT' + (!tssOk ? ` — TSS-afwijking ${(deviation * 100).toFixed(1)}%` : '')
-                       + (!midOk ? ' — ontbrekende mid-sessie' : '');
+                       + (!midOk ? ` — gerealiseerde mid ${rd.mid.toFixed(2)} < 60% van doel ${sk.distribution.mid.toFixed(2)}` : '');
 
     console.log(`\n=== ${label} ===`);
     console.log(`weeklyTSSAim=${sk.weeklyTSSAim} weeklyTSSTarget=${sk.weeklyTSSTarget} volumeLimited=${sk.volumeLimited}`);
     console.log(`sumPrescribed=${sumPrescribed} afwijking=${(deviation * 100).toFixed(1)}%`);
     console.log(`dist low=${sk.distribution.low.toFixed(2)} mid=${sk.distribution.mid.toFixed(2)} high=${sk.distribution.high.toFixed(2)}`);
+    console.log(`realized low=${rd.low.toFixed(2)} mid=${rd.mid.toFixed(2)} high=${rd.high.toFixed(2)}  (mid-fractie: ${rd.mid.toFixed(2)}, doel: ${sk.distribution.mid.toFixed(2)})`);
     console.log(`tidMinutes low=${sk.tidMinutes.low} mid=${sk.tidMinutes.mid} high=${sk.tidMinutes.high} total=${sk.tidMinutes.total}`);
     console.log(verdict);
     plan.prescriptions.forEach(p => {
