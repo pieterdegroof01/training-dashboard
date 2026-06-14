@@ -518,6 +518,13 @@ async function upsertActivityMMP(userId, stravaId, mmpEntry) {
   );
 }
 
+async function setPrescriptionStatus(id, status) {
+  await query(
+    'UPDATE training_prescriptions SET status = $2 WHERE id = $1',
+    [id, status]
+  );
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
@@ -528,4 +535,5 @@ module.exports = {
   getActivityStream, upsertActivityStream,
   insertPrescription, supersedePrescription, getActivePrescriptions,
   upsertSessionOutcome, getLearnedParams, getOutcomeHistory,
+  setPrescriptionStatus,
 };

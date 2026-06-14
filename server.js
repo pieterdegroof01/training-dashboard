@@ -13,7 +13,7 @@ const engine = require('./engine');
 const { buildPlan } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight, getActivityStream, upsertActivityStream, insertPrescription } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -576,6 +576,176 @@ async function matchPlannedToActual(data) {
   return data.weekPlan;
 }
 
+function computePlannedHighPct(session) {
+  if (!session.blokken?.length) return null;
+  let totalMin = 0;
+  let highMin  = 0;
+  for (const b of session.blokken) {
+    const reps = b.herhalingen || 1;
+    const dur  = b.duration || 0;
+    totalMin += dur * reps;
+    if (b.zone === 'Z4' || b.zone === 'Z5') highMin += dur * reps;
+    if (b.herstelBlok) totalMin += (b.herstelBlok.duration || 0) * reps;
+  }
+  return totalMin > 0 ? highMin / totalMin : null;
+}
+
+async function reconcilePrescriptions(data, state, userId) {
+  try {
+    const today    = new Date().toISOString().split('T')[0];
+    const fromDate = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const prescriptions = await getActivePrescriptions(userId, fromDate, today);
+    if (!prescriptions.length) return;
+
+    const ftp        = (data.settings || {}).ftp || 280;
+    const activities = data.activityCache?.activities || [];
+    const actById    = {};
+    for (const a of activities) actById[a.id] = a;
+
+    // Flat list of cycling sessions in window, indexed by date
+    const cyclingByDate = {};
+    for (const [date, sessions] of Object.entries(data.weekPlan || {})) {
+      if (date < fromDate || date > today) continue;
+      for (const session of sessions) {
+        if (session.type !== 'cycling') continue;
+        if (!cyclingByDate[date]) cyclingByDate[date] = [];
+        cyclingByDate[date].push(session);
+      }
+    }
+
+    // Pre-session state snapshot from engine output
+    const em = state.enduranceMetrics || {};
+    const preState = {
+      ctl:       em.ctl  ?? null,
+      atl:       em.atl  ?? null,
+      tsb:       em.tsb  ?? null,
+      acwr:      em.acwr ?? null,
+      readiness: state.readiness?.total ?? null,
+    };
+
+    // Group prescriptions by date
+    const prescByDate = {};
+    for (const p of prescriptions) {
+      const d = new Date(p.prescribed_date).toISOString().split('T')[0];
+      if (!prescByDate[d]) prescByDate[d] = [];
+      prescByDate[d].push(p);
+    }
+
+    // Match prescriptions to completed/missed sessions
+    for (const [date, datePrescs] of Object.entries(prescByDate)) {
+      const dateSessions = cyclingByDate[date] || [];
+      const completedSessions = dateSessions.filter(
+        s => s.completionScore !== undefined && !s.missed && !s.unplanned
+      );
+
+      for (const presc of datePrescs) {
+        if (completedSessions.length > 0) {
+          // Pick closest actualTSS to target_tss
+          const session = completedSessions.reduce((best, s) => {
+            const dBest = Math.abs((best.actualTSS || 0) - (presc.target_tss || 0));
+            const dS    = Math.abs((s.actualTSS    || 0) - (presc.target_tss || 0));
+            return dS < dBest ? s : best;
+          });
+
+          const act  = actById[session.matchedActivityId] ?? null;
+          const np   = act?.weighted_average_watts;
+          const avg  = act?.average_watts;
+          const actualIF       = np  > 0 ? Math.round(np  / ftp * 1000) / 1000
+                               : avg > 0 ? Math.round(avg / ftp * 1000) / 1000
+                               : null;
+          const actualAvgPower = (act?.device_watts && avg) ? Math.round(avg) : null;
+          const execQuality    = Math.round(session.completionScore / 10 * 1000) / 1000;
+
+          const zb = session.actualZoneBreakdown;
+          const deltas = {};
+          if (session.actualTSS != null && presc.target_tss != null)
+            deltas.tss = Math.round((session.actualTSS - presc.target_tss) * 10) / 10;
+          if (actualIF != null && presc.target_if != null)
+            deltas.if = Math.round((actualIF - presc.target_if) * 1000) / 1000;
+          if (session.actualDuration != null && presc.target_duration_min != null)
+            deltas.duration = session.actualDuration - presc.target_duration_min;
+          if (zb && !zb.estimated) {
+            const plannedHigh = computePlannedHighPct(session);
+            if (plannedHigh != null)
+              deltas.highPct = Math.round((zb.highPct - plannedHigh) * 1000) / 1000;
+          }
+
+          await upsertSessionOutcome(userId, {
+            prescription_id:     presc.id,
+            strava_id:           session.stravaId ?? null,
+            outcome_date:        date,
+            match_type:          'completed',
+            actual_tss:          session.actualTSS          ?? null,
+            actual_duration_min: session.actualDuration      ?? null,
+            actual_if:           actualIF,
+            actual_avg_power:    actualAvgPower,
+            execution_quality:   execQuality,
+            match_confidence:    execQuality,
+            deltas:              Object.keys(deltas).length ? deltas : null,
+            pre_session_state:   preState,
+            response_markers:    null,
+          });
+          await setPrescriptionStatus(presc.id, 'completed');
+
+        } else if (date < today) {
+          const deltas = presc.target_tss != null ? { tss: -presc.target_tss } : null;
+          await upsertSessionOutcome(userId, {
+            prescription_id:     presc.id,
+            strava_id:           null,
+            outcome_date:        date,
+            match_type:          'missed',
+            actual_tss:          null,
+            actual_duration_min: null,
+            actual_if:           null,
+            actual_avg_power:    null,
+            execution_quality:   0,
+            match_confidence:    null,
+            deltas,
+            pre_session_state:   null,
+            response_markers:    null,
+          });
+          await setPrescriptionStatus(presc.id, 'missed');
+        }
+      }
+    }
+
+    // Unplanned rides
+    for (const [date, sessions] of Object.entries(cyclingByDate)) {
+      for (const session of sessions) {
+        if (!session.unplanned) continue;
+        const actId = session.stravaId;
+        const act   = actId ? (actById[actId] ?? null) : null;
+        const np    = act?.weighted_average_watts;
+        const avg   = act?.average_watts;
+        const actualIF       = np  > 0 ? Math.round(np  / ftp * 1000) / 1000
+                             : avg > 0 ? Math.round(avg / ftp * 1000) / 1000
+                             : null;
+        const actualAvgPower = (act?.device_watts && avg) ? Math.round(avg) : null;
+        const actualDurMin   = session.duration ?? (act ? Math.round((act.moving_time || 0) / 60) : null);
+
+        await upsertSessionOutcome(userId, {
+          prescription_id:     null,
+          strava_id:           actId ?? null,
+          outcome_date:        date,
+          match_type:          'unplanned',
+          actual_tss:          session.actualTSS ?? null,
+          actual_duration_min: actualDurMin,
+          actual_if:           actualIF,
+          actual_avg_power:    actualAvgPower,
+          execution_quality:   null,
+          match_confidence:    null,
+          deltas:              null,
+          pre_session_state:   null,
+          response_markers:    null,
+        });
+      }
+    }
+  } catch (e) {
+    console.error('reconcilePrescriptions fout:', e.message, e.stack);
+  }
+}
+
 async function adjustCurrentWeek(data, state) {
   if (!process.env.ANTHROPIC_API_KEY) return data.weekPlan;
 
@@ -827,13 +997,15 @@ app.post('/api/strava/sync-all', async (req, res) => {
     const wp1 = await matchPlannedToActual(data);
     data.weekPlan = wp1;
 
+    let syncState = {};
     let finalWeekPlan = wp1;
     try {
-      const syncState = engine.computeFullState(allActivities, data.hevyWorkouts, data.weight, data.nutrition, data.weekPlan, data.settings, data);
+      syncState = engine.computeFullState(allActivities, data.hevyWorkouts, data.weight, data.nutrition, data.weekPlan, data.settings, data);
       finalWeekPlan = await adjustCurrentWeek(data, syncState);
     } catch(e) { console.warn('adjustCurrentWeek (sync):', e.message); }
 
     await saveUserFields(userId, { week_plan: finalWeekPlan });
+    try { await reconcilePrescriptions(data, syncState, userId); } catch(e) { console.warn('reconcile (sync):', e.message); }
 
     res.json({ total: allActivities.length, new: newActs?.length || 0, lastSync: newSettings.lastSync, calibration });
   } catch (err) {
@@ -2817,13 +2989,15 @@ app.post('/webhook/strava', (req, res) => {
           const wp1 = await matchPlannedToActual(data);
           data.weekPlan = wp1;
 
+          let wbState = {};
           let finalWeekPlan = wp1;
           try {
-            const wbState = engine.computeFullState(allActivities, data.hevyWorkouts, data.weight, data.nutrition, data.weekPlan, data.settings, data);
+            wbState = engine.computeFullState(allActivities, data.hevyWorkouts, data.weight, data.nutrition, data.weekPlan, data.settings, data);
             finalWeekPlan = await adjustCurrentWeek(data, wbState);
           } catch(e) { console.warn('adjustCurrentWeek (webhook):', e.message); }
 
           await saveUserFields(userId, { week_plan: finalWeekPlan });
+          try { await reconcilePrescriptions(data, wbState, userId); } catch(e) { console.warn('reconcile (webhook):', e.message); }
         }
       }
     } catch (err) {
