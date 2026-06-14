@@ -40,15 +40,25 @@ function blockTSS(durationMin, ifKey) {
   return (durationMin / 60) * v * v * 100;
 }
 
+function dateToUTCms(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return Date.UTC(y, m - 1, d);        // UTC-middernacht, DST-onafhankelijk
+}
+
+function daysBetweenUTC(a, b) {
+  return Math.round((dateToUTCms(b) - dateToUTCms(a)) / 86400000);
+}
+
 function getMondayOf(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00');
-  const dow = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - dow);
-  return d.toISOString().split('T')[0];
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const dow = (dt.getUTCDay() + 6) % 7;   // 0 = maandag
+  dt.setUTCDate(dt.getUTCDate() - dow);
+  return dt.toISOString().split('T')[0];
 }
 
 function daysBetween(a, b) {
-  return Math.abs(new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000;
+  return daysBetweenUTC(a, b);
 }
 
 function deriveMode(goals, currentWeight) {
@@ -271,19 +281,19 @@ function buildPlan(input, params) {
   if (level === 'novice' || masters) rampCap = Math.min(rampCap, 4);
   const cadence = (masters ? 2 : loadWeeksBeforeRecovery) + 1;
 
-  // 5. Fase & mesocycle
-  const weekStartDate = new Date(weekStart + 'T12:00:00');
+  // 5. Fase & mesocycle — volledig UTC, geen lokale-tijd Date-objecten
   let phase, mesocycleWeek, weeksToEvent = null;
 
-  if (mode === 'event' && goals.eventDate && new Date(goals.eventDate + 'T12:00:00') > weekStartDate) {
-    weeksToEvent = Math.ceil((new Date(goals.eventDate + 'T12:00:00') - weekStartDate) / (7 * 86400000));
+  if (mode === 'event' && goals.eventDate &&
+      dateToUTCms(goals.eventDate) > dateToUTCms(weekStart)) {
+    weeksToEvent = Math.ceil(daysBetweenUTC(weekStart, goals.eventDate) / 7);
     phase = weeksToEvent <= 1 ? 'race_week' : weeksToEvent <= 2 ? 'taper'
           : weeksToEvent <= 4 ? 'peak'      : weeksToEvent <= 8 ? 'build' : 'base';
     mesocycleWeek = ((weeksToEvent - 1) % cadence) + 1;
   } else {
     phase = 'build';
-    const origin = new Date('2024-01-01T12:00:00');
-    const weekIndex = Math.floor((weekStartDate - origin) / (7 * 86400000));
+    const ORIGIN = '2024-01-01';         // maandag; weekStart is ook maandag → exact veelvoud van 7
+    const weekIndex = Math.floor(daysBetweenUTC(ORIGIN, weekStart) / 7);
     mesocycleWeek = ((weekIndex % cadence) + cadence) % cadence + 1;
   }
   const isRecoveryWeek = mesocycleWeek === cadence;
@@ -502,6 +512,7 @@ module.exports = {
   buildPlan, zoneWatts, blockTSS, deriveMode,
   calcSessionTSS, calcSessionDuration, calcBlockTSS, calcBlockDuration,
   DIST_BASE, ZONE_IF, GOAL_PROFILES,
+  dateToUTCms, daysBetweenUTC, getMondayOf,
 };
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────

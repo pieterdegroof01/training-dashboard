@@ -1,15 +1,15 @@
 'use strict';
-// NOTE: alle datums zijn in januari 2026 (CET = UTC+1), identiek aan de origin
-// (2024-01-01 CET). Zomerdatums veroorzaken een 1-uur-scheefstand door CEST (UTC+2)
-// waardoor weekIndex met 1 daalt en recovery-detectie omslaat — dat is bewust
-// gedrag in de planner, maar maakt klok-onafhankelijke tests lastiger met
-// zomerdatums. Winterdatums zijn DST-vrij en geven exacte weekIndex-berekeningen.
+// Weektelling in de planner loopt via UTC-middernacht (Date.UTC), dat geen DST
+// kent. Het verschil tussen twee UTC-middernachten is altijd een exact veelvoud
+// van 86400000 ms, ongeacht tijdzone of zomertijd. Testdatums mogen vrij worden
+// gekozen — zomer- en winterdatums geven beide stabiele weekIndex-waarden.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildPlan, zoneWatts, blockTSS,
   DIST_BASE, ZONE_IF,
+  dateToUTCms, daysBetweenUTC, getMondayOf,
 } = require('../planner');
 const { availDay, planParams } = require('./helpers');
 
@@ -184,5 +184,62 @@ describe('buildPlan: distribution.{low,mid,high} sommeert naar 1.0 in niet-recov
     const { low, mid, high } = p.skeleton.distribution;
     assert.ok(Math.abs(low + mid + high - 1.0) < 1e-9,
       `som ${low + mid + high} ≠ 1.0`);
+  });
+});
+
+// ── UTC-helpers: daysBetweenUTC en getMondayOf ──────────────────────────────
+// Onafhankelijk berekend: van 2024-01-01 tot doeldatum in exacte dagentelling.
+
+describe('daysBetweenUTC', () => {
+  test('2024-01-01 → 2026-01-19 = 749 dagen', () => {
+    // 2024: 366 dagen (schrikkeljaar), 2025: 365 d, 2026 jan 1-19: 18 d elapsed → 731+18=749
+    assert.strictEqual(daysBetweenUTC('2024-01-01', '2026-01-19'), 749);
+  });
+
+  test('2024-01-01 → 2026-01-26 = 756 dagen', () => {
+    assert.strictEqual(daysBetweenUTC('2024-01-01', '2026-01-26'), 756);
+  });
+
+  test('2024-01-01 → 2026-06-15 = 896 dagen (over DST-grens)', () => {
+    // 731 + jan(31)+feb(28)+mar(31)+apr(30)+may(31)+jun1-15(15)-1 = 731+165 = 896
+    assert.strictEqual(daysBetweenUTC('2024-01-01', '2026-06-15'), 896);
+  });
+});
+
+describe('getMondayOf', () => {
+  test('2026-06-17 (woensdag) → 2026-06-15', () => {
+    assert.strictEqual(getMondayOf('2026-06-17'), '2026-06-15');
+  });
+
+  test('2026-06-15 (maandag) blijft 2026-06-15', () => {
+    assert.strictEqual(getMondayOf('2026-06-15'), '2026-06-15');
+  });
+});
+
+// ── DST-regressietest ────────────────────────────────────────────────────────
+// Vastpinnen dat de bug niet terugkomt: zomerweek 2026-06-15 krijgt
+// weekIndex = 896/7 = 128 (exact), 128%4 = 0 → mesocycleWeek = 1, GEEN recovery.
+// De oude lokale-tijd-code (new Date('...T12:00:00') zonder 'Z') gaf op een CEST-
+// machine (UTC+2 vs. CET UTC+1 van de origin) weekIndex = 127 → mesocycleWeek = 4
+// = cadence → isRecoveryWeek = true (fout).
+
+describe('DST-regressie: zomerweek 2026-06-15', () => {
+  const adSummer = [
+    availDay('2026-06-15', 60,  5),
+    availDay('2026-06-16', 90,  5),
+    availDay('2026-06-17', 120, 5),
+    availDay('2026-06-18', 90,  4),
+    availDay('2026-06-19', 60,  5),
+  ];
+
+  test('ftp-mode: isRecoveryWeek === false (weekIndex 128, 128%4=0, mesocycleWeek=1)', () => {
+    const p = buildPlan(
+      { ...BASE_INPUT, goals: { mode: 'ftp' }, availDays: adSummer },
+      planParams()
+    );
+    assert.strictEqual(p.skeleton.isRecoveryWeek,  false,
+      `isRecoveryWeek=${p.skeleton.isRecoveryWeek}, mesocycleWeek=${p.skeleton.mesocycleWeek}`);
+    assert.strictEqual(p.skeleton.mesocycleWeek, 1,
+      `mesocycleWeek=${p.skeleton.mesocycleWeek}, verwacht 1`);
   });
 });
