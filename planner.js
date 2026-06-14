@@ -498,7 +498,11 @@ function buildPlan(input, params) {
   return { skeleton, sessions, prescriptions };
 }
 
-module.exports = { buildPlan };
+module.exports = {
+  buildPlan, zoneWatts, blockTSS, deriveMode,
+  calcSessionTSS, calcSessionDuration, calcBlockTSS, calcBlockDuration,
+  DIST_BASE, ZONE_IF, GOAL_PROFILES,
+};
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────
 
