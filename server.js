@@ -2835,8 +2835,11 @@ app.post('/api/goals', async (req, res) => {
       if (legsDays.has(dayOrder[(idx + 5) % 7])) return 3;
       return 5;
     }
+    // Plan is vooruitkijkend: alleen vandaag en verder voorschrijven.
+    // UTC-ISO, consistent met getISOWeekBounds / reconcilePrescriptions.
+    const todayISO = new Date().toISOString().split('T')[0];
     return Object.entries(weekAvailability)
-      .filter(([, v]) => v.cycling)
+      .filter(([date, v]) => v.cycling && date >= todayISO)
       .map(([date, v]) => ({ date, maxDuration: v.maxDuration || 90, maxZone: maxZoneForDate(date) }))
       .sort((a, b) => a.date.localeCompare(b.date));
   }

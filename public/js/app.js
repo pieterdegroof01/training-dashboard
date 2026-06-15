@@ -724,6 +724,7 @@ function renderWeekGrid() {
   const dayNames = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
   grid.innerHTML = dates.map((date,i) => {
     const isToday = date===t;
+    const isPast  = date < t;
     const sessions = (S.data.weekPlan?.[date]||[]);
     const dayNum = new Date(date+'T12:00:00').getDate();
     const avail = S.weekAvailability[date] || {};
@@ -777,7 +778,7 @@ function renderWeekGrid() {
       </div>`;
     }).join('');
 
-    const availToggle = `<div class="avail-toggle">
+    const availToggle = isPast ? '' : `<div class="avail-toggle">
       <label class="avail-switch">
         <input type="checkbox" ${availActive?'checked':''} onchange="toggleAvailability('${date}',this.checked)">
         <span class="avail-slider"></span>
@@ -821,6 +822,7 @@ async function loadWeekAvailability() {
 }
 
 async function toggleAvailability(date, checked) {
+  if (date < today()) return;   // beschikbaarheid alleen vandaag en verder
   if (checked) {
     S.weekAvailability[date] = { cycling: true, maxDuration: S.weekAvailability[date]?.maxDuration || 90 };
   } else {
