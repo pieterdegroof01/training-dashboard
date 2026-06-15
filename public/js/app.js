@@ -670,9 +670,52 @@ function renderNutrHistory() {
     const inner = n?.kcal
       ? `<div class="nutr-day-kcal">${n.kcal} kcal</div><div class="nutr-day-macros">${n.protein||'–'}g eiwit<br>${n.carbs||'–'}kh · ${n.fat||'–'}vet</div>`
       : `<div class="nutr-day-empty">–</div>`;
-    return `<div class="nutr-day-card"><div class="nutr-day-date">${wd}<br>${ds}</div>${inner}${w?`<div class="nutr-day-weight">${w} kg</div>`:''}</div>`;
+    const hasData = !!(n || w);
+    const delBtn  = hasData ? `<button class="nutr-day-delete btn-danger" onclick="handleDayDelete('${k}',${!!n},${!!w})" title="Verwijderen">×</button>` : '';
+    return `<div class="nutr-day-card">${delBtn}<div class="nutr-day-date">${wd}<br>${ds}</div>${inner}${w?`<div class="nutr-day-weight">${w} kg</div>`:''}</div>`;
   });
   document.getElementById('nutrHistory').innerHTML = `<div class="nutr-history-scroll"><div class="nutr-history-grid">${cards.join('')}</div></div>`;
+}
+
+function openConfirm({ title, message, actions }) {
+  return new Promise(resolve => {
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.zIndex = '300';
+    const btnHtml = actions.map(a =>
+      `<button class="btn btn-sm${a.danger?' btn-del':' btn-secondary'}" data-value="${esc(a.value)}">${esc(a.label)}</button>`
+    ).join('');
+    overlay.innerHTML = `<div class="modal" onclick="event.stopPropagation()" style="max-width:340px"><div class="modal-title">${esc(title)}</div>${message?`<div style="font-size:13px;color:var(--muted);margin-bottom:14px">${esc(message)}</div>`:''}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">${btnHtml}<button class="btn btn-secondary btn-sm" data-value="">Annuleren</button></div></div>`;
+    document.body.appendChild(overlay);
+    function done(val) { document.removeEventListener('keydown', onKey); document.body.removeChild(overlay); resolve(val || null); }
+    overlay.addEventListener('click', e => { if (e.target === overlay) done(null); });
+    overlay.querySelectorAll('button[data-value]').forEach(btn => btn.addEventListener('click', () => done(btn.dataset.value || null)));
+    function onKey(e) { if (e.key === 'Escape') done(null); }
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+async function handleDayDelete(date, hasNutr, hasWeight) {
+  let actions;
+  if (hasNutr && hasWeight) {
+    actions = [
+      { label: 'Voeding',  value: 'nutr' },
+      { label: 'Gewicht',  value: 'weight' },
+      { label: 'Beide',    value: 'both', danger: true },
+    ];
+  } else if (hasNutr) {
+    actions = [{ label: 'Voeding verwijderen', value: 'nutr', danger: true }];
+  } else {
+    actions = [{ label: 'Gewicht verwijderen', value: 'weight', danger: true }];
+  }
+  const choice = await openConfirm({ title: 'Verwijderen', message: `Wat verwijderen op ${date}?`, actions });
+  if (!choice) return;
+  try {
+    if (choice === 'nutr'   || choice === 'both') await api(`/api/nutrition/${date}`, { method: 'DELETE' });
+    if (choice === 'weight' || choice === 'both') await api(`/api/weight/${date}`,    { method: 'DELETE' });
+    await loadUserData();
+  } catch (err) { console.error('Delete mislukt:', err); }
 }
 
 function renderPatterns() {

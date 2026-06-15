@@ -13,7 +13,7 @@ const engine = require('./engine');
 const { buildPlan } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, upsertSleep, upsertWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus } = require('./db');
+const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -2442,6 +2442,22 @@ app.delete('/api/literature/:id', async (req, res) => {
     const user = await getDefaultUser();
     const literature = (user.literature || []).filter(l => l.id !== req.params.id);
     await saveUserFields(user.id, { literature });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/weight/:date', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    await deleteWeight(user.id, req.params.date);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/nutrition/:date', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    await deleteNutrition(user.id, req.params.date);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

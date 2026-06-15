@@ -266,6 +266,10 @@ async function upsertWeight(userId, date, kg, source = 'manual') {
   );
 }
 
+async function deleteWeight(userId, date) {
+  await query('DELETE FROM weights WHERE user_id=$1 AND date=$2', [userId, date]);
+}
+
 let _defaultUser = null;
 
 async function getDefaultUser() {
@@ -394,6 +398,10 @@ async function upsertNutrition(userId, date, obj) {
        raw       = EXCLUDED.raw`,
     [userId, date, kcal, protein_g, carbs_g, fat_g, JSON.stringify(obj)]
   );
+}
+
+async function deleteNutrition(userId, date) {
+  await query('DELETE FROM nutrition WHERE user_id=$1 AND date=$2', [userId, date]);
 }
 
 async function upsertSleep(userId, date, obj) {
@@ -529,9 +537,9 @@ module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
   getActivities, upsertActivity, upsertActivityMMP,
-  getWeights, upsertWeight,
+  getWeights, upsertWeight, deleteWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
-  upsertNutrition, upsertSleep, upsertHevyWorkout,
+  upsertNutrition, deleteNutrition, upsertSleep, upsertHevyWorkout,
   getActivityStream, upsertActivityStream,
   insertPrescription, supersedePrescription, getActivePrescriptions,
   upsertSessionOutcome, getLearnedParams, getOutcomeHistory,

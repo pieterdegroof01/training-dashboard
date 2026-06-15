@@ -324,7 +324,10 @@ body { overflow-x: clip; }
 .nutr-history-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .nutr-history-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 @media (max-width: 600px) { .nutr-history-grid { display: flex; flex-wrap: nowrap; min-width: max-content; } }
-.nutr-day-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 6px; text-align: center; min-width: 0; }
+.nutr-day-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 6px; text-align: center; min-width: 0; position: relative; }
+.nutr-day-delete { position: absolute; top: 3px; right: 4px; font-size: 14px; line-height: 1; padding: 0 2px; }
+.btn-del { background: var(--red); color: #fff; border: none; border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.btn-del:hover { opacity: .85; }
 @media (max-width: 600px) { .nutr-day-card { min-width: 80px; flex-shrink: 0; } }
 .nutr-day-date { font-size: 10px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; line-height: 1.4; white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
 .nutr-day-kcal { font-size: 13px; font-weight: 800; color: var(--accent); margin-bottom: 3px; white-space: nowrap; font-family: 'Inter Tight', sans-serif; }
