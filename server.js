@@ -2462,6 +2462,24 @@ app.delete('/api/nutrition/:date', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.delete('/api/weekplan/:date/:index', async (req, res) => {
+  try {
+    // Vers laden om stale-snapshot race te voorkomen.
+    // De gekoppelde training_prescription wordt hier bewust niet aangeraakt;
+    // prescription-status (cancelled) is een aparte commit na inspectie van reconcilePrescriptions.
+    const user = await getDefaultUser();
+    const wp  = { ...(user.week_plan || {}) };
+    const { date } = req.params;
+    const idx = parseInt(req.params.index, 10);
+    const day = wp[date];
+    if (!day || idx < 0 || idx >= day.length) return res.status(404).json({ error: 'Sessie niet gevonden' });
+    wp[date] = day.filter((_, i) => i !== idx);
+    if (!wp[date].length) delete wp[date];
+    await saveUserFields(user.id, { week_plan: wp });
+    res.json({ ok: true, removed: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/literature/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Geen bestand ontvangen' });

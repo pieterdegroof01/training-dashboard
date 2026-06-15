@@ -1174,12 +1174,21 @@ async function confirmSession() {
 }
 
 async function removeSession(date, idx) {
-  const weekPlan = { ...(S.data.weekPlan||{}) };
-  weekPlan[date] = (weekPlan[date]||[]).filter((_,i)=>i!==idx);
-  if (!weekPlan[date].length) delete weekPlan[date];
-  await saveDataPartial({ weekPlan });
-  S.data.weekPlan = weekPlan;
-  renderWeekGrid();
+  const s = S.data.weekPlan?.[date]?.[idx];
+  if (!s) return;
+  const desc = s.title || s.titel || (s.split ? s.type + ' – ' + s.split : s.description || s.type);
+  const dur  = s.duration || s.duur_min;
+  const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'short' });
+  const choice = await openConfirm({
+    title:   'Sessie verwijderen',
+    message: `${dayLabel}${dur ? ' · ' + dur + ' min' : ''}: ${desc}`,
+    actions: [{ label: 'Verwijderen', value: 'delete', danger: true }],
+  });
+  if (!choice) return;
+  try {
+    await api(`/api/weekplan/${date}/${idx}`, { method: 'DELETE' });
+    await loadUserData();
+  } catch (err) { console.error('removeSession mislukt:', err); }
 }
 
 function closeModal(e) {
