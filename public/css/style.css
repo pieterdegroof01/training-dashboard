@@ -609,9 +609,9 @@ details.ap-accordion-section > summary { display:none; }
 .pf-zonemix { display:flex; height:30px; border-radius:8px; overflow:hidden; margin:14px 0 8px; gap:2px; }
 .pf-zseg { display:flex; align-items:center; justify-content:center; min-width:18px; }
 .pf-zseg span { font-size:10px; font-weight:700; font-family:'JetBrains Mono',monospace; color:#fff; white-space:nowrap; }
-.pf-z-low { background:var(--green); }
-.pf-z-mid { background:var(--accent2); }
-.pf-z-high { background:var(--accent); }
+.pf-z-low { background: var(--green); }
+.pf-z-mid { background: var(--yellow); }
+.pf-z-high { background: var(--red); }
 .pf-zonemix-legend { font-size:10px; color:var(--muted); font-family:'JetBrains Mono',monospace; display:flex; align-items:center; gap:4px; margin-bottom:12px; }
 .pf-zdot { display:inline-block; width:9px; height:9px; border-radius:3px; }
 .pf-week-insight { font-size:13px; line-height:1.6; color:var(--text); }
@@ -623,4 +623,9 @@ details.ap-accordion-section > summary { display:none; }
 @media (max-width:640px) {
   .pf-week-tiles { grid-template-columns:repeat(2,1fr); }
   .pf-week-grid { grid-template-columns:repeat(2,1fr); }
+}
+.pf-day-interf-warn { color: var(--red); }
+@media (hover: hover) and (pointer: fine) {
+  .pf-day-x { opacity: 0; transition: opacity .12s; }
+  .pf-day-sess:hover .pf-day-x { opacity: 1; }
 }

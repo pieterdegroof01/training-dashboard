@@ -756,6 +756,18 @@ function getWeekDates(offset=0) {
   return Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d.toISOString().split('T')[0];});
 }
 
+function _shiftISO(iso, delta){ const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + delta); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function _warnSvg(){ return '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'; }
+// Beenproximiteit o.b.v. de werkelijke krachtsessies in het plan (niet data.patterns).
+function _legsProximity(date) {
+  const wp = S.data.weekPlan || {};
+  const hasLegs = d => (wp[d] || []).some(s => s.type !== 'cycling' && (/legs/i.test(s.split || '') || /\bbeen|\bleg\b|squat|deadlift|lower/i.test(s.title || s.description || '')));
+  if (hasLegs(date)) return 'legs_day';
+  if (hasLegs(_shiftISO(date, -1))) return 'day_after_legs';
+  if (hasLegs(_shiftISO(date, -2))) return 'two_days_after_legs';
+  return 'no_restriction';
+}
+
 function renderWeekGrid() {
   const dates = getWeekDates(S.currentWeekOffset);
   const t = today();
@@ -840,9 +852,19 @@ function _renderDayCardSession(s, date, si, restrDay) {
   else if (tss) badge = `<span class="pf-badge pf-badge-tss">${tss} TSS</span>`;
 
   let interf = '';
-  if (isCycling && restrDay && restrDay.reason && restrDay.reason !== 'no_restriction') {
-    const map = { legs_day:'Z2-cap · legs vandaag', day_after_legs:'Z2-cap · dag na legs', two_days_after_legs:'Z3-cap · 2d na legs' };
-    interf = `<span class="pf-day-interf" title="Concurrent-interferentie: krachttraining beperkt de fietsintensiteit (Wilson 2012)">${_zapSvg()} ${map[restrDay.reason]||''}</span>`;
+  if (isCycling) {
+    const prox = _legsProximity(date);
+    if (prox !== 'no_restriction') {
+      const cap = prox === 'two_days_after_legs' ? 3 : 2;
+      const blok = s.blokken || [];
+      const sesMaxZone = blok.length ? Math.max(...blok.map(b => _zoneIdx(b.zone) + 1)) : 0;
+      const lbl = { legs_day:'legs vandaag', day_after_legs:'dag na legs', two_days_after_legs:'2d na legs' }[prox];
+      if (sesMaxZone > cap) {
+        interf = `<span class="pf-day-interf pf-day-interf-warn" title="Concurrent-interferentie: ${lbl} vraagt max Z${cap}, maar deze sessie gaat naar Z${sesMaxZone} (Wilson 2012)">${_warnSvg()} Z${sesMaxZone} botst · ${lbl}</span>`;
+      } else {
+        interf = `<span class="pf-day-interf" title="Concurrent-interferentie: ${lbl}, fietsintensiteit gecapt op Z${cap} (Wilson 2012)">${_zapSvg()} Z${cap}-cap · ${lbl}</span>`;
+      }
+    }
   }
 
   const actStravaId = s.matchedActivityId || s.stravaId;
@@ -872,8 +894,10 @@ function _renderWeekTiles(dates) {
     planTSS += (pTSS || aTSS);
   }));
   setTxt('wkDoneTSS', Math.round(doneTSS));
-  setTxt('wkPlanTSS', Math.round(planTSS));
-  const pct = planTSS > 0 ? Math.min(100, Math.round(doneTSS/planTSS*100)) : 0;
+  const tp = fs.trainingPlan || {};
+  const target = (typeof tp.weeklyTSSTarget === 'number' && tp.weeklyTSSTarget > 0) ? Math.round(tp.weeklyTSSTarget) : Math.round(planTSS);
+  setTxt('wkPlanTSS', target);
+  const pct = target > 0 ? Math.min(100, Math.round(doneTSS/target*100)) : 0;
   const fill = document.getElementById('wkProgressFill'); if (fill) fill.style.width = pct + '%';
   setTxt('wkSessSub', `${done} gedaan · ${planned} gepland`);
 
@@ -916,7 +940,8 @@ function _renderWeekTiles(dates) {
       const tot = parts.reduce((a,[,v]) => a + ((v && v.weeklyLoad) || 0), 0) || 1;
       if (splitEl) splitEl.innerHTML = parts.map(([lbl,v]) => {
         const load = (v && v.weeklyLoad) || 0;
-        return `<div class="pf-split-seg" style="flex:${load || 0.001}" title="${lbl}: ${Math.round(load)}"><span>${lbl}</span></div>`;
+        const w = Math.round(load / tot * 100);
+        return `<div class="pf-split-seg" style="flex:${load || 0.001}" title="${lbl}: ${Math.round(load)}">${w >= 14 ? '<span>' + lbl + '</span>' : ''}</div>`;
       }).join('');
     } else {
       slEl.textContent = '–'; slEl.className = 'pf-tile-big c-muted';
