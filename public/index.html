@@ -341,44 +341,70 @@
 
   <!-- WEEKPLANNING -->
   <div id="tab-week" class="section hidden">
-    <div class="card">
-      <div class="week-nav">
-        <button class="btn btn-secondary btn-sm" onclick="changeWeek(-1)">← Vorige</button>
-        <span class="week-title" id="weekTitle"></span>
-        <button class="btn btn-secondary btn-sm" onclick="changeWeek(1)">Volgende →</button>
-      </div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-        <button class="btn btn-ghost btn-sm" id="btnGenCycling" onclick="generateCyclingPlan()">🤖 Genereer fietsplan</button>
-      </div>
-      <div class="week-grid" id="weekGrid"></div>
-    </div>
-    <div class="card" id="weekSummary" style="display:none">
-      <div class="card-label">Weekoverzicht</div>
-      <div id="weekSummaryContent"></div>
+
+    <div class="pf-greeting">
+      <div class="pf-greeting-eyebrow" id="weekEyebrow">WEEK –</div>
+      <h1 class="pf-greeting-title">Weekplanning<em id="weekAccent"> · vooruit</em></h1>
     </div>
 
-    <!-- AI: BELASTING -->
-    <div class="insight-card">
-      <div class="insight-header">
-        <div class="insight-label">📊 Weekanalyse belasting</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="insight-meta" id="insight-meta-week"></span>
-          <button class="btn btn-ghost btn-sm" onclick="loadInsight('week',true)" style="font-size:11px;padding:3px 9px">↻</button>
-        </div>
+    <div class="pf-week-bar">
+      <div class="pf-week-nav">
+        <button class="pf-week-navbtn" onclick="changeWeek(-1)" aria-label="Vorige week">‹</button>
+        <span class="pf-week-range" id="weekTitle">–</span>
+        <button class="pf-week-navbtn" onclick="changeWeek(1)" aria-label="Volgende week">›</button>
       </div>
-      <div class="insight-text" id="insight-text-week"><div class="insight-loading">AI-inzicht laden...</div></div>
+      <div class="pf-week-bar-actions">
+        <button class="btn btn-secondary btn-sm" onclick="generateCyclingPlan()" title="Genereer fietsplan op basis van je beschikbaarheid">
+          <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>
+          Genereer plan
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="openAddSessionChooser()">
+          <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Sessie
+        </button>
+      </div>
     </div>
 
-    <!-- AI: WEEKPLANNING -->
-    <div class="insight-card">
-      <div class="insight-header">
-        <div class="insight-label">📅 Weekplanning advies</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="insight-meta" id="insight-meta-weekplanning"></span>
-          <button class="btn btn-ghost btn-sm" onclick="loadInsight('weekplanning',true)" title="Herplan" style="font-size:11px;padding:3px 9px">↻ Herplan</button>
-        </div>
+    <div class="pf-week-tiles">
+      <div class="pf-week-tile">
+        <div class="pf-tile-cap">Voortgang</div>
+        <div class="pf-tile-big"><span id="wkDoneTSS">–</span><span class="pf-tile-unit"> / <span id="wkPlanTSS">–</span> TSS</span></div>
+        <div class="pf-progress"><div class="pf-progress-fill" id="wkProgressFill"></div></div>
+        <div class="pf-tile-sub" id="wkSessSub">–</div>
       </div>
-      <div class="insight-text" id="insight-text-weekplanning"><div class="insight-loading">AI-inzicht laden...</div></div>
+      <div class="pf-week-tile">
+        <div class="pf-tile-cap">TSB → zondag</div>
+        <div class="pf-tile-big" id="wkTSB">–</div>
+        <div class="pf-tile-sub" id="wkTSBSub">verwacht</div>
+      </div>
+      <div class="pf-week-tile">
+        <div class="pf-tile-cap">Model</div>
+        <div class="pf-tile-big pf-tile-model" id="wkModel">–</div>
+        <div class="pf-tile-sub" id="wkZonePct">–</div>
+      </div>
+      <div class="pf-week-tile">
+        <div class="pf-tile-cap">Kracht</div>
+        <div class="pf-tile-big" id="wkStrengthLoad">–</div>
+        <div class="pf-strength-split" id="wkStrengthSplit"></div>
+        <div class="pf-tile-sub" id="wkStrengthSub">–</div>
+      </div>
+    </div>
+
+    <div class="pf-section-cap">Deze week</div>
+    <div class="pf-week-grid" id="weekGrid"></div>
+
+    <div class="pf-two-col">
+      <div class="card">
+        <div class="pf-session-cap">Belasting per dag</div>
+        <div class="pf-load-canvas-wrap" style="height:200px"><canvas id="weekLoadChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="pf-session-cap">Zone-verdeling deze week</div>
+        <div class="pf-zonemix" id="wkZoneBar"></div>
+        <div class="pf-zonemix-legend" id="wkZoneLegend"></div>
+        <div class="pf-week-insight" id="insight-text-week"><div class="insight-loading">Inzicht laden...</div></div>
+        <span class="insight-meta" id="insight-meta-week"></span>
+      </div>
     </div>
 
   </div>

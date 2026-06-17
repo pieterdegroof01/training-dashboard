@@ -310,7 +310,7 @@ function _sessionIconSvg(type) {
   if (type === 'WeightTraining' || type === 'Gym')
     return '<svg viewBox="0 0 24 24"><path '+a+' d="M14.4 14.4 9.6 9.6M18.657 21.485l1.414-1.414M3.929 3.929 2.515 5.343M6.343 6.343 4.93 7.757l2.828 2.829M17.657 13.657l-2.828-2.829M21.485 18.657l-1.414 1.414"/></svg>';
   if (type === 'Rest' || type === 'rust')
-    return '<svg viewBox="0 0 24 24"><path '+a+' d="M3 12h4l2-6 4 12 2-6h6"/></svg>';
+    return '<svg viewBox="0 0 24 24"><path '+a+' d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/></svg>';
   // Lucide "bike" (default cycling)
   return '<svg viewBox="0 0 24 24"><circle cx="18.5" cy="17.5" r="3.5" '+a+'/><circle cx="5.5" cy="17.5" r="3.5" '+a+'/><circle cx="15" cy="5" r="1" '+a+'/><path '+a+' d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>';
 }
@@ -759,100 +759,268 @@ function getWeekDates(offset=0) {
 function renderWeekGrid() {
   const dates = getWeekDates(S.currentWeekOffset);
   const t = today();
-  const start = new Date(dates[0]);
-  const end = new Date(dates[6]);
-  document.getElementById('weekTitle').textContent = `${start.toLocaleDateString('nl-NL',{day:'numeric',month:'short'})} – ${end.toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'})}`;
+  const wp = S.data.weekPlan || {};
+  const fs = S.fullState || {};
+  const restr = (fs.trainingPlan && fs.trainingPlan.cyclingRestrictions) || {};
+  const dayNames = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
+  const enNames  = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+  const start = new Date(dates[0] + 'T12:00:00');
+  const end   = new Date(dates[6] + 'T12:00:00');
+  const fmt   = d => d.toLocaleDateString('nl-NL',{day:'numeric',month:'short'});
+
+  const titleEl = document.getElementById('weekTitle');
+  if (titleEl) titleEl.textContent = `${fmt(start)} – ${end.toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'})}`;
+  const eb = document.getElementById('weekEyebrow');
+  if (eb) eb.textContent = (`WEEK ${_isoWeekNum(start)} · ${fmt(start)} – ${fmt(end)}`).toUpperCase();
+  const acc = document.getElementById('weekAccent');
+  if (acc) acc.textContent = S.currentWeekOffset < 0 ? ' · voltooid' : S.currentWeekOffset > 0 ? ' · gepland' : ' · vooruit';
 
   const grid = document.getElementById('weekGrid');
-  const dayNames = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
-  grid.innerHTML = dates.map((date,i) => {
-    const isToday = date===t;
-    const isPast  = date < t;
-    const sessions = (S.data.weekPlan?.[date]||[]);
-    const dayNum = new Date(date+'T12:00:00').getDate();
-    const avail = S.weekAvailability[date] || {};
-    const availActive = !!avail.cycling;
-    const maxDur = avail.maxDuration || 90;
-
-    const sessHtml = sessions.map((s,si) => {
-      if (s.type === 'cycling') {
-        const title = s.title || s.titel || (s.unplanned ? 'Ongepland' : 'Fietssessie');
-        const dur   = s.duration || s.duur_min || '?';
-        const tss   = s.targetTSS || s.tss || s.actualTSS;
-        const tssLabel = tss ? ` · ~${tss} TSS` : '';
-        const isAdjusted  = s.adjustedAt && !s.unplanned;
-        const isUnplanned = !!s.unplanned;
-        const aiClass       = s.aiGenerated && !isUnplanned ? ' ai-session' : '';
-        const unplannedClass = isUnplanned ? ' session-unplanned' : '';
-        const adjustedIcon  = isAdjusted
-          ? `<span class="session-adjusted" title="${(s.adjustedReason || '').replace(/"/g,'&quot;')}">↻</span>` : '';
-        const aiIcon  = s.aiGenerated && !isAdjusted && !isUnplanned ? '<span class="ai-badge">✨</span>' : '';
-        const actStravaId    = s.matchedActivityId || s.stravaId;
-        const aiClickable    = s.aiGenerated && s.blokken?.length && !isUnplanned && !actStravaId;
-        const clickAttr      = actStravaId
-          ? `onclick="navigateToActivity(${actStravaId})" data-strava-id="${actStravaId}"`
-          : aiClickable ? `onclick="openAiSession('${date}',${si})"` : '';
-        const isCursorPointer = !!(actStravaId || aiClickable);
-        let scoreBadge = '';
-        if (s.missed) {
-          scoreBadge = `<span class="session-score-badge" style="background:#6b7280">✗</span>`;
-        } else if (s.completionScore !== undefined) {
-          const cls = s.completionScore >= 8 ? 'score-good' : s.completionScore >= 6 ? 'score-ok' : 'score-poor';
-          scoreBadge = `<span class="session-score-badge ${cls}">${s.completionScore}</span>`;
-        }
-        return `<div class="planned-session session-cycling${aiClass}${unplannedClass}" ${clickAttr} style="padding:6px 8px${isCursorPointer ? ';cursor:pointer' : ''}">
-          <span class="ps-icon">${isUnplanned ? '⚡' : '🚴'}</span>
-          <div class="ps-info" style="flex:1;min-width:0">
-            <div class="ps-name" style="font-size:11px">${title}${adjustedIcon}</div>
-            <div class="ai-tss">${dur}min${tssLabel}</div>
-          </div>
-          ${aiIcon}
-          <button class="ps-remove" onclick="event.stopPropagation();removeSession('${date}',${si})">×</button>
-          ${scoreBadge}
-        </div>`;
-      }
-      return `<div class="planned-session">
-        <span class="ps-icon">${sEmoji(s.type)}</span>
-        <div class="ps-info">
-          <div class="ps-name">${s.split ? s.type+' ('+s.split+')' : (s.description||s.type)}</div>
-          <div class="ps-sub">${s.duration||s.duur_min||'?'}min</div>
-        </div>
-        <button class="ps-remove" onclick="removeSession('${date}',${si})">×</button>
+  if (grid) grid.innerHTML = dates.map((date,i) => {
+    const isToday = date === t, isPast = date < t;
+    const dayNum  = new Date(date+'T12:00:00').getDate();
+    const sessions = wp[date] || [];
+    const restrDay = restr[enNames[i]];
+    const sessHtml = sessions.map((s,si) => _renderDayCardSession(s, date, si, restrDay)).join('');
+    const hasCycling = sessions.some(x => x.type === 'cycling');
+    let availHtml = '';
+    if (!isPast && !isToday && !hasCycling) {
+      const avail = (S.weekAvailability && S.weekAvailability[date]) || {};
+      const on = !!avail.cycling;
+      availHtml = `<div class="pf-day-avail">
+        <label class="pf-switch"><input type="checkbox" ${on?'checked':''} onchange="toggleAvailability('${date}',this.checked)"><span class="pf-switch-slider"></span></label>
+        <span class="pf-day-avail-lbl">fiets vrij</span>
+        ${on ? `<input class="pf-day-avail-dur" type="number" min="30" max="360" value="${avail.maxDuration||90}" onchange="setAvailDuration('${date}',this.value)" title="Max duur (min)">` : ''}
       </div>`;
-    }).join('');
-
-    const availToggle = isPast ? '' : `<div class="avail-toggle">
-      <label class="avail-switch">
-        <input type="checkbox" ${availActive?'checked':''} onchange="toggleAvailability('${date}',this.checked)">
-        <span class="avail-slider"></span>
-      </label>
-      <span class="avail-label">🚴 Beschikbaar</span>
-      ${availActive ? `<input class="avail-dur" type="number" min="30" max="360" value="${maxDur}" onchange="setAvailDuration('${date}',this.value)" title="Max duur (min)">` : ''}
-    </div>`;
-
-    return `<div class="day-card ${isToday?'today':''}">
-      <div class="day-card-head ${isToday?'today-lbl':''}">${dayNames[i]}</div>
-      <div class="day-num">${dayNum}</div>
-      ${sessHtml}
-      <div class="add-session-btns">
-        <button class="add-btn" onclick="openAddSession('${date}','gym')">🏋️</button>
-        <button class="add-btn" onclick="openAddSession('${date}','cycling')">🚴</button>
-        <button class="add-btn" onclick="openAddSession('${date}','running')">🏃</button>
-        <button class="add-btn" onclick="openAddSession('${date}','custom')">✏️</button>
-      </div>
-      ${availToggle}
+    }
+    return `<div class="pf-day ${isToday?'pf-day-today':''} ${isPast?'pf-day-past':''}">
+      <div class="pf-day-head"><span class="pf-day-name">${dayNames[i]}</span><span class="pf-day-num">${dayNum}</span></div>
+      ${sessHtml || '<div class="pf-day-empty">Rust</div>'}
+      ${availHtml}
     </div>`;
   }).join('');
 
-  // Show week summary if sessions planned
-  const totalSessions = dates.reduce((sum,d)=>sum+(S.data.weekPlan?.[d]?.length||0),0);
-  const ws = document.getElementById('weekSummary');
-  if (totalSessions > 0) {
-    ws.style.display='block';
-    const lines = dates.flatMap(d => (S.data.weekPlan?.[d]||[]).map(s=>`<span style="margin-right:6px">${sEmoji(s.type)} ${s.split?s.split+' - ':''}${(s.duration||s.duur_min||'?')}min ${s.description?'('+s.description+')':''} <span style="color:var(--muted)">${new Date(d+'T12:00:00').toLocaleDateString('nl-NL',{weekday:'short',day:'numeric'})}</span></span>`));
-    document.getElementById('weekSummaryContent').innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px">${lines.join('')}</div>`;
-  } else { ws.style.display='none'; }
+  _renderWeekTiles(dates);
+  _renderWeekLoadChart(dates);
+  _renderWeekZoneMix(dates);
 }
+
+function _renderDayCardSession(s, date, si, restrDay) {
+  const isCycling = s.type === 'cycling' || s.type === 'Ride' || s.type === 'VirtualRide';
+  const isRun = s.type === 'running' || s.type === 'Run';
+  const isRest = s.type === 'rest' || /rust|mobilit|recover|herstel/i.test(s.title||s.titel||s.description||'');
+  const iconType = isRest ? 'Rest' : isCycling ? 'Ride' : isRun ? 'Run'
+    : (s.split || /gym|kracht|weight/i.test(s.type||'')) ? 'WeightTraining' : 'Ride';
+  const icon = _sessionIconSvg(iconType);
+  const title = s.title || s.titel || (s.split ? ('Kracht · ' + s.split) : (s.description || _sessionTypeLabel(s.type)));
+  const dur = s.duration || s.duur_min;
+
+  let sub = '';
+  if (isCycling) {
+    const parts = [];
+    const blok = s.blokken || [];
+    const main = blok.find(b => _zoneIdx(b.zone) >= 3) || blok[0];
+    if (main && main.herhalingen > 1) parts.push(main.herhalingen + '×' + (main.duration||main.duur) + ' min');
+    const ftp = s.ftpPct || (s.IF ? Math.round(s.IF*100) : null);
+    if (ftp) parts.push('@' + ftp + '% FTP');
+    if (!parts.length && dur) parts.push(dur + ' min');
+    sub = parts.join(' · ');
+  } else if (s.split) {
+    sub = [s.sets ? s.sets + ' sets' : '', dur ? dur + ' min' : ''].filter(Boolean).join(' · ');
+  } else {
+    sub = dur ? dur + ' min' : '';
+  }
+
+  const completed = (s.completionScore !== undefined && !s.missed) || !!s.matchedActivityId;
+  const tss = s.targetTSS || s.tss || s.actualTSS;
+  let badge = '';
+  if (s.missed) badge = `<span class="pf-badge pf-badge-missed">Gemist</span>`;
+  else if (completed) badge = `<span class="pf-badge pf-badge-done">${_checkSvg()} Done</span>`;
+  else if (isRest) badge = `<span class="pf-badge pf-badge-rest">Rust</span>`;
+  else if (tss) badge = `<span class="pf-badge pf-badge-tss">${tss} TSS</span>`;
+
+  let interf = '';
+  if (isCycling && restrDay && restrDay.reason && restrDay.reason !== 'no_restriction') {
+    const map = { legs_day:'Z2-cap · legs vandaag', day_after_legs:'Z2-cap · dag na legs', two_days_after_legs:'Z3-cap · 2d na legs' };
+    interf = `<span class="pf-day-interf" title="Concurrent-interferentie: krachttraining beperkt de fietsintensiteit (Wilson 2012)">${_zapSvg()} ${map[restrDay.reason]||''}</span>`;
+  }
+
+  const actStravaId = s.matchedActivityId || s.stravaId;
+  const aiClickable = s.aiGenerated && s.blokken && s.blokken.length && !s.unplanned && !actStravaId;
+  const clickAttr = actStravaId ? `onclick="navigateToActivity(${actStravaId})"` : aiClickable ? `onclick="openAiSession('${date}',${si})"` : '';
+  const clickable = !!(actStravaId || aiClickable);
+
+  return `<div class="pf-day-sess ${clickable?'pf-day-sess-click':''}" ${clickAttr}>
+    <div class="pf-day-sess-top"><span class="pf-day-ico">${icon}</span>${badge}<button class="pf-day-x" onclick="event.stopPropagation();removeSession('${date}',${si})" title="Verwijderen">×</button></div>
+    <div class="pf-day-sess-title">${_esc(title)}</div>
+    ${sub ? `<div class="pf-day-sess-sub">${_esc(sub)}</div>` : ''}
+    ${interf}
+  </div>`;
+}
+
+function _renderWeekTiles(dates) {
+  const wp = S.data.weekPlan || {};
+  const fs = S.fullState || {};
+  const setTxt = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+
+  let planTSS=0, doneTSS=0, planned=0, done=0;
+  dates.forEach(d => (wp[d]||[]).forEach(s => {
+    planned++;
+    const completed = (s.completionScore !== undefined && !s.missed) || !!s.matchedActivityId;
+    const pTSS = s.targetTSS || s.tss || 0, aTSS = s.actualTSS || 0;
+    if (completed) { done++; doneTSS += (aTSS || pTSS); }
+    planTSS += (pTSS || aTSS);
+  }));
+  setTxt('wkDoneTSS', Math.round(doneTSS));
+  setTxt('wkPlanTSS', Math.round(planTSS));
+  const pct = planTSS > 0 ? Math.min(100, Math.round(doneTSS/planTSS*100)) : 0;
+  const fill = document.getElementById('wkProgressFill'); if (fill) fill.style.width = pct + '%';
+  setTxt('wkSessSub', `${done} gedaan · ${planned} gepland`);
+
+  const m = fs.enduranceMetrics || fs.metrics || {};
+  const tsbEl = document.getElementById('wkTSB'), tsbSub = document.getElementById('wkTSBSub');
+  if (tsbEl) {
+    if (S.currentWeekOffset === 0 && typeof m.projectedWeekEndTSB === 'number') {
+      const v = m.projectedWeekEndTSB;
+      tsbEl.textContent = v > 0 ? '+' + v : v;
+      tsbEl.className = 'pf-tile-big ' + (v < -25 ? 'c-red' : v < -10 ? 'c-orange' : v >= 5 ? 'c-blue' : 'c-green');
+      const band = v >= 5 ? 'fris' : v >= -10 ? 'productief' : v >= -25 ? 'opbouw' : 'overbelast';
+      if (tsbSub) tsbSub.textContent = `${band} · verwacht zo`;
+    } else {
+      tsbEl.textContent = '–'; tsbEl.className = 'pf-tile-big c-muted';
+      if (tsbSub) tsbSub.textContent = 'alleen huidige week';
+    }
+  }
+
+  const mix = computeWeekZoneMix(dates);
+  const modelEl = document.getElementById('wkModel'), zoneEl = document.getElementById('wkZonePct');
+  if (modelEl) {
+    if (mix.total > 0) {
+      modelEl.textContent = _modelLabel(classifyWeekModel(mix.low, mix.mid, mix.high));
+      if (zoneEl) zoneEl.textContent = `Z2 ${Math.round(mix.low*100)}% · Z3 ${Math.round(mix.mid*100)}% · Z4+ ${Math.round(mix.high*100)}%`;
+    } else { modelEl.textContent = '–'; if (zoneEl) zoneEl.textContent = 'geen fietsplan'; }
+  }
+
+  const sm = fs.strengthMetrics;
+  const slEl = document.getElementById('wkStrengthLoad'), ssEl = document.getElementById('wkStrengthSub'), splitEl = document.getElementById('wkStrengthSplit');
+  if (slEl) {
+    if (S.currentWeekOffset === 0 && sm) {
+      slEl.className = 'pf-tile-big';
+      slEl.textContent = sm.weeklyLoad ? (Math.round(sm.weeklyLoad/100)/10) + 't' : '0';
+      const avg = sm.avgWeeklyLoad4w || 0;
+      let trend = 'stabiel';
+      if (avg > 0) { const r = sm.weeklyLoad/avg; trend = r > 1.15 ? 'stijgend' : r < 0.85 ? 'dalend' : 'stabiel'; }
+      if (ssEl) ssEl.textContent = (sm.daysSinceLastSession != null ? `${sm.daysSinceLastSession}d geleden` : 'geen data') + ' · ' + trend;
+      const g = sm.muscleGroups || {};
+      const parts = [['push',g.push],['pull',g.pull],['legs',g.lower_body]];
+      const tot = parts.reduce((a,[,v]) => a + ((v && v.weeklyLoad) || 0), 0) || 1;
+      if (splitEl) splitEl.innerHTML = parts.map(([lbl,v]) => {
+        const load = (v && v.weeklyLoad) || 0;
+        return `<div class="pf-split-seg" style="flex:${load || 0.001}" title="${lbl}: ${Math.round(load)}"><span>${lbl}</span></div>`;
+      }).join('');
+    } else {
+      slEl.textContent = '–'; slEl.className = 'pf-tile-big c-muted';
+      if (ssEl) ssEl.textContent = S.currentWeekOffset === 0 ? 'geen krachtdata' : 'alleen huidige week';
+      if (splitEl) splitEl.innerHTML = '';
+    }
+  }
+}
+
+function computeWeekZoneMix(dates) {
+  const wp = S.data.weekPlan || {};
+  let low=0, mid=0, high=0;
+  dates.forEach(d => (wp[d]||[]).forEach(s => {
+    if (!(s.blokken && s.blokken.length)) return;
+    s.blokken.forEach(b => {
+      const reps = b.herhalingen > 1 ? b.herhalingen : 1;
+      const work = (b.duration || b.duur || 0) * reps;
+      const zi = _zoneIdx(b.zone);
+      if (zi <= 1) low += work; else if (zi === 2) mid += work; else high += work;
+      if (b.herstelBlok) {
+        const rz = _zoneIdx(b.herstelBlok.zone), rm = (b.herstelBlok.duration || b.herstelBlok.duur || 0) * reps;
+        if (rz <= 1) low += rm; else if (rz === 2) mid += rm; else high += rm;
+      }
+    });
+  }));
+  const total = low + mid + high;
+  return total > 0 ? { low:low/total, mid:mid/total, high:high/total, total } : { low:0, mid:0, high:0, total:0 };
+}
+
+// Spiegelt engine.js classifyTrainingModel 1-op-1. Houd in sync bij wijziging daar.
+function classifyWeekModel(lowFrac, midFrac, highFrac) {
+  if (lowFrac < 0.5) return 'mixed/onbekend';
+  if (highFrac >= 0.12 && midFrac < 0.20 && lowFrac >= 0.65) return 'polarized';
+  if (midFrac >= 0.25 || (midFrac + highFrac) >= 0.40) return 'threshold-heavy';
+  if (lowFrac > midFrac && midFrac > highFrac && highFrac >= 0.05) return 'pyramidal';
+  if (lowFrac >= 0.85 && highFrac < 0.05) return 'volume-only';
+  return 'gemengd';
+}
+function _modelLabel(m){ return {pyramidal:'Pyramidaal','threshold-heavy':'Threshold',polarized:'Polarized','volume-only':'Volume',gemengd:'Gemengd','mixed/onbekend':'Gemengd'}[m] || 'Gemengd'; }
+
+function _renderWeekLoadChart(dates) {
+  const canvas = document.getElementById('weekLoadChart');
+  if (!canvas) return;
+  const wp = S.data.weekPlan || {};
+  const dayNames = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
+  const data = dates.map(d => {
+    let tss = 0;
+    (wp[d]||[]).forEach(s => {
+      const completed = (s.completionScore !== undefined && !s.missed) || !!s.matchedActivityId;
+      tss += completed ? (s.actualTSS || s.targetTSS || s.tss || 0) : (s.targetTSS || s.tss || 0);
+    });
+    return Math.round(tss);
+  });
+  const cs = getComputedStyle(document.documentElement);
+  const accent = cs.getPropertyValue('--accent').trim() || '#012296';
+  const muted  = cs.getPropertyValue('--muted').trim() || '#4a5375';
+  const border = cs.getPropertyValue('--border').trim() || '#d8d1bf';
+  makeChart('weekLoadChart', {
+    type:'bar',
+    data:{ labels:dayNames, datasets:[{ data, backgroundColor:accent, borderRadius:5, maxBarThickness:34 }] },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => c.parsed.y + ' TSS' } } },
+      scales:{ x:{ ticks:{ font:{size:10,family:'JetBrains Mono'}, color:muted }, grid:{display:false}, border:{color:border} },
+               y:{ beginAtZero:true, ticks:{ font:{size:9}, color:muted }, grid:{color:border}, border:{display:false} } } }
+  });
+}
+
+function _renderWeekZoneMix(dates) {
+  const bar = document.getElementById('wkZoneBar'), leg = document.getElementById('wkZoneLegend');
+  if (!bar) return;
+  const mix = computeWeekZoneMix(dates);
+  if (mix.total <= 0) { bar.innerHTML = ''; if (leg) leg.textContent = 'Geen fietsplan deze week.'; return; }
+  const seg = (frac,cls,lbl) => frac > 0 ? `<div class="pf-zseg ${cls}" style="flex:${frac}"><span>${lbl} ${Math.round(frac*100)}%</span></div>` : '';
+  bar.innerHTML = seg(mix.low,'pf-z-low','Z2') + seg(mix.mid,'pf-z-mid','Z3') + seg(mix.high,'pf-z-high','Z4+');
+  if (leg) leg.innerHTML = `<span class="pf-zdot pf-z-low"></span>Z1-2 &nbsp; <span class="pf-zdot pf-z-mid"></span>Z3 &nbsp; <span class="pf-zdot pf-z-high"></span>Z4+`;
+}
+
+function openAddSessionChooser() {
+  S.pendingSession = null;
+  const dates = getWeekDates(S.currentWeekOffset);
+  const dayNames = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
+  const modal = document.getElementById('modalOverlay');
+  const title = document.getElementById('modalTitle');
+  const body  = document.getElementById('modalBody');
+  if (!modal || !title || !body) return;
+  title.textContent = 'Sessie toevoegen';
+  const dayOpts = dates.map((d,i) => `<option value="${d}">${dayNames[i]} ${new Date(d+'T12:00:00').getDate()}</option>`).join('');
+  body.innerHTML = `
+    <div class="fg" style="margin-bottom:12px"><label>Dag</label><select id="chDay">${dayOpts}</select></div>
+    <div class="fg"><label>Type</label>
+      <div class="pf-type-pick">
+        <button type="button" onclick="openAddSession(document.getElementById('chDay').value,'gym')">${_sessionIconSvg('Gym')} Kracht</button>
+        <button type="button" onclick="openAddSession(document.getElementById('chDay').value,'cycling')">${_sessionIconSvg('Ride')} Fiets</button>
+        <button type="button" onclick="openAddSession(document.getElementById('chDay').value,'running')">${_sessionIconSvg('Run')} Hardlopen</button>
+        <button type="button" onclick="openAddSession(document.getElementById('chDay').value,'custom')">${_sessionIconSvg('Rest')} Overig</button>
+      </div>
+    </div>`;
+  modal.classList.remove('hidden');
+}
+
+function _checkSvg(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'; }
+function _zapSvg(){ return '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg>'; }
+function _esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _isoWeekNum(d){ const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const day = (t.getUTCDay() + 6) % 7; t.setUTCDate(t.getUTCDate() - day + 3); const first = new Date(Date.UTC(t.getUTCFullYear(), 0, 4)); return 1 + Math.round(((t - first) / 86400000 - 3 + ((first.getUTCDay() + 6) % 7)) / 7); }
 
 function changeWeek(dir) {
   S.currentWeekOffset += dir;
@@ -1498,6 +1666,7 @@ function showTab(name, btn) {
   document.querySelectorAll('[data-tab="'+name+'"]').forEach(el=>el.classList.add('active'));
   currentTab = name;
   if (name === 'instellingen') renderSourcesStatus();
+  if (name === 'week') renderWeekGrid();
   if (name !== 'analyse') {
     _coachReturnContext = null;
   } else {
