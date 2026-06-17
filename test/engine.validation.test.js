@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 const {
   computeETLForActivity, computeLoadMetrics,
   classifyTrainingModel, detectOverreaching,
+  projectWeekEndTSB,
 } = require('../engine');
 const {
   makeRide, makeRun,
@@ -156,5 +157,82 @@ describe('TID-modellen (Seiler)', () => {
 
   test('55/30/15 → threshold-heavy (Seiler: te veel grey zone, mid>=25%)', () => {
     assert.strictEqual(classifyTrainingModel(0.55, 0.30, 0.15), 'threshold-heavy');
+  });
+});
+
+// ── 7. projectWeekEndTSB — deterministische projectie (endurance EWMA) ───────
+// Projectie hergebruikt computeLoadMetrics; TSB = CTL − ATL op weekEndISO.
+// τ_CTL = 42, τ_ATL = 7. Bron: PeakForm_Trainingstheorie.md §2.2
+
+describe('projectWeekEndTSB — deterministische TSB-projectie', () => {
+  const k_atl = 1 - Math.exp(-1 / 7);
+  const k_ctl = 1 - Math.exp(-1 / 42);
+
+  // Bouw een bekende ETL-reeks: 30 dagen L=60, dan twee geplande sessies
+  const baseStart = '2025-01-01';
+  const baseLen   = 30;
+  const weekEndISO = '2025-02-05'; // ver genoeg in de toekomst (dag 35 + gat)
+
+  function buildBase() {
+    const etl = {};
+    for (let i = 0; i < baseLen; i++) {
+      const d = new Date(baseStart);
+      d.setDate(d.getDate() + i);
+      etl[d.toISOString().split('T')[0]] = 60;
+    }
+    return etl;
+  }
+
+  test('lege enduranceDailyETL → null', () => {
+    assert.strictEqual(projectWeekEndTSB({}, { '2025-02-05': 80 }, '2025-02-05'), null);
+    assert.strictEqual(projectWeekEndTSB(null, {}, '2025-02-05'), null);
+  });
+
+  test('interne consistentie: projectie === computeLoadMetrics op samengevoegde reeks', () => {
+    const base = buildBase();
+    const planned = { '2025-01-31': 80, '2025-02-03': 100 };
+
+    // Handmatige samenvoeging (dezelfde logica als in projectWeekEndTSB)
+    const merged = { ...base };
+    for (const [date, load] of Object.entries(planned)) {
+      merged[date] = (merged[date] || 0) + load;
+    }
+    const expected = computeLoadMetrics(merged, weekEndISO).history[weekEndISO].tsb;
+    const actual   = projectWeekEndTSB(base, planned, weekEndISO);
+
+    assert.ok(typeof actual === 'number',
+      `projectWeekEndTSB moet een getal teruggeven, kreeg: ${actual}`);
+    assert.strictEqual(actual, expected,
+      `Projectie ${actual} ≠ direct computeLoadMetrics-resultaat ${expected}`);
+  });
+
+  test('onafhankelijke EWMA-validatie: projectie binnen 0.1 van ctl−atl op weekEndISO', () => {
+    const base = buildBase();
+    const planned = { '2025-01-31': 80, '2025-02-03': 100 };
+
+    // Bouw de samengevoegde reeks
+    const merged = { ...base };
+    for (const [date, load] of Object.entries(planned)) {
+      merged[date] = (merged[date] || 0) + load;
+    }
+
+    // Itereer zelf over alle datums tot en met weekEndISO en bereken CTL/ATL
+    const dates = [];
+    const start = new Date('2025-01-01');
+    const end   = new Date(weekEndISO);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    let ctl = 0, atl = 0;
+    for (const d of dates) {
+      const load = merged[d] || 0;
+      atl = atl + k_atl * (load - atl);
+      ctl = ctl + k_ctl * (load - ctl);
+    }
+    const expectedTSB = ctl - atl;
+    const actual = projectWeekEndTSB(base, planned, weekEndISO);
+
+    assert.ok(Math.abs(actual - expectedTSB) < 0.1,
+      `Projectie ${actual?.toFixed(3)} wijkt meer dan 0.1 af van onafhankelijk berekende TSB ${expectedTSB.toFixed(3)}`);
   });
 });

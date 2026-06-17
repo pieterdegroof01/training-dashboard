@@ -2311,7 +2311,21 @@ app.get('/api/state/full', async (req, res) => {
     const settings = data.settings;
     const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings, data);
     const { enduranceDailyETL, strengthDailyETL, dailyETL, sources, ...rest } = state;
-    rest.enduranceMetrics = { ...rest.enduranceMetrics, history: undefined };
+    // Geprojecteerde TSB aan het einde van de huidige ISO-week (endurance-only,
+    // consistent met de live TSB). Datumvergelijking op ISO-strings = UTC-safe.
+    const { monday: wkMon, sunday: wkSun, today: wkToday } = getISOWeekBounds();
+    const plannedRemainingLoads = {};
+    for (const [date, sessions] of Object.entries(data.weekPlan || {})) {
+      if (date < wkToday || date > wkSun) continue;
+      for (const s of (sessions || [])) {
+        if (s.type !== 'cycling') continue;            // TSB is endurance-only
+        if (s.matchedActivityId || s.completionScore !== undefined) continue; // al voltooid, zit al in actuals
+        const tss = s.targetTSS || s.tss;
+        if (tss) plannedRemainingLoads[date] = (plannedRemainingLoads[date] || 0) + tss;
+      }
+    }
+    const projectedWeekEndTSB = engine.projectWeekEndTSB(enduranceDailyETL, plannedRemainingLoads, wkSun);
+    rest.enduranceMetrics = { ...rest.enduranceMetrics, history: undefined, projectedWeekEndTSB, projectedWeekEndDate: wkSun };
     rest.metrics = rest.enduranceMetrics;
     // Slaapdata laatste 14 dagen (ontbrekende dagen = null)
     const sleepData14 = [];

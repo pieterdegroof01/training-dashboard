@@ -486,6 +486,21 @@ function computeLoadMetrics(dailyETL, asOfDate = null) {
   };
 }
 
+// Projecteert de TSB op weekEndISO door geplande resterende load in de
+// EWMA-reeks te mengen en computeLoadMetrics tot die datum te draaien.
+// Pure functie: enduranceDailyETL = {date: load}, plannedRemainingLoads = {date: load}.
+function projectWeekEndTSB(enduranceDailyETL, plannedRemainingLoads, weekEndISO) {
+  if (!enduranceDailyETL || !Object.keys(enduranceDailyETL).length) return null;
+  const merged = { ...enduranceDailyETL };
+  for (const [date, load] of Object.entries(plannedRemainingLoads || {})) {
+    if (!load) continue;
+    merged[date] = (merged[date] || 0) + load;
+  }
+  const m = computeLoadMetrics(merged, weekEndISO);
+  const tsbAtEnd = m.history && m.history[weekEndISO] ? m.history[weekEndISO].tsb : m.tsb;
+  return typeof tsbAtEnd === 'number' ? tsbAtEnd : null;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // WEEKLY ZONE BREAKDOWN
 // ────────────────────────────────────────────────────────────────────────────
@@ -1312,6 +1327,7 @@ module.exports = {
   computeETLForHevyWorkout,
   buildDailyETLSeries,
   computeLoadMetrics,
+  projectWeekEndTSB,
   computeStrengthMetrics,
   computeCalibrationFactor,
   rollingFtp, ftpForDate,
