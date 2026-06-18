@@ -2336,6 +2336,7 @@ app.get('/api/state/full', async (req, res) => {
     }
     res.json({
       ...rest,
+      strengthDailyETL,
       hasETLData: Object.keys(dailyETL).length > 0,
       calibration: data.calibration || { factor: 1.0, count: 0, reliable: false },
       alertThresholds: settings.alerts || {},

@@ -995,8 +995,11 @@ function _renderWeekLoadChart(dates) {
   const canvas = document.getElementById('weekLoadChart');
   if (!canvas) return;
   const wp = S.data.weekPlan || {};
+  const strDaily = (S.fullState && S.fullState.strengthDailyETL) || {};
   const dayNames = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
-  const data = dates.map(d => {
+
+  // Fietsbelasting: plan-TSS, met actualTSS zodra de sessie voltooid is.
+  const cyclingData = dates.map(d => {
     let tss = 0;
     (wp[d]||[]).forEach(s => {
       const completed = (s.completionScore !== undefined && !s.missed) || !!s.matchedActivityId;
@@ -1004,17 +1007,29 @@ function _renderWeekLoadChart(dates) {
     });
     return Math.round(tss);
   });
+  // Krachtbelasting: gelogde ETL uit de engine (Hevy), additief gestapeld op de fietsbelasting.
+  const strengthData = dates.map(d => Math.round(strDaily[d] || 0));
+
   const cs = getComputedStyle(document.documentElement);
   const accent = cs.getPropertyValue('--accent').trim() || '#012296';
   const muted  = cs.getPropertyValue('--muted').trim() || '#4a5375';
   const border = cs.getPropertyValue('--border').trim() || '#d8d1bf';
+  const txt    = cs.getPropertyValue('--text').trim() || muted;
+  const strColor = _hexToRgba(muted, 0.4);
+
   makeChart('weekLoadChart', {
     type:'bar',
-    data:{ labels:dayNames, datasets:[{ data, backgroundColor:accent, borderRadius:5, maxBarThickness:34 }] },
+    data:{ labels:dayNames, datasets:[
+      { label:'Fiets',  data:cyclingData,  backgroundColor:accent,   borderRadius:5, maxBarThickness:34, stack:'load' },
+      { label:'Kracht', data:strengthData, backgroundColor:strColor, borderRadius:5, maxBarThickness:34, stack:'load' }
+    ]},
     options:{ responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c => c.parsed.y + ' TSS' } } },
-      scales:{ x:{ ticks:{ font:{size:10,family:'JetBrains Mono'}, color:muted }, grid:{display:false}, border:{color:border} },
-               y:{ beginAtZero:true, ticks:{ font:{size:9}, color:muted }, grid:{color:border}, border:{display:false} } } }
+      plugins:{
+        legend:{ display:true, position:'top', align:'end', labels:{ boxWidth:10, boxHeight:10, font:{size:10,family:'JetBrains Mono'}, color:txt } },
+        tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${c.parsed.y}` } }
+      },
+      scales:{ x:{ stacked:true, ticks:{ font:{size:10,family:'JetBrains Mono'}, color:muted }, grid:{display:false}, border:{color:border} },
+               y:{ stacked:true, beginAtZero:true, ticks:{ font:{size:9}, color:muted }, grid:{color:border}, border:{display:false} } } }
   });
 }
 
@@ -1053,6 +1068,7 @@ function openAddSessionChooser() {
 
 function _checkSvg(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'; }
 function _zapSvg(){ return '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg>'; }
+function _hexToRgba(hex, a){ const h = (hex||'').replace('#',''); if (h.length !== 6) return `rgba(74,83,117,${a})`; const n = parseInt(h,16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
 function _esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _isoWeekNum(d){ const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const day = (t.getUTCDay() + 6) % 7; t.setUTCDate(t.getUTCDate() - day + 3); const first = new Date(Date.UTC(t.getUTCFullYear(), 0, 4)); return 1 + Math.round(((t - first) / 86400000 - 3 + ((first.getUTCDay() + 6) % 7)) / 7); }
 
