@@ -2090,6 +2090,7 @@ app.post('/api/analyse', async (req, res) => {
         const ftp = engine.ftpForDate(allActivities, settings, date);
         const hrMax = settings.hrMax || 197;
         const zone = engine.activityZoneClassification({ ...a, _unreliablePower: inUnreliable }, ftp, hrMax, settings);
+        const actEtl = engine.computeETLForActivity({ ...a, _unreliablePower: inUnreliable }, settings).etl;
         return {
           datum: date, type: a.type, naam: a.name,
           afstand_km: a.distance ? +(a.distance / 1000).toFixed(1) : null,
@@ -2099,7 +2100,7 @@ app.post('/api/analyse', async (req, res) => {
           NP: a.weighted_average_watts && !inUnreliable ? Math.round(a.weighted_average_watts) : null,
           hr: a.average_heartrate ? Math.round(a.average_heartrate) : null,
           zone: zone.zone, IF: zone.IF || null,
-          etl: state.dailyETL[date] ? Math.round(state.dailyETL[date]) : null
+          etl: actEtl ? Math.round(actEtl) : null
         };
       });
 
@@ -2310,7 +2311,7 @@ app.get('/api/state/full', async (req, res) => {
     const allActivities = activities;
     const settings = data.settings;
     const state = engine.computeFullState(allActivities, hevyWorkouts, data.weight || {}, data.nutrition || {}, data.weekPlan || {}, settings, data);
-    const { enduranceDailyETL, strengthDailyETL, dailyETL, sources, ...rest } = state;
+    const { enduranceDailyETL, strengthDailyETL, sources, ...rest } = state;
     // Geprojecteerde TSB aan het einde van de huidige ISO-week (endurance-only,
     // consistent met de live TSB). Datumvergelijking op ISO-strings = UTC-safe.
     const { monday: wkMon, sunday: wkSun, today: wkToday } = getISOWeekBounds();
@@ -2337,7 +2338,7 @@ app.get('/api/state/full', async (req, res) => {
     res.json({
       ...rest,
       strengthDailyETL,
-      hasETLData: Object.keys(dailyETL).length > 0,
+      hasETLData: (Object.keys(enduranceDailyETL).length + Object.keys(strengthDailyETL).length) > 0,
       calibration: data.calibration || { factor: 1.0, count: 0, reliable: false },
       alertThresholds: settings.alerts || {},
       sleepData: sleepData14

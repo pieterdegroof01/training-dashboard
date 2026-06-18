@@ -281,7 +281,6 @@ function computeETLForHevyWorkout(workout, opts = {}) {
 function buildDailyETLSeries(activities, hevyWorkouts, settings) {
   const enduranceDailyETL = {};
   const strengthDailyETL  = {};
-  const dailyETL = {};
   const sources  = {};
 
   activities.forEach(a => {
@@ -291,8 +290,7 @@ function buildDailyETLSeries(activities, hevyWorkouts, settings) {
     const result = computeETLForActivity(a, settings);
     const etl = result.etl;
     const tssSource = result.tssSource;
-    if (!dailyETL[d]) { dailyETL[d] = 0; sources[d] = []; }
-    dailyETL[d] += etl;
+    if (!sources[d]) sources[d] = [];
     sources[d].push({ kind: 'strava', type: a.type, name: a.name, etl, tssSource, durMin: Math.round((a.moving_time || 0) / 60) });
     if (ENDURANCE_TYPES.has(a.type)) {
       enduranceDailyETL[d] = (enduranceDailyETL[d] || 0) + etl;
@@ -307,13 +305,12 @@ function buildDailyETLSeries(activities, hevyWorkouts, settings) {
     const result = computeETLForHevyWorkout(w, { defaultRPE: settings?.defaultRPE });
     const etl = typeof result === 'number' ? result : result.etl;
     const breakdown = typeof result === 'number' ? null : result.breakdown;
-    if (!dailyETL[d]) { dailyETL[d] = 0; sources[d] = []; }
-    dailyETL[d] += etl;
+    if (!sources[d]) sources[d] = [];
     strengthDailyETL[d] = (strengthDailyETL[d] || 0) + etl;
     sources[d].push({ kind: 'hevy', name: w.name || 'Workout', etl, breakdown });
   });
 
-  return { enduranceDailyETL, strengthDailyETL, dailyETL, sources };
+  return { enduranceDailyETL, strengthDailyETL, sources };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1137,7 +1134,7 @@ function suggestLTHR(activities) {
 // COMPLETE STATE
 // ────────────────────────────────────────────────────────────────────────────
 function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan, settings, data = null) {
-  const { enduranceDailyETL, strengthDailyETL, dailyETL, sources } = buildDailyETLSeries(activities, hevyWorkouts, settings);
+  const { enduranceDailyETL, strengthDailyETL, sources } = buildDailyETLSeries(activities, hevyWorkouts, settings);
   const enduranceMetrics = computeLoadMetrics(enduranceDailyETL);
   const strengthMetrics  = computeStrengthMetrics(hevyWorkouts);
   const ftpInfo = rollingFtp(activities, settings);
@@ -1172,7 +1169,7 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
   const adaptivePlan = adaptiveWeekAdjustments(weekPlan, readiness, overreaching, plateaus, currentZoneModel);
 
   return {
-    enduranceDailyETL, strengthDailyETL, dailyETL, sources,
+    enduranceDailyETL, strengthDailyETL, sources,
     enduranceMetrics,
     metrics: enduranceMetrics, // backward-compat alias
     strengthMetrics,
