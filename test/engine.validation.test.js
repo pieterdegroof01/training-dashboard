@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const {
   computeETLForActivity, computeLoadMetrics,
   classifyTrainingModel, detectOverreaching,
-  projectWeekEndTSB,
+  projectWeekEndTSB, activityZoneClassification,
 } = require('../engine');
 const {
   makeRide, makeRun,
@@ -157,6 +157,34 @@ describe('TID-modellen (Seiler)', () => {
 
   test('55/30/15 → threshold-heavy (Seiler: te veel grey zone, mid>=25%)', () => {
     assert.strictEqual(classifyTrainingModel(0.55, 0.30, 0.15), 'threshold-heavy');
+  });
+});
+
+// ── 6b. Zone-grens IF=0.90/0.905/0.91 — Z3 = 76-90% FTP, Z4 vanaf 91% ────────
+// Gedocumenteerde grens: Z3 = 76-90% FTP (IF < 0.91), Z4 = 91-105% FTP (IF >= 0.91).
+// Bron: PeakForm_Trainingstheorie.md §Zones
+
+describe('Zone-classificatie grens Z3/Z4 bij 90-91% FTP', () => {
+  const FTP = 280;
+  function classify(ifFrac) {
+    const watts = Math.round(FTP * ifFrac);
+    const a = makeRide({ date: '2026-06-01', durationSec: 3600, watts, npWatts: watts });
+    return activityZoneClassification(a, FTP, 197, {}).zone;
+  }
+
+  test('IF=0.90 (90% FTP) → Z3 (bovengrens Z3)', () => {
+    // Onafhankelijk: IF 0.90 < 0.91 → Z3 conform Z3 = 76-90% FTP
+    assert.strictEqual(classify(0.90), 'Z3');
+  });
+
+  test('IF=0.905 (middenin Z3/Z4-grensgebied) → Z3', () => {
+    // Onafhankelijk: IF 0.905 < 0.91 → Z3
+    assert.strictEqual(classify(0.905), 'Z3');
+  });
+
+  test('IF=0.91 (eerste punt Z4) → Z4', () => {
+    // Onafhankelijk: IF 0.91 >= 0.91 → Z4 conform Z4 = 91-105% FTP
+    assert.strictEqual(classify(0.91), 'Z4');
   });
 });
 

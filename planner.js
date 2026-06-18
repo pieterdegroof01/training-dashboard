@@ -190,10 +190,9 @@ function buildSession(date, sessionType, targetTSS, maxDur, ftp) {
   const zones = zoneWatts(ftp);
   const rawBlokken = buildSessionBlocks(sessionType, targetTSS, maxDur, zones);
 
-  // Verwijder interne _tssZone vóór output
+  // _tssZone bewaren: onderscheidt sweetspot (SS) van threshold (Z4) voor zone-classificatie
   const blokken = rawBlokken.map(b => {
     const out = Object.assign({}, b);
-    delete out._tssZone;
     return out;
   });
 

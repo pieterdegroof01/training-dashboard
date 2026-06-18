@@ -953,22 +953,31 @@ function _renderWeekTiles(dates) {
 
 function computeWeekZoneMix(dates) {
   const wp = S.data.weekPlan || {};
-  let low=0, mid=0, high=0;
-  dates.forEach(d => (wp[d]||[]).forEach(s => {
+  let low = 0, mid = 0, high = 0;
+  const bucketOf = (zoneKey) => {
+    if (zoneKey === 'SS') return 'mid';            // sweetspot = Z3/mid (76-90% FTP)
+    const zi = _zoneIdx(zoneKey);
+    return zi <= 1 ? 'low' : zi === 2 ? 'mid' : 'high';
+  };
+  dates.forEach(d => (wp[d] || []).forEach(s => {
     if (!(s.blokken && s.blokken.length)) return;
+    const isSweetspot = /sweet ?spot/i.test(s.title || s.titel || ''); // fallback voor oude plannen zonder _tssZone
     s.blokken.forEach(b => {
       const reps = b.herhalingen > 1 ? b.herhalingen : 1;
       const work = (b.duration || b.duur || 0) * reps;
-      const zi = _zoneIdx(b.zone);
-      if (zi <= 1) low += work; else if (zi === 2) mid += work; else high += work;
+      let zoneKey = b._tssZone || b.zone;
+      if (!b._tssZone && isSweetspot && b.type === 'work') zoneKey = 'SS';
+      const bk = bucketOf(zoneKey);
+      if (bk === 'low') low += work; else if (bk === 'mid') mid += work; else high += work;
       if (b.herstelBlok) {
-        const rz = _zoneIdx(b.herstelBlok.zone), rm = (b.herstelBlok.duration || b.herstelBlok.duur || 0) * reps;
-        if (rz <= 1) low += rm; else if (rz === 2) mid += rm; else high += rm;
+        const rm = (b.herstelBlok.duration || b.herstelBlok.duur || 0) * reps;
+        const rk = bucketOf(b.herstelBlok._tssZone || b.herstelBlok.zone);
+        if (rk === 'low') low += rm; else if (rk === 'mid') mid += rm; else high += rm;
       }
     });
   }));
   const total = low + mid + high;
-  return total > 0 ? { low:low/total, mid:mid/total, high:high/total, total } : { low:0, mid:0, high:0, total:0 };
+  return total > 0 ? { low: low/total, mid: mid/total, high: high/total, total } : { low: 0, mid: 0, high: 0, total: 0 };
 }
 
 // Spiegelt engine.js classifyTrainingModel 1-op-1. Houd in sync bij wijziging daar.
