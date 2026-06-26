@@ -3841,6 +3841,69 @@ function renderSourcesStatus() {
     </div>`).join('');
 }
 
+// ── PMC-metric tooltips ───────────────────────────────────────────────────────
+const PF_TIPS = {
+  tsb: `<strong>TSB — Training Stress Balance</strong>
+CTL minus ATL. Hoe fris je bent ten opzichte van je fitnessniveau. Een negatieve TSB is normaal tijdens trainingsblokken; een positieve TSB geeft aan dat je uitgerust bent.
+<div class="pf-tip-bands">
+  <span>&gt; +10</span><span>uitgerust — race form</span>
+  <span>0 tot −10</span><span>optimale trainingstoestand</span>
+  <span>−10 tot −30</span><span>productief belastingsblok</span>
+  <span>&lt; −30</span><span>risico chronische vermoeidheid</span>
+</div>`,
+  ctl: `<strong>CTL — Chronic Training Load</strong>
+42-dagen gewogen gemiddelde van dagelijkse TSS. Maat voor je opgebouwde aerobe basis. Groeit langzaam; daalt bij detraining met een halfwaardetijd van ~42 dagen.
+<div class="pf-tip-bands">
+  <span>40–80</span><span>recreatief serieus</span>
+  <span>70–100</span><span>gevorderd amateur</span>
+  <span>100–140</span><span>semi-professioneel</span>
+</div>`,
+  atl: `<strong>ATL — Acute Training Load</strong>
+7-dagen gewogen gemiddelde van dagelijkse TSS. Reageert snel op belasting — stijgt binnen dagen bij intensieve blokken. Normaal 15–40 punten boven CTL tijdens opbouw.`,
+  acwr: `<strong>ACWR — Acute:Chronic Workload Ratio</strong>
+ATL gedeeld door CTL. Maat voor hoe snel de belasting stijgt ten opzichte van je gewende niveau.
+<div class="pf-tip-bands">
+  <span>&lt; 0.8</span><span>te weinig prikkel</span>
+  <span>0.8–1.3</span><span>veilige trainingszone</span>
+  <span>1.3–1.5</span><span>verhoogd risico (Gabbett)</span>
+  <span>&gt; 1.5</span><span>gevaarzone blessure</span>
+</div>`,
+  mono: `<strong>Monotony — Foster</strong>
+Gemiddelde dagbelasting gedeeld door standaarddeviatie over 7 dagen. Een hoge monotony betekent weinig afwisseling in trainingsintensiteit. Boven 2.0 remt het trainingsrespons.`,
+};
+
+function initInfoTooltips() {
+  let tip = document.getElementById('pfInfoTip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'pfInfoTip';
+    tip.className = 'pf-info-tip';
+    document.body.appendChild(tip);
+  }
+
+  document.querySelectorAll('.pf-info-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const key = btn.dataset.tip;
+      if (!PF_TIPS[key]) return;
+      if (tip.classList.contains('is-open') && tip._src === btn) {
+        tip.classList.remove('is-open');
+        return;
+      }
+      tip.innerHTML = PF_TIPS[key];
+      tip._src = btn;
+      const r = btn.getBoundingClientRect();
+      tip.style.top = (r.bottom + 8) + 'px';
+      tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 266)) + 'px';
+      tip.classList.add('is-open');
+    });
+  });
+
+  document.addEventListener('click', () => {
+    document.getElementById('pfInfoTip')?.classList.remove('is-open');
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 const _activityPageMatch = window.location.pathname.match(/^\/activity\/(\d+)$/);
 if (_activityPageMatch) {
@@ -3850,3 +3913,4 @@ if (_activityPageMatch) {
   syncAll();
   (TAB_INSIGHTS['overview'] || []).forEach(p => loadInsight(p));
 }
+initInfoTooltips();

@@ -629,3 +629,27 @@ details.ap-accordion-section > summary { display:none; }
   .pf-day-x { opacity: 0; transition: opacity .12s; }
   .pf-day-sess:hover .pf-day-x { opacity: 1; }
 }
+
+/* ── Info-tooltips (PMC-metrics) ──────────────────────────────────────────── */
+.pf-info-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; vertical-align: middle;
+  margin-left: 3px; color: var(--muted); opacity: 0.55;
+  transition: opacity 0.15s;
+}
+.pf-info-btn:hover, .pf-info-btn:focus { opacity: 1; outline: none; }
+.pf-info-btn svg { width: 10px; height: 10px; }
+
+.pf-info-tip {
+  position: fixed; display: none;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px;
+  font-size: 12px; line-height: 1.55; color: var(--fg);
+  max-width: 250px; z-index: 9100;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.13);
+  pointer-events: none;
+}
+.pf-info-tip.is-open { display: block; }
+.pf-info-tip strong { display: block; margin-bottom: 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+.pf-info-tip .pf-tip-bands { margin-top: 7px; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 11px; }
+.pf-tip-bands span:nth-child(odd) { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
