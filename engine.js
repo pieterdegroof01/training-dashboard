@@ -1058,6 +1058,44 @@ function powerProfileLevel(wkg, durationKey) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// RENNERSTYPE — deterministische classificatie uit de vier niveaus (0..8)
+// Vergelijkt het korte spectrum (5s + 1min, neuromusculair/anaeroob) met het
+// lange spectrum (5min + FTP, aeroob/drempel). Geen schatting, pure vorm-analyse.
+// ────────────────────────────────────────────────────────────────────────────
+function classifyRiderType(levels) {
+  const s5 = levels && levels['5s'], m1 = levels && levels['1min'];
+  const m5 = levels && levels['5min'], ft = levels && levels['20min'];
+  if ([s5, m1, m5, ft].some(v => v == null)) {
+    return { type: null, description: 'Onvolledig profiel: niet alle vier de duraties hebben gemeten data in dit venster.' };
+  }
+  const shortEnd = (s5 + m1) / 2;
+  const longEnd  = (m5 + ft) / 2;
+  const diff = longEnd - shortEnd;   // positief = duurtype, negatief = sprinttype
+  const TH = 0.75;
+
+  // Sterkste en zwakste as voor de omschrijving.
+  const axes = [
+    { k: 'sprint',  v: s5 }, { k: 'anaeroob', v: m1 },
+    { k: 'VO₂max',  v: m5 }, { k: 'drempel',  v: ft },
+  ];
+  const strongest = axes.reduce((a, b) => b.v > a.v ? b : a);
+  const weakest   = axes.reduce((a, b) => b.v < a.v ? b : a);
+
+  let type, description;
+  if (diff >= TH) {
+    type = ft >= m5 ? 'Tijdritrenner' : 'Klimmer / VO₂-type';
+    description = `Sterk op ${strongest.k}, zwakker op ${weakest.k}. Je profiel leunt naar duurvermogen: aeroob en drempel domineren over explosiviteit.`;
+  } else if (diff <= -TH) {
+    type = (s5 - m1) >= 0.5 ? 'Sprinter' : 'Puncheur';
+    description = `Sterk op ${strongest.k}, zwakker op ${weakest.k}. Je profiel leunt naar korte, explosieve inspanningen boven langdurig drempelvermogen.`;
+  } else {
+    type = 'Allrounder';
+    description = `Gebalanceerd over alle duraties (sterkste: ${strongest.k}, zwakste: ${weakest.k}). Geen uitgesproken specialisme.`;
+  }
+  return { type, description, diff: +diff.toFixed(2), shortEnd: +shortEnd.toFixed(2), longEnd: +longEnd.toFixed(2) };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // POWER-DURATION CURVE VOLLEDIG — één waarde per seconde (Int16Array)
 // ────────────────────────────────────────────────────────────────────────────
 function computeMMPFull(powerTimeline) {
@@ -1389,6 +1427,6 @@ module.exports = {
   computeAerobicEfficiencyTrend,
   computeMMP,
   computeMMPFull,
-  powerProfileLevel, POWER_PROFILE_MALE, POWER_PROFILE_CATEGORIES,
+  powerProfileLevel, POWER_PROFILE_MALE, POWER_PROFILE_CATEGORIES, classifyRiderType,
   ENDURANCE_TYPES, STRENGTH_TYPES
 };

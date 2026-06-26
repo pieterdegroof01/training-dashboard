@@ -1179,15 +1179,29 @@ app.get('/api/state/power-profile', async (req, res) => {
     const acts = await getActivities(user.id);
     const weightMap = await getWeightMap(user.id);
 
-    // Canoniek gewicht: meest recente datum (zelfde patroon als computeFullState).
-    const wEntries = Object.entries(weightMap).sort((a, b) => b[0].localeCompare(a[0]));
-    const weight = wEntries.length ? wEntries[0][1] : null;
+    // Gewichtsinvoer gesorteerd op datum; nodig voor gewicht-op-datum lookup.
+    const wEntries = Object.entries(weightMap)
+      .map(([d, kg]) => [d, kg])
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    const weightDataFrom = wEntries.length ? wEntries[0][0] : null;
+    const DAY = 86400000;
+    const WEIGHT_TOLERANCE_DAYS = 120;
 
-    // Uitsluitend ritten met echte vermogensmeter.
+    // Gewicht op (of dichtst bij) een datum. null als geen invoer binnen tolerantie ligt.
+    function weightAt(dateStr) {
+      if (!wEntries.length || !dateStr) return null;
+      const t = new Date(dateStr).getTime();
+      let best = null, bestDiff = Infinity;
+      for (const [d, kg] of wEntries) {
+        const diff = Math.abs(new Date(d).getTime() - t);
+        if (diff < bestDiff) { bestDiff = diff; best = kg; }
+      }
+      return bestDiff <= WEIGHT_TOLERANCE_DAYS * DAY ? best : null;
+    }
+
     const measured = acts.filter(a =>
       a.mmp && a.mmp.powerSource === 'measured' && a.mmp.v === 2 && Array.isArray(a.mmp.mmpArray));
 
-    // mmpArray is 0-indexed: index = duur_in_seconden - 1. FTP = 20min-vermogen × 0.95.
     const DURATIONS = [
       { key: '5s',    idx: 4,    factor: 1    },
       { key: '1min',  idx: 59,   factor: 1    },
@@ -1195,32 +1209,67 @@ app.get('/api/state/power-profile', async (req, res) => {
       { key: '20min', idx: 1199, factor: 0.95 },
     ];
 
-    const profile = DURATIONS.map(({ key, idx, factor }) => {
-      let bestW = null, bestDate = null, bestName = null;
+    const now = Date.now();
+    const cut90  = now - 90 * DAY;
+    const cut365 = now - 365 * DAY;
+
+    // Beste W/kg-inspanning in een venster, met gewicht-op-datum. Rangschikt op W/kg,
+    // niet op watts: een lichtere dag met iets minder watt kan een hoger W/kg geven.
+    function bestInWindow(idx, factor, key, lo, hi) {
+      let best = null;
       for (const a of measured) {
+        const d = a.mmp.date;
+        if (!d) continue;
+        const t = new Date(d).getTime();
+        if (t < lo || t >= hi) continue;
         const arr = a.mmp.mmpArray;
         if (arr.length <= idx) continue;
-        const v = arr[idx];
-        if (v > 0 && (bestW === null || v > bestW)) {
-          bestW = v; bestDate = a.mmp.date || null; bestName = a.mmp.name || null;
+        const raw = arr[idx];
+        if (!(raw > 0)) continue;
+        const w = weightAt(d);
+        if (!w) continue;
+        const wkg = +((raw * factor) / w).toFixed(2);
+        if (best === null || wkg > best.wkg) {
+          best = {
+            wkg,
+            watts: raw,
+            ftpWatts: factor < 1 ? Math.round(raw * factor) : null,
+            date: d,
+            name: a.mmp.name || null,
+            weight: w,
+          };
         }
       }
-      const adjW = bestW !== null ? bestW * factor : null;
-      const wkg  = (adjW !== null && weight) ? +(adjW / weight).toFixed(2) : null;
-      const lvl  = wkg !== null ? engine.powerProfileLevel(wkg, key) : { level: null, category: null };
-      return {
-        key,
-        watts: bestW,
-        ftpWatts: key === '20min' && adjW !== null ? Math.round(adjW) : null,
-        wkg,
-        level: lvl.level,
-        category: lvl.category,
-        date: bestDate,
-        name: bestName,
-      };
+      if (best) {
+        const lvl = engine.powerProfileLevel(best.wkg, key);
+        best.level = lvl.level;
+        best.category = lvl.category;
+      }
+      return best;
+    }
+
+    const durations = DURATIONS.map(({ key, idx, factor }) => {
+      const recent   = bestInWindow(idx, factor, key, cut90, now);
+      const previous = bestInWindow(idx, factor, key, cut365, cut90);
+      return { key, recent, previous };
     });
 
-    res.json({ profile, weight, measuredCount: measured.length });
+    // Envelope (beste van beide vensters per duur) voor de typebepaling.
+    const envelopeLevels = {};
+    for (const dur of durations) {
+      const r = dur.recent?.level, p = dur.previous?.level;
+      envelopeLevels[dur.key] = (r != null || p != null)
+        ? Math.max(r ?? -Infinity, p ?? -Infinity)
+        : null;
+    }
+    const riderType = engine.classifyRiderType(envelopeLevels);
+
+    res.json({
+      durations,
+      riderType,
+      weightDataFrom,
+      measuredCount: measured.length,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

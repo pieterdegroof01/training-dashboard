@@ -7,7 +7,7 @@ const {
   classifyTrainingModel, classifySession,
   readinessScore, detectOverreaching,
   computeMMP, computeMMPFull,
-  powerProfileLevel,
+  powerProfileLevel, classifyRiderType,
 } = engine;
 const { makeRide, makeRun, constantDailyETL, makePowerTimeline } = require('./helpers');
 
@@ -280,5 +280,40 @@ describe('powerProfileLevel', () => {
 
   test('nul of negatief vermogen geeft null', () => {
     assert.strictEqual(engine.powerProfileLevel(0, '20min').level, null);
+  });
+});
+
+// ── classifyRiderType — rennerstype uit niveaus ─────────────────────────────
+
+describe('classifyRiderType', () => {
+  test('duur-dominant met FTP sterkste → Tijdritrenner', () => {
+    const r = engine.classifyRiderType({ '5s': 2.0, '1min': 2.5, '5min': 4.0, '20min': 4.3 });
+    assert.strictEqual(r.type, 'Tijdritrenner');
+  });
+
+  test('duur-dominant met 5min sterkste → Klimmer / VO₂-type', () => {
+    const r = engine.classifyRiderType({ '5s': 2.0, '1min': 2.5, '5min': 4.5, '20min': 3.8 });
+    assert.strictEqual(r.type, 'Klimmer / VO₂-type');
+  });
+
+  test('sprint-dominant met 5s sterkste → Sprinter', () => {
+    const r = engine.classifyRiderType({ '5s': 5.0, '1min': 4.2, '5min': 2.5, '20min': 2.3 });
+    assert.strictEqual(r.type, 'Sprinter');
+  });
+
+  test('sprint-dominant met 1min sterkste → Puncheur', () => {
+    const r = engine.classifyRiderType({ '5s': 4.0, '1min': 4.3, '5min': 2.8, '20min': 2.6 });
+    assert.strictEqual(r.type, 'Puncheur');
+  });
+
+  test('gebalanceerd → Allrounder', () => {
+    const r = engine.classifyRiderType({ '5s': 3.5, '1min': 3.6, '5min': 3.7, '20min': 3.5 });
+    assert.strictEqual(r.type, 'Allrounder');
+  });
+
+  test('ontbrekende as → type null met uitleg', () => {
+    const r = engine.classifyRiderType({ '5s': 3.0, '1min': null, '5min': 3.5, '20min': 3.6 });
+    assert.strictEqual(r.type, null);
+    assert.ok(r.description.length > 0);
   });
 });

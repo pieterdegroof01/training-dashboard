@@ -2490,7 +2490,6 @@ const PP_AXES = [
   { key: '20min', label: ['FTP', 'Drempelkracht'] },
 ];
 
-// Beschrijvende ringnamen — Coggan-categorieën vertaald.
 const PP_RINGS = [
   { name: 'Elite',           level: 5, color: '#f59e0b', dash: [5, 4], width: 1.5 },
   { name: 'Wedstrijdklasse', level: 4, color: '#22c55e', dash: [5, 4], width: 1.5 },
@@ -2498,7 +2497,6 @@ const PP_RINGS = [
   { name: 'Amateur',         level: 2, color: '#475569', dash: [3, 4], width: 1   },
 ];
 
-// Coggan-categorienamen → Nederlands (voor tooltip en meta).
 const PP_CAT_NL = {
   'Untrained':   'Ongetraind',
   'Fair':        'Beginner',
@@ -2521,22 +2519,28 @@ async function renderPowerProfile() {
       container.innerHTML = '<div style="color:var(--muted);font-size:12px">Geen ritten met vermogensmeter gevonden. Power profile vergelijkt alleen gemeten vermogen, geen schattingen.</div>';
       return;
     }
-    if (!d.weight) {
-      container.innerHTML = '<div style="color:var(--muted);font-size:12px">Geen gewicht beschikbaar. Voer je gewicht in om W/kg te berekenen.</div>';
-      return;
-    }
 
     const byKey = {};
-    for (const p of d.profile) byKey[p.key] = p;
+    for (const dur of d.durations) byKey[dur.key] = dur;
 
-    const levels = PP_AXES.map(a => byKey[a.key]?.level ?? null);
-    if (!levels.some(l => l !== null)) {
-      container.innerHTML = '<div style="color:var(--muted);font-size:12px">Onvoldoende gemeten data over de vier duraties.</div>';
+    const recentLevels = PP_AXES.map(a => byKey[a.key]?.recent?.level ?? null);
+    const prevLevels   = PP_AXES.map(a => byKey[a.key]?.previous?.level ?? null);
+
+    if (!recentLevels.some(l => l !== null) && !prevLevels.some(l => l !== null)) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:12px">Onvoldoende gemeten data met gewicht in de afgelopen 12 maanden. W/kg-vergelijking vereist gewichtsdata; oudere inspanningen zonder gewicht worden uitgesloten.</div>';
       return;
     }
 
-    // Canvas in een gecentreerde wrapper zodat het diagram niet de volledige kaartbreedte pakt.
+    const rt = d.riderType || {};
+    const typeBlock = rt.type
+      ? `<div style="text-align:center;margin-bottom:16px">
+           <div style="font-family:var(--font-display,inherit);font-size:20px;font-weight:800;color:var(--accent,#012296)">${rt.type}</div>
+           <div style="font-size:12px;color:var(--muted);max-width:440px;margin:6px auto 0;line-height:1.6">${rt.description || ''}</div>
+         </div>`
+      : `<div style="text-align:center;margin-bottom:16px;font-size:12px;color:var(--muted)">${rt.description || ''}</div>`;
+
     container.innerHTML = `
+      ${typeBlock}
       <div style="max-width:480px;margin:0 auto">
         <canvas id="chartPowerProfile"></canvas>
       </div>
@@ -2560,8 +2564,8 @@ async function renderPowerProfile() {
         labels: PP_AXES.map(a => a.label),
         datasets: [
           {
-            label: 'Jouw profiel',
-            data: levels,
+            label: 'Laatste 90 dagen',
+            data: recentLevels,
             borderColor: '#012296',
             backgroundColor: '#01229618',
             borderWidth: 2.5,
@@ -2570,6 +2574,18 @@ async function renderPowerProfile() {
             pointBorderColor: '#fdfbf5',
             pointBorderWidth: 1.5,
             fill: true,
+            spanGaps: true,
+          },
+          {
+            label: 'Vorige 9 maanden',
+            data: prevLevels,
+            borderColor: '#9ca3af',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointRadius: 3,
+            pointBackgroundColor: '#9ca3af',
+            fill: false,
             spanGaps: true,
           },
           ...ringDatasets,
@@ -2589,48 +2605,33 @@ async function renderPowerProfile() {
               font: { size: 10 },
               stepSize: 1,
               callback: v => {
-                const labels = {
-                  2: 'Amateur',
-                  3: 'Gevorderd',
-                  4: 'Wedstrijd',
-                  5: 'Elite',
-                  7: 'Top amateur',
-                };
+                const labels = { 2: 'Amateur', 3: 'Gevorderd', 4: 'Wedstrijd', 5: 'Elite', 7: 'Top amateur' };
                 return labels[v] || '';
               },
             },
             grid: { color: gridColor },
             angleLines: { color: gridColor },
-            pointLabels: {
-              color: '#666',
-              font: { size: 12, weight: '600' },
-            },
+            pointLabels: { color: '#666', font: { size: 12, weight: '600' } },
           },
         },
         plugins: {
-          legend: {
-            labels: {
-              color: '#888',
-              font: { size: 11 },
-              boxWidth: 18,
-              padding: 14,
-            },
-          },
+          legend: { labels: { color: '#888', font: { size: 11 }, boxWidth: 18, padding: 12 } },
           tooltip: {
             callbacks: {
               title: ctx => PP_AXES[ctx[0]?.dataIndex]?.label?.join(' · ') || '',
               label: ctx => {
-                if (ctx.datasetIndex !== 0) return null;
-                const p = byKey[PP_AXES[ctx.dataIndex].key];
-                if (!p || p.level === null) return 'Geen gemeten data';
-                const catNl = PP_CAT_NL[p.category] || p.category;
+                if (ctx.datasetIndex > 1) return null; // alleen de twee polygonen
+                const dur = byKey[PP_AXES[ctx.dataIndex].key];
+                const slot = ctx.datasetIndex === 0 ? dur?.recent : dur?.previous;
+                if (!slot || slot.level == null) return `${ctx.dataset.label}: geen data`;
+                const catNl = PP_CAT_NL[slot.category] || slot.category;
+                const w = slot.ftpWatts ?? slot.watts;
                 const lines = [
-                  `${catNl} — niveau ${p.level.toFixed(1)}/8`,
-                  `${p.wkg} W/kg`,
+                  `${ctx.dataset.label}`,
+                  `${catNl} — niveau ${slot.level.toFixed(1)}/8`,
+                  `${slot.wkg} W/kg${w ? ` (${w}W @ ${slot.weight}kg)` : ''}`,
                 ];
-                const w = p.ftpWatts ?? p.watts;
-                if (w) lines.push(`${w}W`);
-                if (p.name) lines.push(p.name + (p.date ? ` (${p.date})` : ''));
+                if (slot.name) lines.push(slot.name + (slot.date ? ` (${slot.date})` : ''));
                 return lines;
               },
             },
@@ -2640,15 +2641,14 @@ async function renderPowerProfile() {
     });
 
     const parts = PP_AXES.map(a => {
-      const p = byKey[a.key];
+      const slot = byKey[a.key]?.recent;
       const label = Array.isArray(a.label) ? a.label[0] : a.label;
-      const catNl = p?.category ? (PP_CAT_NL[p.category] || p.category) : null;
-      return p && p.wkg !== null
-        ? `${label}: ${p.wkg} W/kg · ${catNl}`
-        : `${label}: —`;
+      const catNl = slot?.category ? (PP_CAT_NL[slot.category] || slot.category) : null;
+      return slot && slot.wkg != null ? `${label}: ${slot.wkg} W/kg · ${catNl}` : `${label}: —`;
     });
+    const fromNote = d.weightDataFrom ? `  |  W/kg vanaf ${d.weightDataFrom} (gewichtsdata)` : '';
     document.getElementById('powerProfileMeta').textContent =
-      parts.join('  ·  ') + `  |  ${d.weight} kg  |  ${d.measuredCount} ritten met meter`;
+      'Laatste 90 dagen — ' + parts.join('  ·  ') + `  |  ${d.measuredCount} ritten met meter` + fromNote;
 
   } catch (e) {
     if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Profiel laden mislukt: ${e.message}</div>`;
