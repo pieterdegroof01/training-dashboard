@@ -2484,19 +2484,31 @@ async function renderMmpCurve() {
 // ── Power profile radar (Coggan-categorieën, alleen gemeten vermogen) ─────────
 
 const PP_AXES = [
-  { key: '5s',    label: '5 sec'  },
-  { key: '1min',  label: '1 min'  },
-  { key: '5min',  label: '5 min'  },
-  { key: '20min', label: 'FTP'    },
+  { key: '5s',    label: ['5 sec', 'Sprint']      },
+  { key: '1min',  label: ['1 min', 'Anaeroob']    },
+  { key: '5min',  label: ['5 min', 'VO₂max']      },
+  { key: '20min', label: ['FTP', 'Drempelkracht'] },
 ];
 
-// Racing-categorieën als niveau-contouren (constant over alle assen).
+// Beschrijvende ringnamen — Coggan-categorieën vertaald.
 const PP_RINGS = [
-  { name: 'Cat 1', level: 5, color: '#f59e0b', dash: [5, 4], width: 1.5 },
-  { name: 'Cat 2', level: 4, color: '#22c55e', dash: [5, 4], width: 1.5 },
-  { name: 'Cat 3', level: 3, color: '#94a3b8', dash: [3, 4], width: 1   },
-  { name: 'Cat 4', level: 2, color: '#475569', dash: [3, 4], width: 1   },
+  { name: 'Elite',           level: 5, color: '#f59e0b', dash: [5, 4], width: 1.5 },
+  { name: 'Wedstrijdklasse', level: 4, color: '#22c55e', dash: [5, 4], width: 1.5 },
+  { name: 'Gevorderd',       level: 3, color: '#94a3b8', dash: [3, 4], width: 1   },
+  { name: 'Amateur',         level: 2, color: '#475569', dash: [3, 4], width: 1   },
 ];
+
+// Coggan-categorienamen → Nederlands (voor tooltip en meta).
+const PP_CAT_NL = {
+  'Untrained':   'Ongetraind',
+  'Fair':        'Beginner',
+  'Moderate':    'Amateur',
+  'Good':        'Gevorderd',
+  'Very Good':   'Wedstrijdklasse',
+  'Excellent':   'Elite',
+  'Exceptional': 'Top amateur',
+  'World Class': 'Wereldklasse',
+};
 
 async function renderPowerProfile() {
   const container = document.getElementById('powerProfileContainer');
@@ -2519,13 +2531,18 @@ async function renderPowerProfile() {
 
     const levels = PP_AXES.map(a => byKey[a.key]?.level ?? null);
     if (!levels.some(l => l !== null)) {
-      container.innerHTML = '<div style="color:var(--muted):font-size:12px">Onvoldoende gemeten data over de vier duraties.</div>';
+      container.innerHTML = '<div style="color:var(--muted);font-size:12px">Onvoldoende gemeten data over de vier duraties.</div>';
       return;
     }
 
-    container.innerHTML = '<canvas id="chartPowerProfile" height="300"></canvas><div id="powerProfileMeta" style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6"></div>';
+    // Canvas in een gecentreerde wrapper zodat het diagram niet de volledige kaartbreedte pakt.
+    container.innerHTML = `
+      <div style="max-width:480px;margin:0 auto">
+        <canvas id="chartPowerProfile"></canvas>
+      </div>
+      <div id="powerProfileMeta" style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.8;text-align:center"></div>`;
 
-    const gridColor = 'rgba(255,255,255,0.07)';
+    const gridColor = 'rgba(128,128,128,0.15)';
     const ringDatasets = PP_RINGS.map(r => ({
       label: r.name,
       data: PP_AXES.map(() => r.level),
@@ -2545,13 +2562,13 @@ async function renderPowerProfile() {
           {
             label: 'Jouw profiel',
             data: levels,
-            borderColor: '#3b82f6',
-            backgroundColor: '#3b82f622',
-            borderWidth: 2,
+            borderColor: '#012296',
+            backgroundColor: '#01229618',
+            borderWidth: 2.5,
             pointRadius: 5,
-            pointBackgroundColor: '#3b82f6',
-            pointBorderColor: '#fff',
-            pointBorderWidth: 1,
+            pointBackgroundColor: '#012296',
+            pointBorderColor: '#fdfbf5',
+            pointBorderWidth: 1.5,
             fill: true,
             spanGaps: true,
           },
@@ -2560,35 +2577,57 @@ async function renderPowerProfile() {
       },
       options: {
         responsive: true,
+        aspectRatio: 1.15,
         scales: {
           r: {
             min: 0,
             max: 8,
             ticks: {
               display: true,
-              color: '#555',
+              color: '#888',
               backdropColor: 'transparent',
-              font: { size: 9 },
+              font: { size: 10 },
               stepSize: 1,
               callback: v => {
-                const names = { 2: 'Cat 4', 3: 'Cat 3', 4: 'Cat 2', 5: 'Cat 1', 8: 'WC' };
-                return names[v] || '';
+                const labels = {
+                  2: 'Amateur',
+                  3: 'Gevorderd',
+                  4: 'Wedstrijd',
+                  5: 'Elite',
+                  7: 'Top amateur',
+                };
+                return labels[v] || '';
               },
             },
             grid: { color: gridColor },
             angleLines: { color: gridColor },
-            pointLabels: { color: '#aaa', font: { size: 12 } },
+            pointLabels: {
+              color: '#666',
+              font: { size: 12, weight: '600' },
+            },
           },
         },
         plugins: {
-          legend: { labels: { color: '#aaa', font: { size: 11 }, boxWidth: 20 } },
+          legend: {
+            labels: {
+              color: '#888',
+              font: { size: 11 },
+              boxWidth: 18,
+              padding: 14,
+            },
+          },
           tooltip: {
             callbacks: {
+              title: ctx => PP_AXES[ctx[0]?.dataIndex]?.label?.join(' · ') || '',
               label: ctx => {
                 if (ctx.datasetIndex !== 0) return null;
                 const p = byKey[PP_AXES[ctx.dataIndex].key];
                 if (!p || p.level === null) return 'Geen gemeten data';
-                const lines = [`${p.category} (niveau ${p.level.toFixed(1)})`, `${p.wkg} W/kg`];
+                const catNl = PP_CAT_NL[p.category] || p.category;
+                const lines = [
+                  `${catNl} — niveau ${p.level.toFixed(1)}/8`,
+                  `${p.wkg} W/kg`,
+                ];
                 const w = p.ftpWatts ?? p.watts;
                 if (w) lines.push(`${w}W`);
                 if (p.name) lines.push(p.name + (p.date ? ` (${p.date})` : ''));
@@ -2602,10 +2641,14 @@ async function renderPowerProfile() {
 
     const parts = PP_AXES.map(a => {
       const p = byKey[a.key];
-      return p && p.wkg !== null ? `${a.label}: ${p.wkg} W/kg (${p.category})` : `${a.label}: --`;
+      const label = Array.isArray(a.label) ? a.label[0] : a.label;
+      const catNl = p?.category ? (PP_CAT_NL[p.category] || p.category) : null;
+      return p && p.wkg !== null
+        ? `${label}: ${p.wkg} W/kg · ${catNl}`
+        : `${label}: —`;
     });
     document.getElementById('powerProfileMeta').textContent =
-      parts.join(' · ') + `  |  ${d.weight} kg  |  ${d.measuredCount} ritten met meter`;
+      parts.join('  ·  ') + `  |  ${d.weight} kg  |  ${d.measuredCount} ritten met meter`;
 
   } catch (e) {
     if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Profiel laden mislukt: ${e.message}</div>`;
