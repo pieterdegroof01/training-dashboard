@@ -1015,6 +1015,49 @@ function computeMMP(powerTimeline, durations = [5,10,30,60,120,300,600,1200,1800
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// POWER PROFILE — Coggan-categorietabel (mannen) + niveau-interpolatie
+// Bron: Allen & Coggan, Training and Racing with a Power Meter (power-profile chart).
+// Getranscribeerd uit een open implementatie en kruisgecontroleerd: FTP-anchors
+// 6.40 (top) / 1.86 (bodem) en de top-anchors 5s=24.04, 1min=11.50, 5min=7.60.
+// Elke band is [low, high] W/kg; banden overlappen zoals in de originele tabel.
+// Index 0..7 = Untrained, Fair(Cat5), Moderate(Cat4), Good(Cat3), Very Good(Cat2),
+// Excellent(Cat1), Exceptional(Domestic Pro), World Class(Intl Pro).
+// ────────────────────────────────────────────────────────────────────────────
+const POWER_PROFILE_MALE = {
+  '5s':    [[10.17,12.35],[11.80,13.98],[13.44,15.61],[15.07,17.24],[16.97,19.45],[18.60,20.78],[20.23,22.41],[21.86,24.04]],
+  '1min':  [[5.64,6.56],[6.33,7.25],[7.02,7.94],[7.71,8.63],[8.51,9.43],[9.20,10.12],[9.89,10.81],[10.58,11.50]],
+  '5min':  [[2.33,3.15],[2.95,3.77],[3.57,4.39],[4.19,5.01],[4.91,5.74],[5.53,6.36],[6.15,6.98],[6.77,7.60]],
+  '20min': [[1.86,2.58],[2.40,3.11],[2.93,3.64],[3.47,4.18],[4.09,4.80],[4.62,5.33],[5.15,5.87],[5.69,6.40]],
+};
+
+const POWER_PROFILE_CATEGORIES = [
+  'Untrained', 'Fair', 'Moderate', 'Good', 'Very Good', 'Excellent', 'Exceptional', 'World Class',
+];
+
+// Oplopende breekpunten: 8 ondergrenzen (niveaus 0..7) + world-class bovengrens (niveau 8).
+function _ppBreakpoints(durationKey) {
+  const bands = POWER_PROFILE_MALE[durationKey];
+  if (!bands) return null;
+  const bp = bands.map(b => b[0]);
+  bp.push(bands[bands.length - 1][1]);
+  return bp;
+}
+
+// Map W/kg → continu niveau 0..8 via stuksgewijs-lineaire interpolatie binnen de duur.
+// Geeft { level, category } terug; category is de floor-band (geclamped).
+function powerProfileLevel(wkg, durationKey) {
+  const bp = _ppBreakpoints(durationKey);
+  if (!bp || !(wkg > 0)) return { level: null, category: null };
+  if (wkg <= bp[0]) return { level: 0, category: POWER_PROFILE_CATEGORIES[0] };
+  if (wkg >= bp[8]) return { level: 8, category: POWER_PROFILE_CATEGORIES[7] };
+  let i = 0;
+  while (i < 8 && wkg >= bp[i + 1]) i++;
+  const level = i + (wkg - bp[i]) / (bp[i + 1] - bp[i]);
+  const catIdx = Math.min(7, Math.floor(level));
+  return { level: +level.toFixed(3), category: POWER_PROFILE_CATEGORIES[catIdx] };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // POWER-DURATION CURVE VOLLEDIG — één waarde per seconde (Int16Array)
 // ────────────────────────────────────────────────────────────────────────────
 function computeMMPFull(powerTimeline) {
@@ -1346,5 +1389,6 @@ module.exports = {
   computeAerobicEfficiencyTrend,
   computeMMP,
   computeMMPFull,
+  powerProfileLevel, POWER_PROFILE_MALE, POWER_PROFILE_CATEGORIES,
   ENDURANCE_TYPES, STRENGTH_TYPES
 };

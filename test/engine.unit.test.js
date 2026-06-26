@@ -7,6 +7,7 @@ const {
   classifyTrainingModel, classifySession,
   readinessScore, detectOverreaching,
   computeMMP, computeMMPFull,
+  powerProfileLevel,
 } = engine;
 const { makeRide, makeRun, constantDailyETL, makePowerTimeline } = require('./helpers');
 
@@ -229,5 +230,55 @@ describe('computeMMPFull', () => {
 
   test('< 10 samples → null', () => {
     assert.strictEqual(computeMMPFull(Array(9).fill({ w: 200 })), null);
+  });
+});
+
+// ── powerProfileLevel — Coggan niveau-interpolatie ──────────────────────────
+
+describe('powerProfileLevel', () => {
+  test('onder de ondergrens clamped naar niveau 0', () => {
+    const r = engine.powerProfileLevel(1.0, '20min');
+    assert.strictEqual(r.level, 0);
+    assert.strictEqual(r.category, 'Untrained');
+  });
+
+  test('boven de bovengrens clamped naar niveau 8', () => {
+    const r = engine.powerProfileLevel(7.0, '20min');
+    assert.strictEqual(r.level, 8);
+    assert.strictEqual(r.category, 'World Class');
+  });
+
+  test('FTP ondergrens Very Good (4.09) → niveau 4, Very Good', () => {
+    const r = engine.powerProfileLevel(4.09, '20min');
+    assert.strictEqual(r.level, 4);
+    assert.strictEqual(r.category, 'Very Good');
+  });
+
+  test('FTP exact op Excellent-ondergrens (4.62) → niveau 5, Excellent', () => {
+    const r = engine.powerProfileLevel(4.62, '20min');
+    assert.strictEqual(r.level, 5);
+    assert.strictEqual(r.category, 'Excellent');
+  });
+
+  test('interpolatie midden tussen twee breekpunten', () => {
+    // 20min: Good-low 3.47, Very Good-low 4.09. Midden = 3.78 → niveau ~3.5.
+    const r = engine.powerProfileLevel(3.78, '20min');
+    assert.ok(Math.abs(r.level - 3.5) < 0.02, `verwacht ~3.5, kreeg ${r.level}`);
+    assert.strictEqual(r.category, 'Good');
+  });
+
+  test('5s-as gebruikt eigen schaal (18.60 → niveau 5)', () => {
+    const r = engine.powerProfileLevel(18.60, '5s');
+    assert.strictEqual(r.level, 5);
+    assert.strictEqual(r.category, 'Excellent');
+  });
+
+  test('onbekende duur geeft null', () => {
+    const r = engine.powerProfileLevel(5.0, '10min');
+    assert.strictEqual(r.level, null);
+  });
+
+  test('nul of negatief vermogen geeft null', () => {
+    assert.strictEqual(engine.powerProfileLevel(0, '20min').level, null);
   });
 });

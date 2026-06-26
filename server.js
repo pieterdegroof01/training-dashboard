@@ -1173,6 +1173,59 @@ app.get('/api/state/mmp-curve', async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/state/power-profile', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    const acts = await getActivities(user.id);
+    const weightMap = await getWeightMap(user.id);
+
+    // Canoniek gewicht: meest recente datum (zelfde patroon als computeFullState).
+    const wEntries = Object.entries(weightMap).sort((a, b) => b[0].localeCompare(a[0]));
+    const weight = wEntries.length ? wEntries[0][1] : null;
+
+    // Uitsluitend ritten met echte vermogensmeter.
+    const measured = acts.filter(a =>
+      a.mmp && a.mmp.powerSource === 'measured' && a.mmp.v === 2 && Array.isArray(a.mmp.mmpArray));
+
+    // mmpArray is 0-indexed: index = duur_in_seconden - 1. FTP = 20min-vermogen × 0.95.
+    const DURATIONS = [
+      { key: '5s',    idx: 4,    factor: 1    },
+      { key: '1min',  idx: 59,   factor: 1    },
+      { key: '5min',  idx: 299,  factor: 1    },
+      { key: '20min', idx: 1199, factor: 0.95 },
+    ];
+
+    const profile = DURATIONS.map(({ key, idx, factor }) => {
+      let bestW = null, bestDate = null, bestName = null;
+      for (const a of measured) {
+        const arr = a.mmp.mmpArray;
+        if (arr.length <= idx) continue;
+        const v = arr[idx];
+        if (v > 0 && (bestW === null || v > bestW)) {
+          bestW = v; bestDate = a.mmp.date || null; bestName = a.mmp.name || null;
+        }
+      }
+      const adjW = bestW !== null ? bestW * factor : null;
+      const wkg  = (adjW !== null && weight) ? +(adjW / weight).toFixed(2) : null;
+      const lvl  = wkg !== null ? engine.powerProfileLevel(wkg, key) : { level: null, category: null };
+      return {
+        key,
+        watts: bestW,
+        ftpWatts: key === '20min' && adjW !== null ? Math.round(adjW) : null,
+        wkg,
+        level: lvl.level,
+        category: lvl.category,
+        date: bestDate,
+        name: bestName,
+      };
+    });
+
+    res.json({ profile, weight, measuredCount: measured.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Activity detail helper ────────────────────────────────────────────────────
 
 async function getActivityDetail(stravaId, userId, activities, weekPlan, settings) {

@@ -2305,6 +2305,7 @@ async function loadCharts() {
 
     renderAerobicEfficiency();
     renderMmpCurve();
+    renderPowerProfile();
 
     msg.className = 'hidden';
   } catch(e) {
@@ -2477,6 +2478,137 @@ async function renderMmpCurve() {
     document.getElementById('mmpMeta').textContent = `${d.recentCount} ritten (recent) · ${d.previousCount} ritten (vorige periode)`;
   } catch(e) {
     if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Curve laden mislukt: ${e.message}</div>`;
+  }
+}
+
+// ── Power profile radar (Coggan-categorieën, alleen gemeten vermogen) ─────────
+
+const PP_AXES = [
+  { key: '5s',    label: '5 sec'  },
+  { key: '1min',  label: '1 min'  },
+  { key: '5min',  label: '5 min'  },
+  { key: '20min', label: 'FTP'    },
+];
+
+// Racing-categorieën als niveau-contouren (constant over alle assen).
+const PP_RINGS = [
+  { name: 'Cat 1', level: 5, color: '#f59e0b', dash: [5, 4], width: 1.5 },
+  { name: 'Cat 2', level: 4, color: '#22c55e', dash: [5, 4], width: 1.5 },
+  { name: 'Cat 3', level: 3, color: '#94a3b8', dash: [3, 4], width: 1   },
+  { name: 'Cat 4', level: 2, color: '#475569', dash: [3, 4], width: 1   },
+];
+
+async function renderPowerProfile() {
+  const container = document.getElementById('powerProfileContainer');
+  if (!container) return;
+
+  try {
+    const d = await api('/api/state/power-profile');
+
+    if (d.measuredCount === 0) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:12px">Geen ritten met vermogensmeter gevonden. Power profile vergelijkt alleen gemeten vermogen, geen schattingen.</div>';
+      return;
+    }
+    if (!d.weight) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:12px">Geen gewicht beschikbaar. Voer je gewicht in om W/kg te berekenen.</div>';
+      return;
+    }
+
+    const byKey = {};
+    for (const p of d.profile) byKey[p.key] = p;
+
+    const levels = PP_AXES.map(a => byKey[a.key]?.level ?? null);
+    if (!levels.some(l => l !== null)) {
+      container.innerHTML = '<div style="color:var(--muted):font-size:12px">Onvoldoende gemeten data over de vier duraties.</div>';
+      return;
+    }
+
+    container.innerHTML = '<canvas id="chartPowerProfile" height="300"></canvas><div id="powerProfileMeta" style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6"></div>';
+
+    const gridColor = 'rgba(255,255,255,0.07)';
+    const ringDatasets = PP_RINGS.map(r => ({
+      label: r.name,
+      data: PP_AXES.map(() => r.level),
+      borderColor: r.color,
+      backgroundColor: 'transparent',
+      borderWidth: r.width,
+      borderDash: r.dash,
+      pointRadius: 0,
+      fill: false,
+    }));
+
+    makeChart('chartPowerProfile', {
+      type: 'radar',
+      data: {
+        labels: PP_AXES.map(a => a.label),
+        datasets: [
+          {
+            label: 'Jouw profiel',
+            data: levels,
+            borderColor: '#3b82f6',
+            backgroundColor: '#3b82f622',
+            borderWidth: 2,
+            pointRadius: 5,
+            pointBackgroundColor: '#3b82f6',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 1,
+            fill: true,
+            spanGaps: true,
+          },
+          ...ringDatasets,
+        ],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          r: {
+            min: 0,
+            max: 8,
+            ticks: {
+              display: true,
+              color: '#555',
+              backdropColor: 'transparent',
+              font: { size: 9 },
+              stepSize: 1,
+              callback: v => {
+                const names = { 2: 'Cat 4', 3: 'Cat 3', 4: 'Cat 2', 5: 'Cat 1', 8: 'WC' };
+                return names[v] || '';
+              },
+            },
+            grid: { color: gridColor },
+            angleLines: { color: gridColor },
+            pointLabels: { color: '#aaa', font: { size: 12 } },
+          },
+        },
+        plugins: {
+          legend: { labels: { color: '#aaa', font: { size: 11 }, boxWidth: 20 } },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                if (ctx.datasetIndex !== 0) return null;
+                const p = byKey[PP_AXES[ctx.dataIndex].key];
+                if (!p || p.level === null) return 'Geen gemeten data';
+                const lines = [`${p.category} (niveau ${p.level.toFixed(1)})`, `${p.wkg} W/kg`];
+                const w = p.ftpWatts ?? p.watts;
+                if (w) lines.push(`${w}W`);
+                if (p.name) lines.push(p.name + (p.date ? ` (${p.date})` : ''));
+                return lines;
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const parts = PP_AXES.map(a => {
+      const p = byKey[a.key];
+      return p && p.wkg !== null ? `${a.label}: ${p.wkg} W/kg (${p.category})` : `${a.label}: --`;
+    });
+    document.getElementById('powerProfileMeta').textContent =
+      parts.join(' · ') + `  |  ${d.weight} kg  |  ${d.measuredCount} ritten met meter`;
+
+  } catch (e) {
+    if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Profiel laden mislukt: ${e.message}</div>`;
   }
 }
 
