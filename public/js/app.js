@@ -226,7 +226,7 @@ async function loadFullState() {
     const ringColor = r.total >= 80 ? green : r.total >= 65 ? accent : r.total >= 50 ? yellow : red;
     ring.setAttribute('stroke', ringColor);
     document.getElementById('readinessBreakdown').innerHTML =
-      `TSB ${r.breakdown.tsb||0}/28 · ACWR ${r.breakdown.acwr||0}/16 · Monotony ${r.breakdown.monotony||0}/12<br>` +
+      `<button class="pf-info-btn" data-tip="readiness_breakdown" aria-label="Uitleg subscores"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>TSB ${r.breakdown.tsb||0}/28 · ACWR ${r.breakdown.acwr||0}/16 · Monotony ${r.breakdown.monotony||0}/12<br>` +
       `Load slope ${r.breakdown.loadSlope||0}/8 · Voeding ${r.breakdown.nutrition||0}/8 · Kracht ${r.breakdown.strengthFatigue||0}/8 · Slaap ${r.breakdown.sleep||0}/20`;
 
     // Update all metrics
@@ -1606,7 +1606,7 @@ function renderStrengthOverview(state) {
   document.getElementById('strengthOverviewContent').innerHTML =
     `<div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px">
       <span style="color:var(--muted)">Laatste sessie: <strong style="color:var(--text)">${days === '–' ? '–' : days + 'd geleden'}</strong></span>
-      <span style="color:var(--muted)">Gem. 4w load: <strong style="color:var(--text)">${avg} ETL/w</strong></span>
+      <span style="color:var(--muted)">Gem. 4w volume: <strong style="color:var(--text)">${avg} kg·reps/w</strong></span>
     </div>${rows}`;
 }
 
@@ -3149,8 +3149,8 @@ async function renderActivityPage(id) {
   const metricsHtml = [
     a.distance_km  ? `<div class="metric-card"><div class="metric-card-val">${a.distance_km}&nbsp;km</div><div class="metric-card-lbl">Afstand</div></div>` : '',
     `<div class="metric-card"><div class="metric-card-val">${a.duration_str}</div><div class="metric-card-lbl">Tijd</div></div>`,
-    `<div class="metric-card"><div class="metric-card-val">${a.tss}</div><div class="metric-card-lbl">TSS</div></div>`,
-    a.np           ? `<div class="metric-card"><div class="metric-card-val">${a.np}&nbsp;W</div><div class="metric-card-lbl">Norm. Vermogen</div></div>` : '',
+    `<div class="metric-card"><div class="metric-card-val">${a.tss}</div><div class="metric-card-lbl">TSS<button class="pf-info-btn" data-tip="activity_tss" aria-label="Uitleg TSS"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></div></div>`,
+    a.np           ? `<div class="metric-card"><div class="metric-card-val">${a.np}&nbsp;W</div><div class="metric-card-lbl">Norm. Vermogen<button class="pf-info-btn" data-tip="normalized_power" aria-label="Uitleg Norm. Vermogen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></div></div>` : '',
     a.avg_watts    ? `<div class="metric-card"><div class="metric-card-val">${a.avg_watts}&nbsp;W</div><div class="metric-card-lbl">Gem. Vermogen</div></div>` : '',
     d.hrSummary?.avgHR ? `<div class="metric-card"><div class="metric-card-val">${d.hrSummary.avgHR}</div><div class="metric-card-lbl">Gem. HR</div></div>` : '',
     a.elevation_m  ? `<div class="metric-card"><div class="metric-card-val">${a.elevation_m}&nbsp;m</div><div class="metric-card-lbl">Stijging</div></div>` : '',
@@ -3158,7 +3158,7 @@ async function renderActivityPage(id) {
   ].join('');
 
   const derived = [];
-  if (d.vi) derived.push([d.vi, 'VI', d.vi < 1.05 ? 'Stabiel tempo' : d.vi < 1.10 ? 'Licht variabel' : 'Variabel']);
+  if (d.vi) derived.push([d.vi, 'VI<button class="pf-info-btn" data-tip="vi" aria-label="Uitleg VI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>', d.vi < 1.05 ? 'Stabiel tempo' : d.vi < 1.10 ? 'Licht variabel' : 'Variabel']);
   if (d.ef) derived.push([d.ef, 'EF', 'NP/gem.HR']);
   if (d.aerobicDecoupling) {
     const dc = d.aerobicDecoupling;
@@ -3208,7 +3208,7 @@ async function renderActivityPage(id) {
               </div>
             </div>
             <div id="adm-mmp-section" class="ap-section">
-              <h3 class="adm-section-title">Mean Maximal Power</h3>
+              <h3 class="adm-section-title">Mean Maximal Power<button class="pf-info-btn" data-tip="mmp" aria-label="Uitleg MMP"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
               <p class="adm-section-sub">Deze rit vs 90-dagen best</p>
               <div id="admMmpChart" style="margin-top:8px"></div>
             </div>
@@ -3243,7 +3243,7 @@ async function renderActivityPage(id) {
         <div class="activity-analysis-grid">
           <div id="adm-sect-scatter" class="ap-section"><h3 class="adm-section-title">Vermogen–Hartslag scatter</h3><canvas id="adm-scatter-canvas" height="200" style="width:100%;display:block"></canvas></div>
           <div id="adm-sect-drift" class="ap-section"><h3 class="adm-section-title">HR drift</h3><svg id="adm-drift-svg" width="100%" height="120" style="display:block;overflow:visible"></svg></div>
-          <div id="adm-sect-quadrant" class="ap-section"><h3 class="adm-section-title">Vermogenskwadranten (vermogen × cadans)</h3><canvas id="adm-quadrant-canvas" height="200" style="width:100%;display:block"></canvas></div>
+          <div id="adm-sect-quadrant" class="ap-section"><h3 class="adm-section-title">Vermogenskwadranten (vermogen × cadans)<button class="pf-info-btn" data-tip="power_quadrants" aria-label="Uitleg vermogenskwadranten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3><canvas id="adm-quadrant-canvas" height="200" style="width:100%;display:block"></canvas></div>
           <p id="adm-analyse-nodata" class="adm-no-data" style="display:none;grid-column:1/-1">Geen analysedata beschikbaar.</p>
         </div>
       </details>
@@ -3870,6 +3870,59 @@ ATL gedeeld door CTL. Maat voor hoe snel de belasting stijgt ten opzichte van je
 </div>`,
   mono: `<strong>Monotony — Foster</strong>
 Gemiddelde dagbelasting gedeeld door standaarddeviatie over 7 dagen. Een hoge monotony betekent weinig afwisseling in trainingsintensiteit. Boven 2.0 remt het trainingsrespons.`,
+  readiness: `<strong>Readiness</strong>
+Een samengestelde score van 0 tot 100 die zeven signalen weegt: TSB (28), ACWR (16), monotony (12), load slope (8), voeding (8), krachtherstel (8) en slaap (20). Het is een relatieve dagscore die richting geeft aan je trainingskeuze, geen absolute gezondheidsmaat.
+<div class="pf-tip-bands">
+  <span>&ge; 80</span><span>uitgerust</span>
+  <span>65–79</span><span>goed</span>
+  <span>50–64</span><span>matig</span>
+  <span>35–49</span><span>vermoeid</span>
+  <span>&lt; 35</span><span>overbelast</span>
+</div>`,
+  readiness_breakdown: `<strong>Subscores readiness</strong>
+De gewogen bijdragen aan de totaalscore; elk onderdeel draagt maximaal het tweede getal bij en een lage deelscore trekt het totaal omlaag. Slaap (20) en TSB (28) wegen het zwaarst. Load slope is geen aparte meting maar een extra rem die meeloopt met ACWR: vol onder ACWR 1.25, halverend daarboven, vrijwel weg boven 1.4.`,
+  load_slope: `<strong>Load slope</strong>
+Een extra rem op een te snelle belastingsopbouw. De subscore staat vol zolang je ACWR onder 1.25 blijft, halveert daarboven en valt vrijwel weg boven 1.4. Werkt samen met de ACWR-component als dubbele waarschuwing wanneer je acute belasting hard oploopt ten opzichte van je chronische basis.`,
+  training_model: `<strong>Trainingsmodel</strong>
+Het patroon dat je de afgelopen weken werkelijk hebt gereden, afgeleid uit de tijd-in-zone van je voltooide sessies. Mogelijke uitkomsten: polarized (veel Z1-Z2 plus wat Z4-Z5, weinig Z3), pyramidaal (aflopend van laag naar hoog), threshold-heavy (veel Z3-Z4) of volume-only. "Gemengd" verschijnt bij geen duidelijk profiel of onvoldoende gesynchroniseerde sessies.`,
+  rolling_ftp: `<strong>Rolling FTP</strong>
+Een doorlopende FTP-schatting uit de mediaan van je drie zwaarste NP-inspanningen van de afgelopen 60 dagen, maal 0.95. Volgt je vorm zonder geprotocolleerde test, maar reageert pas als je daadwerkelijk hard rijdt; voor een harde ijkwaarde doe je een geïsoleerde 20-minutentest. Alle TSS-berekeningen draaien op deze waarde.`,
+  sleep_debt: `<strong>Slaapschuld (14d)</strong>
+Het cumulatieve tekort ten opzichte van je persoonlijke slaapbehoefte over de afgelopen 14 nachten. De behoefte wordt geschat uit het gemiddelde van je drie langste nachten (default 8u tot er genoeg data is); nachten boven je behoefte lossen schuld maar half af. De schuld drukt rechtstreeks op de slaap-subscore van je readiness.
+<div class="pf-tip-bands">
+  <span>&lt; 0.5u</span><span>optimaal</span>
+  <span>0.5–1.5u</span><span>laag</span>
+  <span>1.5–3u</span><span>matig</span>
+  <span>&gt; 3u</span><span>hoog</span>
+</div>`,
+  etl: `<strong>Krachtvolume (4w)</strong>
+Dit getal is je wekelijkse krachtvolume in tonnage (gewicht maal reps, gesommeerd over alle sets), gemiddeld over vier weken. Let op: dit is niet de ETL die je vermoeidheidscurve voedt; die wordt session-RPE-gebaseerd berekend. Tonnage en fietsbelasting (TSS) zijn fysiologisch onvergelijkbaar en lopen daarom als gescheiden kanalen die alleen koppelen bij readiness en interferentieplanning.`,
+  weekly_tss_target: `<strong>Wekelijks TSS-doel</strong>
+Verankerd op je huidige CTL maal zeven, plus een opbouwincrement dat afhangt van je trainingsdoel. In herstelweken wordt het teruggeschaald (ongeveer 55 procent), in taper- en racweken nog verder. Daarom verschilt het doel per week: opbouwweken liggen hoger dan herstelweken.`,
+  week_model: `<strong>Weekmodel</strong>
+De intensiteitsverdeling die de planner voor deze week voorschrijft, geclassificeerd op de geplande zone-mix. Labels: Polarized (veel laag plus wat hoog, weinig Z3), Pyramidaal (aflopend), Threshold (Z3-Z4-nadruk) of Volume. Sweetspot-blokken tellen mee als Z3. De tegel is pas gevuld zodra er een actief fietsplan staat.`,
+  strength_trend: `<strong>Krachttrend</strong>
+Vergelijkt het krachtvolume van deze week met je 4-weeks gemiddelde (stijgend boven 1.15, dalend onder 0.85). Een dalende kracht-load verlaagt de interferentie met je fietsadaptatie, wat in een fietsgericht blok gunstig kan zijn; structureel dalen betekent verlies van krachtstimulus.`,
+  interference: `<strong>Concurrent-interferentie</strong>
+Gelijktijdige kracht- en duurtraining onderdrukt aerobe adaptatie via gedeelde herstel- en signaalroutes (Wilson 2012). Daarom capt de planner je fietsintensiteit op Z2 op een beendag en de dag erna, en op Z3 twee dagen na de beensessie; daarna geen beperking. Push- en pulldagen leggen geen cap op. Het is een risicosignaal, geen harde blokkade.`,
+  activity_tss: `<strong>TSS — Training Stress Score</strong>
+TSS voor één rit is IF in het kwadraat maal de duur in uren maal 100, waarbij IF de verhouding NP tot FTP is. Honderd TSS staat ongeveer gelijk aan een uur op FTP-intensiteit. Met vermogensmeter is dit nauwkeurig; zonder power wordt hrTSS geschat uit hartslag ten opzichte van je drempelhartslag, wat ruwer is.`,
+  vi: `<strong>VI — Variability Index</strong>
+NP gedeeld door je gemiddeld vermogen. 1.0 betekent perfect constante output; boven 1.05 wordt de rit grilliger, boven 1.15 is typisch voor criteriums of intervaltraining. Bij gelijk gemiddeld vermogen kost een hogere VI fysiologisch meer, omdat de pieken zwaarder doorwegen.`,
+  normalized_power: `<strong>Genormaliseerd vermogen</strong>
+Een gewogen gemiddelde dat de hogere metabole kost van wisselende intensiteit modelleert, waardoor het bij variabele ritten boven je gemiddeld vermogen ligt. Bij een vlakke, constante rit liggen NP en gemiddeld vermogen dicht bij elkaar. TSS en IF rekenen met NP, niet met je gemiddeld vermogen.`,
+  mmp: `<strong>Mean Maximal Power</strong>
+Het hoogste gemiddelde vermogen dat je over een bepaalde duur hebt gehaald, berekend per duurvenster van 5 seconden tot een uur. De stippellijn is je beste curve over de afgelopen 90 dagen als benchmark. Zit deze rit erboven, dan heb je een persoonlijk beste van die periode neergezet; eronder is normaal voor een niet-maximale rit.`,
+  power_quadrants: `<strong>Vermogenskwadranten</strong>
+Elk punt is een moment uit de rit, uitgezet als vermogen tegen cadans. De stippellijnen zijn je FTP (verticaal) en je optimale cadans (horizontaal). Rechtsboven hoog vermogen en hoge cadans (neuromusculair), rechtsonder hoog vermogen en lage cadans (krachtuithouding), linksboven laag vermogen en hoge cadans (aerobe capaciteit), linksonder actief herstel.`,
+  aerobic_efficiency: `<strong>Aerobe efficiëntie</strong>
+Hoeveel vermogen of snelheid je levert per hartslagslag; hoger is beter en wijst op cardiale adaptatie. De lijn is een 28-daags voortschrijdend gemiddelde, de trendrichting komt uit een regressie over 56 dagen. De meting beweegt traag en wordt verstoord door hitte, vermoeidheid en cafeïne, dus lees de trend, niet losse punten.`,
+  monthly_avg_power: `<strong>Gem. vermogen per maand</strong>
+"Onbetrouwbare periode uitgesloten" betekent dat maanden met te weinig of sterk afwijkende powerdata uit het gemiddelde worden gefilterd, zodat een paar vreemde ritten het beeld niet vertekenen. Gemiddeld maandvermogen blijft een grove indicator: terrein, parcours en het doel van de ritten beïnvloeden het sterker dan je werkelijke vorm.`,
+  training_mode: `<strong>Trainingsdoel</strong>
+Bepaalt het schema dat de planner genereert. Automatisch laat de planner kiezen op basis van CTL, TSB en een eventueel event; de overige modi (FTP-opbouw, VO2max-piek, vetverbranding, basisuithoudingsvermogen, onderhoud, evenementvoorbereiding) sturen elk de wekelijkse TSS-doelen, de intensiteitsverdeling en de prioriteit van sessietypes anders aan.`,
+  weekly_patterns: `<strong>Vaste wekelijkse patronen</strong>
+Vaste beschikbaarheidsmomenten die de planner structureel meeneemt bij het genereren van elk weekplan. Ze verschillen van de beschikbaarheidstoggle op de Week-tab: patronen zijn permanent en gelden elke week, een toggle is eenmalig voor die ene week.`,
 };
 
 function initInfoTooltips() {
@@ -3880,27 +3933,23 @@ function initInfoTooltips() {
     tip.className = 'pf-info-tip';
     document.body.appendChild(tip);
   }
-
-  document.querySelectorAll('.pf-info-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const key = btn.dataset.tip;
-      if (!PF_TIPS[key]) return;
-      if (tip.classList.contains('is-open') && tip._src === btn) {
-        tip.classList.remove('is-open');
-        return;
-      }
-      tip.innerHTML = PF_TIPS[key];
-      tip._src = btn;
-      const r = btn.getBoundingClientRect();
-      tip.style.top = (r.bottom + 8) + 'px';
-      tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 266)) + 'px';
-      tip.classList.add('is-open');
-    });
-  });
-
-  document.addEventListener('click', () => {
-    document.getElementById('pfInfoTip')?.classList.remove('is-open');
+  if (document._pfTipBound) return;
+  document._pfTipBound = true;
+  document.addEventListener('click', e => {
+    const t = document.getElementById('pfInfoTip');
+    if (!t) return;
+    const btn = e.target.closest('.pf-info-btn');
+    if (!btn) { t.classList.remove('is-open'); return; }
+    e.stopPropagation();
+    const key = btn.dataset.tip;
+    if (!PF_TIPS[key]) return;
+    if (t.classList.contains('is-open') && t._src === btn) { t.classList.remove('is-open'); return; }
+    t.innerHTML = PF_TIPS[key];
+    t._src = btn;
+    const r = btn.getBoundingClientRect();
+    t.style.top = (r.bottom + 8) + 'px';
+    t.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 266)) + 'px';
+    t.classList.add('is-open');
   });
 }
 
