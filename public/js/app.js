@@ -34,6 +34,7 @@ async function syncAll() {
   await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability(), loadFullState()]);
   renderGreeting();
   renderWeekGrid(); // re-render now that weekAvailability is guaranteed loaded
+  renderActivitiesTab();
   document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Sync');
 }
 
@@ -68,13 +69,14 @@ async function loadHevy() {
   try {
     S.hevyWorkouts = await api('/api/hevy/workouts');
   } catch {
-    document.getElementById('hevyList').innerHTML = '<div class="alert alert-info">Hevy niet verbonden</div>';
+    const el = document.getElementById('hevyList'); if (el) el.innerHTML = '<div class="alert alert-info">Hevy niet verbonden</div>';
     return;
   }
   renderHevy();
   try { renderHevyProgression(); } catch(e) {
-    document.getElementById('hevyProgression').innerHTML = '<div class="alert alert-info">Progressieanalyse niet beschikbaar.</div>';
+    const el = document.getElementById('hevyProgression'); if (el) el.innerHTML = '<div class="alert alert-info">Progressieanalyse niet beschikbaar.</div>';
   }
+  if (typeof renderActivitiesTab === 'function') renderActivitiesTab();
 }
 
 async function loadUserData() {
@@ -572,13 +574,12 @@ function renderRecentActs() {
   document.getElementById('recentActs').innerHTML = S.recentActs.length
     ? S.recentActs.slice(0,6).map(a=>actRow(a,false)).join('')
     : '<div class="empty"><div class="empty-icon">🏃</div><div class="empty-text">Geen recente activiteiten</div></div>';
-  document.getElementById('allActs').innerHTML = S.recentActs.length
-    ? S.recentActs.map(a=>actRow(a,true)).join('')
-    : '<div class="empty"><div class="empty-text">Geen activiteiten gevonden</div></div>';
+  if (typeof renderActivityFeed === 'function') renderActivityFeed();
 }
 
 function renderHevy() {
   const el = document.getElementById('hevyList');
+  if (!el) return;
   if (!S.hevyWorkouts.length) { el.innerHTML = '<div class="alert alert-info">Geen Hevy workouts gevonden. API key ingesteld?</div>'; return; }
   el.innerHTML = S.hevyWorkouts.map(w => {
     const exs = (w.exercises||[]).map(e => `<span style="background:var(--card2);border:1px solid var(--border2);border-radius:5px;padding:2px 7px;font-size:11px;color:var(--muted)">${e.title}</span>`).join('');
@@ -592,6 +593,7 @@ function renderHevy() {
 
 function renderHevyProgression() {
   const el = document.getElementById('hevyProgression');
+  if (!el) return;
   if (!S.hevyWorkouts || !S.hevyWorkouts.length) {
     el.innerHTML = '<div class="alert alert-info">Geen workoutdata voor progressieanalyse.</div>';
     return;
@@ -1715,6 +1717,7 @@ function showTab(name, btn) {
   // Sync actief-status op tabnaam zodat sidebar EN bottom-nav correct oplichten
   document.querySelectorAll('[data-tab="'+name+'"]').forEach(el=>el.classList.add('active'));
   currentTab = name;
+  if (name === 'activiteiten') renderActivitiesTab();
   if (name === 'instellingen') renderSourcesStatus();
   if (name === 'week') renderWeekGrid();
   if (name !== 'analyse') {
@@ -1980,37 +1983,214 @@ function closeHelp(e) {
   document.getElementById('helpOverlay').classList.add('hidden');
 }
 
-// ── Activiteiten filter ───────────────────────────────────────────────────────
+// ── Activiteiten-tab (strikte uitvoeringspagina) ──────────────────────────────
 let currentActivityFilter = 'alles';
 
-function filterActivities(type) {
-  currentActivityFilter = type;
-  ['alles','fietsen','lopen','gym'].forEach(t => {
-    const btn = document.getElementById('filter' + t.charAt(0).toUpperCase() + t.slice(1));
-    if (btn) btn.className = 'btn btn-sm ' + (t === type ? 'btn-primary' : 'btn-secondary');
-  });
-  const stravaSection = document.getElementById('actStravaSection');
-  const hevySection = document.getElementById('actHevySection');
-  if (type === 'gym') {
-    stravaSection.classList.add('hidden');
-    hevySection.classList.remove('hidden');
-  } else if (type === 'alles') {
-    stravaSection.classList.remove('hidden');
-    hevySection.classList.remove('hidden');
-    renderFilteredActs(null);
-  } else {
-    stravaSection.classList.remove('hidden');
-    hevySection.classList.add('hidden');
-    const typeMap = { fietsen: ['Ride','VirtualRide'], lopen: ['Run'] };
-    renderFilteredActs(typeMap[type]);
+function _last7Cut() { return Date.now() - 7 * 86400000; }
+function _hevyDurMin(w) {
+  if (w.end_time && w.start_time) {
+    const d = Math.round((new Date(w.end_time) - new Date(w.start_time)) / 60000);
+    return (d > 0 && d < 600) ? d : null;
+  }
+  return null;
+}
+function _hevySetCount(w) {
+  return (w.exercises || []).reduce((n, e) => n + (e.sets || []).filter(s => s.reps != null).length, 0);
+}
+
+const PF_SPORT_ICONS = {
+  bike: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>',
+  run:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg>',
+  gym:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.596 12.768a2 2 0 1 0 2.829-2.829l-1.768-1.767a2 2 0 0 0 2.828-2.829l-2.828-2.828a2 2 0 0 0-2.829 2.828l-1.767-1.768a2 2 0 1 0-2.829 2.829z"/><path d="m2.5 21.5 1.4-1.4"/><path d="m20.1 3.9 1.4-1.4"/><path d="M5.343 21.485a2 2 0 1 0 2.829-2.828l1.767 1.768a2 2 0 1 0 2.829-2.829l-6.364-6.364a2 2 0 1 0-2.829 2.829l1.768 1.767a2 2 0 0 0-2.828 2.829z"/><path d="m9.6 14.4 4.8-4.8"/></svg>',
+};
+function _sportIcon(type, kind) {
+  if (kind === 'gym') return PF_SPORT_ICONS.gym;
+  if (type === 'Run' || type === 'TrailRun') return PF_SPORT_ICONS.run;
+  return PF_SPORT_ICONS.bike;
+}
+
+// 90-dagen-best badge: afgeleid uit dezelfde /api/state/mmp-curve aggregatie als Trends
+function _nearestSample(arr, targetDur) {
+  if (!arr || !arr.length) return null;
+  let best = null, bestDiff = Infinity;
+  for (const p of arr) {
+    if (p.watts == null) continue;
+    const diff = Math.abs(p.dur - targetDur);
+    if (diff < bestDiff) { bestDiff = diff; best = p; }
+  }
+  return (best && bestDiff <= Math.max(2, targetDur * 0.15)) ? best : null;
+}
+function buildMmpBadgeMap(curve) {
+  const map = {};
+  if (!curve) return map;
+  const targets = [{ s: 1200, l: '20-min' }, { s: 300, l: '5-min' }, { s: 60, l: '1-min' }, { s: 5, l: '5-sec' }];
+  for (const t of targets) {
+    const r = _nearestSample(curve.recent, t.s);
+    const p = _nearestSample(curve.previous, t.s);
+    let holder = null, w = 0;
+    if (r) { holder = r.activityId; w = r.watts; }
+    if (p && p.watts > w) { holder = p.activityId; w = p.watts; }
+    if (holder != null && w > 0) {
+      const key = String(holder);
+      const cur = map[key];
+      if (!cur || t.s > cur.rank) map[key] = { label: t.l, watts: Math.round(w), rank: t.s };
+    }
+  }
+  return map;
+}
+async function ensureMmpCurve() {
+  if (S._mmpBadgeMap !== undefined) return;
+  S._mmpBadgeMap = null; // 'in behandeling', voorkomt dubbele fetch
+  try {
+    const d = await api('/api/state/mmp-curve');
+    S._mmpBadgeMap = buildMmpBadgeMap(d);
+  } catch (e) {
+    S._mmpBadgeMap = {};
   }
 }
 
-function renderFilteredActs(typeFilter) {
-  const acts = typeFilter ? S.recentActs.filter(a => typeFilter.includes(a.type)) : S.recentActs;
-  document.getElementById('allActs').innerHTML = acts.length
-    ? acts.map(a => actRow(a, true)).join('')
-    : '<div class="empty"><div class="empty-text">Geen activiteiten gevonden voor dit filter</div></div>';
+function _unifiedFeed() {
+  const items = [];
+  (S.recentActs || []).forEach(a => items.push({ kind: 'strava', date: a.start_date, a }));
+  (S.hevyWorkouts || []).forEach(w => items.push({ kind: 'gym', date: w.start_time, w }));
+  items.sort((x, y) => new Date(y.date) - new Date(x.date));
+  return items;
+}
+function _filterFeed(items, type) {
+  if (type === 'fietsen') return items.filter(i => i.kind === 'strava' && (i.a.type === 'Ride' || i.a.type === 'VirtualRide'));
+  if (type === 'lopen')   return items.filter(i => i.kind === 'strava' && (i.a.type === 'Run' || i.a.type === 'TrailRun'));
+  if (type === 'gym')     return items.filter(i => i.kind === 'gym');
+  return items;
+}
+
+function feedRow(item) {
+  const badgeMap = S._mmpBadgeMap || {};
+  let icon, name, dateStr, primary, secondary = '', clickAttr = '', badge = '';
+  if (item.kind === 'gym') {
+    const w = item.w;
+    icon = _sportIcon(null, 'gym');
+    name = w.name || 'Workout';
+    dateStr = fmtD(w.start_time);
+    const sets = _hevySetCount(w);
+    const dur = _hevyDurMin(w);
+    primary = sets ? `${sets} sets` : '–';
+    secondary = dur ? `${dur} min` : '';
+  } else {
+    const a = item.a;
+    const isCyc = a.type === 'Ride' || a.type === 'VirtualRide';
+    const isRun = a.type === 'Run' || a.type === 'TrailRun';
+    icon = _sportIcon(a.type, 'strava');
+    name = a.name || 'Activiteit';
+    dateStr = fmtD(a.start_date);
+    primary = a.distance > 0 ? `${(a.distance / 1000).toFixed(1)} km` : fmtT(a.moving_time);
+    const bits = [];
+    if (a.distance > 0) bits.push(fmtT(a.moving_time));
+    if (isCyc && a.average_watts) bits.push(`${Math.round(a.average_watts)}W`);
+    if (isRun && a.distance > 0 && a.moving_time) {
+      const sec = a.moving_time / (a.distance / 1000);
+      bits.push(`${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}/km`);
+    }
+    secondary = bits.join(' · ');
+    const _CLICK = new Set(['Ride', 'VirtualRide', 'Run', 'TrailRun']);
+    if (_CLICK.has(a.type)) clickAttr = `onclick="navigateToActivity(${a.id})" data-strava-id="${a.id}"`;
+    if (isCyc) {
+      const b = badgeMap[String(a.id)];
+      if (b) badge = `<div class="pf-feed-badge">★ beste ${b.label} · 90d</div>`;
+    }
+  }
+  return `<div class="pf-feed-row${clickAttr ? ' clickable' : ''}" ${clickAttr}>     <div class="pf-feed-icon">${icon}</div>     <div class="pf-feed-main"><div class="pf-feed-name">${name}</div><div class="pf-feed-date">${dateStr}</div>${badge}</div>     <div class="pf-feed-right"><div class="pf-feed-primary">${primary}</div>${secondary ? `<div class="pf-feed-secondary">${secondary}</div>` : ''}</div>
+
+  </div>`;
+}
+function filterActivities(type) {
+  currentActivityFilter = type;
+  ['alles', 'fietsen', 'lopen', 'gym'].forEach(t => {
+    const btn = document.getElementById('filter' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) btn.className = 'pf-pill' + (t === type ? ' active' : '');
+  });
+  renderActivityFeed();
+}
+function renderActivityFeed() {
+  const el = document.getElementById('allActs');
+  if (!el) return;
+  const items = _filterFeed(_unifiedFeed(), currentActivityFilter);
+  el.innerHTML = items.length
+    ? items.map(feedRow).join('')
+    : '<div class="empty"><div class="empty-text">Geen activiteiten voor dit filter</div></div>';
+}
+
+function renderActKpis() {
+  const cut = _last7Cut();
+  const acts = (S.recentActs || []).filter(a => new Date(a.start_date).getTime() >= cut);
+  const gym = (S.hevyWorkouts || []).filter(w => new Date(w.start_time).getTime() >= cut);
+  const distM = acts.reduce((s, a) => s + (a.distance || 0), 0);
+  let timeSec = acts.reduce((s, a) => s + (a.moving_time || 0), 0);
+  gym.forEach(w => { const d = _hevyDurMin(w); if (d) timeSec += d * 60; });
+  // Belasting (TSS) 7d uit deterministische dagelijkse ETL — niet uit losse activiteiten geschat
+  let tss = null;
+  const etl = S.fullState?.dailyETL;
+  if (etl) {
+    tss = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const k = d.toISOString().split('T')[0];
+      if (etl[k] != null) tss += etl[k];
+    }
+    tss = Math.round(tss);
+  }
+  const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  setTxt('actKpiDist', (distM / 1000).toFixed(1) + ' km');
+  setTxt('actKpiTime', fmtT(timeSec));
+  setTxt('actKpiLoad', tss != null ? tss : '–');
+  setTxt('actKpiSessions', acts.length + gym.length);
+}
+
+function renderSportSplit() {
+  const el = document.getElementById('actSportSplit');
+  if (!el) return;
+  const cut = _last7Cut();
+  const acts = (S.recentActs || []).filter(a => new Date(a.start_date).getTime() >= cut);
+  const gym = (S.hevyWorkouts || []).filter(w => new Date(w.start_time).getTime() >= cut);
+  let cyc = 0, run = 0, gy = 0;
+  acts.forEach(a => {
+    if (a.type === 'Ride' || a.type === 'VirtualRide') cyc += a.moving_time || 0;
+    else if (a.type === 'Run' || a.type === 'TrailRun') run += a.moving_time || 0;
+  });
+  gym.forEach(w => { const d = _hevyDurMin(w); gy += (d ? d * 60 : 0); });
+  const total = cyc + run + gy;
+  if (!total) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">Geen activiteiten in de afgelopen 7 dagen.</div>'; return; }
+  const rows = [
+    { name: 'Fietsen', sec: cyc, color: 'var(--accent)' },
+    { name: 'Gym', sec: gy, color: 'var(--purple)' },
+    { name: 'Lopen', sec: run, color: 'var(--green)' },
+  ].filter(r => r.sec > 0);
+  el.innerHTML = rows.map(r => {
+    const pct = Math.round(r.sec / total * 100);
+    return `<div class="pf-bar-row"><div class="pf-bar-head"><span class="pf-bar-name">${r.name}<span class="pf-bar-sub">${fmtT(r.sec)}</span></span><span class="pf-bar-pct">${pct}%</span></div><div class="pf-bar-track"><div class="pf-bar-fill" style="width:${pct}%;background:${r.color}"></div></div></div>`;
+  }).join('');
+}
+
+function renderActIntensity() {
+  const el = document.getElementById('actIntensity');
+  if (!el) return;
+  const z = S.fullState?.currentZoneModel;
+  if (!z || !z.totalMin) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">Nog geen fiets- of looptraining deze week.</div>'; return; }
+  const segs = [
+    { name: 'Laag (Z1–Z2)', pct: z.lowPct, min: z.lowMin, color: 'var(--accent)' },
+    { name: 'Midden (Z3)', pct: z.midPct, min: z.midMin, color: 'var(--yellow)' },
+    { name: 'Hoog (Z4–Z5)', pct: z.highPct, min: z.highMin, color: 'var(--red)' },
+  ].filter(s => s.pct > 0);
+  const bar = segs.map(s => `<span style="width:${s.pct}%;background:${s.color}"></span>`).join('');
+  const legend = segs.map(s => `<div class="pf-seg-item"><span class="pf-seg-dot" style="background:${s.color}"></span>${s.name} · <strong style="color:var(--text)">${s.pct}%</strong> <span style="opacity:.7">(${s.min}m)</span></div>`).join('');
+  el.innerHTML = `<div class="pf-seg">${bar}</div><div class="pf-seg-legend">${legend}</div>`;
+}
+
+function renderActivitiesTab() {
+  renderActKpis();
+  renderSportSplit();
+  renderActIntensity();
+  renderActivityFeed();
+  ensureMmpCurve().then(() => renderActivityFeed());
 }
 
 

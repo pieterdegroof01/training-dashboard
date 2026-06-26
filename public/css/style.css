@@ -653,3 +653,43 @@ details.ap-accordion-section > summary { display:none; }
 .pf-info-tip strong { display: block; margin-bottom: 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
 .pf-info-tip .pf-tip-bands { margin-top: 7px; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 11px; }
 .pf-tip-bands span:nth-child(odd) { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+
+/* ── Activiteiten-tab (strikte uitvoeringspagina) ─────────────────────────── */
+.pf-act-filters { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 2px 0; margin-bottom: 4px; }
+.pf-pill { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; transition: all 0.15s; }
+.pf-pill:hover { border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--text); }
+.pf-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stats-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+@media (max-width: 600px) { .stats-grid-4 { grid-template-columns: repeat(2, 1fr); } }
+
+/* horizontale verdelingsbalken (sport-split) */
+.pf-bar-row { margin-bottom: 13px; }
+.pf-bar-row:last-child { margin-bottom: 0; }
+.pf-bar-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.pf-bar-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.pf-bar-sub { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 7px; }
+.pf-bar-pct { font-size: 14px; font-weight: 800; font-family: 'Inter Tight', sans-serif; color: var(--text); letter-spacing: -0.3px; }
+.pf-bar-track { height: 7px; border-radius: 4px; background: var(--surface2); overflow: hidden; }
+.pf-bar-fill { height: 100%; border-radius: 4px; transition: width 0.35s; }
+
+/* gesegmenteerde intensiteitsbalk */
+.pf-seg { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--surface2); margin: 2px 0 14px; }
+.pf-seg > span { height: 100%; transition: width 0.35s; }
+.pf-seg-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.pf-seg-item { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+.pf-seg-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+/* samengevoegde feed */
+.pf-feed-row { display: flex; align-items: center; gap: 13px; padding: 13px 0; border-bottom: 1px solid var(--divider); }
+.pf-feed-row:last-child { border-bottom: none; }
+.pf-feed-row.clickable { cursor: pointer; margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 12px; transition: background 0.12s; }
+.pf-feed-row.clickable:hover { background: var(--surface2); }
+.pf-feed-icon { width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.pf-feed-icon svg { width: 19px; height: 19px; }
+.pf-feed-main { flex: 1; min-width: 0; }
+.pf-feed-name { font-weight: 600; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-feed-date { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.pf-feed-right { text-align: right; flex-shrink: 0; padding-left: 10px; }
+.pf-feed-primary { font-weight: 800; font-size: 14px; font-family: 'Inter Tight', sans-serif; color: var(--text); letter-spacing: -0.3px; }
+.pf-feed-secondary { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+.pf-feed-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.4px; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 7px; margin-top: 5px; }

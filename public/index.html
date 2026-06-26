@@ -249,45 +249,56 @@
 
   </div>
 
-  <!-- ACTIVITEITEN (Strava + Hevy samengevoegd) -->
+  <!-- ACTIVITEITEN (strikte uitvoeringspagina — Strava + Hevy samengevoegd) -->
   <div id="tab-activiteiten" class="section hidden">
-    <div class="card" style="padding-bottom:8px">
-      <div class="card-header" style="margin-bottom:0">
-        <div class="card-label" style="margin:0">Activiteiten</div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap">
-          <button id="filterAlles" class="btn btn-sm btn-primary" onclick="filterActivities('alles')">Alles</button>
-          <button id="filterFietsen" class="btn btn-sm btn-secondary" onclick="filterActivities('fietsen')">Fietsen</button>
-          <button id="filterLopen" class="btn btn-sm btn-secondary" onclick="filterActivities('lopen')">Lopen</button>
-          <button id="filterGym" class="btn btn-sm btn-secondary" onclick="filterActivities('gym')">Gym</button>
-        </div>
-      </div>
-    </div>
-    <div id="actStravaSection" class="card">
-      <div class="card-label">Strava · 21 dagen</div>
-      <div id="allActs"><div style="color:var(--muted);font-size:13px;padding:16px 0">Laden...</div></div>
-    </div>
-    <div id="actHevySection">
-      <div class="card">
-        <div class="card-label">Gym workouts (Hevy)</div>
-        <div id="hevyList"><div class="alert alert-info">Hevy API key toevoegen aan .env om workouts te laden</div></div>
-      </div>
-      <div class="card">
-        <div class="card-label">Progressie-analyse</div>
-        <div id="hevyProgression"><div style="color:var(--muted);font-size:13px">Laden...</div></div>
-      </div>
-    </div>
+<div class="pf-greeting">
+  <div class="pf-greeting-eyebrow">Laatste 7 dagen · Strava + Hevy</div>
+  <h1 class="pf-greeting-title">Activiteiten<em> · in vorm</em></h1>
+</div>
 
-    <!-- AI: ACTIVITEITEN -->
-    <div class="insight-card">
-      <div class="insight-header">
-        <div class="insight-label">🤖 Activiteitenanalyse</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="insight-meta" id="insight-meta-activiteiten"></span>
-          <button class="btn btn-ghost btn-sm" onclick="loadInsight('activiteiten',true)" style="font-size:11px;padding:3px 9px">↻</button>
-        </div>
-      </div>
-      <div class="insight-text" id="insight-text-activiteiten"><div class="insight-loading">AI-inzicht laden...</div></div>
+<div class="pf-act-filters">
+  <button id="filterAlles" class="pf-pill active" onclick="filterActivities('alles')">Alles</button>
+  <button id="filterFietsen" class="pf-pill" onclick="filterActivities('fietsen')">Fietsen</button>
+  <button id="filterLopen" class="pf-pill" onclick="filterActivities('lopen')">Lopen</button>
+  <button id="filterGym" class="pf-pill" onclick="filterActivities('gym')">Gym</button>
+</div>
+
+<div class="stats-grid-4">
+  <div class="stat"><div class="stat-lbl">Afstand</div><div class="stat-val" id="actKpiDist">–</div><div class="stat-sub">7 dagen</div></div>
+  <div class="stat"><div class="stat-lbl">Tijd</div><div class="stat-val" id="actKpiTime">–</div><div class="stat-sub">totaal</div></div>
+  <div class="stat"><div class="stat-lbl">Belasting</div><div class="stat-val c-blue" id="actKpiLoad">–</div><div class="stat-sub">TSS · 7d</div></div>
+  <div class="stat"><div class="stat-lbl">Sessies</div><div class="stat-val" id="actKpiSessions">–</div><div class="stat-sub">7 dagen</div></div>
+</div>
+
+<div class="pf-two-col">
+  <div class="card">
+    <div class="card-label">Verdeling sporten · 7d</div>
+    <div id="actSportSplit"><div class="insight-loading">Laden...</div></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Intensiteit deze week · gereden</div>
+    <div id="actIntensity"><div class="insight-loading">Laden...</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header" style="margin-bottom:6px">
+    <div class="card-label" style="margin:0" id="actFeedLabel">Activiteiten · 21 dagen</div>
+  </div>
+  <div id="allActs"><div style="color:var(--muted);font-size:13px;padding:16px 0">Laden...</div></div>
+</div>
+
+<!-- AI: ACTIVITEITEN -->
+<div class="insight-card">
+  <div class="insight-header">
+    <div class="insight-label">🤖 Activiteitenanalyse</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="insight-meta" id="insight-meta-activiteiten"></span>
+      <button class="btn btn-ghost btn-sm" onclick="loadInsight('activiteiten',true)" style="font-size:11px;padding:3px 9px">↻</button>
     </div>
+  </div>
+  <div class="insight-text" id="insight-text-activiteiten"><div class="insight-loading">AI-inzicht laden...</div></div>
+</div>
 
   </div>
 
