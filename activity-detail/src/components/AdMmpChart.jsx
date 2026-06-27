@@ -21,6 +21,14 @@ export function AdMmpChart({ mmp, w = 620, h = 180 }) {
     return Array.from({ length: 4 }, (_, i) => (i + 1) * step).filter(v => v <= maxVal)
   })()
 
+  // Data-gestuurde notitie: PR's en grootste tekort t.o.v. 90-dagen best
+  const prDurations = mmp.filter((p) => p.isPr).map((p) => p.t)
+  const biggestGap = mmp.reduce((acc, p) => {
+    const pct = p.best > 0 ? (p.best - p.ride) / p.best : 0
+    return pct > acc.pct ? { pct, t: p.t } : acc
+  }, { pct: 0, t: null })
+  const gapPct = Math.round(biggestGap.pct * 100)
+
   return (
     <div>
       <div className={s.legend}>
@@ -146,8 +154,11 @@ export function AdMmpChart({ mmp, w = 620, h = 180 }) {
       </svg>
 
       <div className={s.note}>
-        Geen nieuwe PR's bij deze sweetspot-sessie — sub-threshold structuur is niet gericht op MMP-pieken.
-        Grote gaten bij 5s–1m wijzen op onbenutte sprint- en VO2max-capaciteit.
+        {prDurations.length > 0
+          ? `Nieuwe 90-dagen best op ${prDurations.join(', ')} — deze rit zette daar een piek neer.`
+          : 'Geen nieuwe 90-dagen best in deze rit — de inspanningen bleven onder de recente pieken.'}
+        {gapPct >= 5 && biggestGap.t &&
+          ` Grootste tekort op ${biggestGap.t} (−${gapPct}% t.o.v. best): daar ligt de meeste onbenutte capaciteit.`}
       </div>
     </div>
   )

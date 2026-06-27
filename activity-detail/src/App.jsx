@@ -14,10 +14,24 @@ export default function App() {
   const [activity, setActivity] = useState(null)
   const [error, setError]   = useState(null)
   const [aiText, setAiText] = useState(null)
+  const [aiLoading, setAiLoading] = useState(true)
 
   const id = extractActivityId()
+  const demo = import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo')
 
   useEffect(() => {
+    // Dev-only demo-modus: render met synthetische data zonder backend.
+    if (demo) {
+      import('./_demoData.js')
+        .then(({ demoApi }) => {
+          setActivity(transformApiResponse(demoApi))
+          setAiText('Demo-modus: dit is synthetische data om de render te controleren. De coach-analyse komt in productie van de Anthropic-API.')
+          setAiLoading(false)
+        })
+        .catch(e => setError(e.message))
+      return
+    }
+
     if (!id) { setError('Geen activiteit-ID gevonden in de URL.'); return }
 
     fetch(`/api/activity/${id}/detail`)
@@ -30,10 +44,11 @@ export default function App() {
         setActivity(transformApiResponse(data))
       })
       .catch(e => setError(e.message))
-  }, [id])
+  }, [id, demo])
 
   useEffect(() => {
     if (!id || !activity) return
+    setAiLoading(true)
     fetch(`/api/activity/${id}/analyse`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -42,12 +57,13 @@ export default function App() {
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.text) setAiText(data.text) })
       .catch(() => {})
+      .finally(() => setAiLoading(false))
   }, [id, activity?.id])
 
   const toggleTheme  = () => setTheme(t  => t  === 'light' ? 'dark' : 'light')
   const toggleLayout = () => setLayout(l => l === 'desktop' ? 'phone' : 'desktop')
 
-  const activityWithAi = activity ? { ...activity, ai: aiText } : null
+  const activityWithAi = activity ? { ...activity, ai: aiText, aiLoading } : null
 
   return (
     <div data-theme={theme} className={s.root}>

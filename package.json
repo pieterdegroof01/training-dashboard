@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "build": "cd activity-detail && npm ci --include=dev && npm run build",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },

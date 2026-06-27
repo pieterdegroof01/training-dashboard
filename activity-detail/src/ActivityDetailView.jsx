@@ -24,8 +24,8 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop' }) {
 
   // ── Gedeelde kaarten ────────────────────────────────────────────────────────
 
-  const routeCard = (
-    <AdSection title="Ritprofiel" sub={`${d.metrics[0].v} ${d.metrics[0].u}`}>
+  const routeCard = d.route && (
+    <AdSection title="Ritprofiel" sub={d.metrics[0] ? `${d.metrics[0].v} ${d.metrics[0].u}` : ''}>
       <AdRouteMap route={d.route} />
     </AdSection>
   )
@@ -48,7 +48,7 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop' }) {
     </AdSection>
   )
 
-  const analyseCard = d.scatter && (
+  const analyseCard = d.scatter && d.quadrant && d.drift && (
     <AdSection title="Analyse">
       <AdAnalysis
         scatter={d.scatter}
@@ -61,17 +61,19 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop' }) {
     </AdSection>
   )
 
-  const wbalCard = d.wbal && (
+  const wbalCard = d.wbal && d.series && (
     <AdSection title="W'bal" sub="Skiba 2014/2015 model">
       <AdWbal
         wbalData={d.wbal}
         powerSeries={d.series.primary.values}
+        durationMin={d.durationMin}
+        xLabels={d.series.xLabels}
         w={layout === 'desktop' ? 620 : 520}
       />
     </AdSection>
   )
 
-  const zoneCard = (
+  const zoneCard = d.zones && (
     <AdSection title="Zoneverdeling" sub="op basis van vermogen">
       <AdZoneBar zones={d.zones} />
     </AdSection>
@@ -83,13 +85,13 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop' }) {
     </AdSection>
   )
 
-  const planCard = d.planned && (
+  const planCard = d.planned && d.zones && (
     <AdSection title="Gepland vs werkelijk">
       <AdPlanCompare activity={d} />
     </AdSection>
   )
 
-  const blocksCard = d.planned?.blocks && (
+  const blocksCard = d.planned?.blocks?.length > 0 && d.zones && (
     <AdSection title="Geplande sessie">
       <AdPlannedBlocks planned={d.planned} zones={d.zones} />
     </AdSection>
@@ -107,7 +109,7 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop' }) {
     </AdSection>
   )
 
-  const aiCard = <AdAiCard text={d.ai} />
+  const aiCard = <AdAiCard text={d.ai} loading={d.aiLoading} />
 
   // ── Desktop-layout ─────────────────────────────────────────────────────────
   if (layout === 'desktop') {

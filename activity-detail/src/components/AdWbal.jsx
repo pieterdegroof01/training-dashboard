@@ -25,14 +25,13 @@ function computeWbal(powerSeries, cp, wPrime, durationMin) {
   })
 }
 
-export function AdWbal({ wbalData, powerSeries, w = 620, h = 140 }) {
+export function AdWbal({ wbalData, powerSeries, durationMin = 60, xLabels: xLabelsProp, w = 620, h = 140 }) {
   const { cp, wPrime } = wbalData
   const pad = { l: 44, r: 12, t: 12, b: 22 }
   const cw = w - pad.l - pad.r
   const ch = h - pad.t - pad.b
 
   // Bereken W'bal met Skiba model
-  const durationMin = 124
   const series = computeWbal(powerSeries, cp, wPrime, durationMin)
 
   const EXHAUSTION_THRESHOLD = 1500 // 1.5 kJ = praktische uitputting
@@ -56,12 +55,14 @@ export function AdWbal({ wbalData, powerSeries, w = 620, h = 140 }) {
   const yPos = (v) => pad.t + (1 - (v - minY) / rangeY) * ch
   const formatKj = (v) => `${(v / 1000).toFixed(0)} kJ`
 
-  // Status: bij sweetspot blijft W'bal bijna vol
+  // Status hangt af van hoe vol W'bal aan het eind is
   const finalWbal = series[series.length - 1]
   const pctFull = Math.round((finalWbal / wPrime) * 100)
   const statusGood = finalWbal > wPrime * 0.7
+  const maxPower = Math.max(...powerSeries)
+  const aboveCP = maxPower > cp
 
-  const xLabels = ['0', '30m', '1u', '1u30', '2u']
+  const xLabels = xLabelsProp || ['0', '30m', '1u', '1u30', '2u']
 
   return (
     <div>
@@ -161,9 +162,21 @@ export function AdWbal({ wbalData, powerSeries, w = 620, h = 140 }) {
 
       <p className={s.note}>
         Skiba 2014/2015 differentiaalmodel · CP = FTP als proxy (CP idealiter apart bepaald) ·
-        Drempel 1,5 kJ = praktische uitputting · Bij deze sub-threshold sweetspot lagen
-        alle intervallen (<strong>{Math.max(...powerSeries)}W max</strong>) onder CP ({cp}W):
-        W'bal bleef vrijwel vol — het bevestigt dat de blokken correct gedoseerd waren.
+        Drempel 1,5 kJ = praktische uitputting ·{' '}
+        {aboveCP ? (
+          <>
+            Pieken tot <strong>{maxPower}W</strong> lagen boven CP ({cp}W); W'bal daalde naar{' '}
+            <strong>{pctFull}%</strong> ({(finalWbal / 1000).toFixed(1)} kJ).{' '}
+            {statusGood
+              ? 'De reserve bleef ruim — de inspanningen boven CP waren kort genoeg om tussendoor te herstellen.'
+              : 'Substantieel verbruik van de anaerobe reserve — de inspanningen boven CP waren intensief of lang.'}
+          </>
+        ) : (
+          <>
+            Alle inspanningen (<strong>{maxPower}W max</strong>) bleven onder CP ({cp}W):
+            W'bal bleef vrijwel vol — het bevestigt dat de blokken correct sub-threshold gedoseerd waren.
+          </>
+        )}
       </p>
     </div>
   )
