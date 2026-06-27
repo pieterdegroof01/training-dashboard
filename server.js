@@ -113,6 +113,7 @@ app.get('/', (req, res) => {
   res.type('html').send(INDEX_HTML);
 });
 app.use(express.static('public'));
+app.use('/activity-ui', express.static(path.join(__dirname, 'activity-detail', 'dist')));
 
 // ── Data persistence ──────────────────────────────────────────────────────────
 
@@ -3161,7 +3162,9 @@ app.post('/webhook/strava', (req, res) => {
   })();
 });
 
-app.get('/activity/:id', (req, res) => res.type('html').send(INDEX_HTML));
+app.get('/activity/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'activity-detail', 'dist', 'index.html'));
+});
 
 // ── Eenmalige migratie: data.json → Postgres ──────────────────────────────────
 app.post('/api/admin/migrate-to-postgres', async (req, res) => {
