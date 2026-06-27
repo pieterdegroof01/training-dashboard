@@ -3399,8 +3399,9 @@ function admUpdateMapZoom(tStart, tEnd, gpsTrack) {
 // ── Activity page routing ─────────────────────────────────────────────────────
 
 function navigateToActivity(id) {
-  history.pushState({}, '', '/activity/' + id);
-  renderActivityPage(id);
+  // Volledige navigatie: de server serveert de nieuwe React-detailpagina
+  // (/activity/:id → activity-detail/dist). Geen client-side render meer.
+  window.location.href = '/activity/' + id;
 }
 
 function renderActivityBack() {
