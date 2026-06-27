@@ -1,0 +1,21 @@
+.heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+
+.title {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 1.2px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sub {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 600;
+}

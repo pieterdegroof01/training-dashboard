@@ -1,0 +1,15 @@
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.panelLabel {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.8px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}

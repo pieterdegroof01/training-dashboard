@@ -1,0 +1,59 @@
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.statLabel {
+  font-size: 9px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.8px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.statValue {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--font-tight);
+  letter-spacing: -0.3px;
+}
+
+.statusPill {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  padding: 4px 10px;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.svg {
+  display: block;
+  overflow: visible;
+}
+
+.note {
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.55;
+}

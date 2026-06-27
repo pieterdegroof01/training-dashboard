@@ -1,0 +1,49 @@
+.tiles {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tile {
+  flex: 1;
+  background: var(--surface2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.tileValue {
+  font-size: 19px;
+  font-weight: 800;
+  font-family: var(--font-tight);
+  letter-spacing: -0.4px;
+}
+
+.tileLabel {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.status {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.description {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.caveat {
+  font-style: italic;
+  opacity: 0.8;
+}

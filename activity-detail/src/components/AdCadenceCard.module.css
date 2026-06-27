@@ -1,0 +1,36 @@
+.tiles {
+  display: flex;
+  gap: 8px;
+}
+
+.tile {
+  flex: 1;
+  background: var(--surface2);
+  border-radius: 12px;
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.value {
+  font-size: 18px;
+  font-weight: 800;
+  font-family: var(--font-tight);
+  color: var(--text);
+  letter-spacing: -0.4px;
+  line-height: 1.1;
+}
+
+.unit {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.label {
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-top: 2px;
+  line-height: 1.2;
+}

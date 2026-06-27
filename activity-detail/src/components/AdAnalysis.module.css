@@ -1,0 +1,37 @@
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.desktop {
+  grid-template-columns: 1fr 1fr;
+}
+
+.phone {
+  grid-template-columns: 1fr;
+}
+
+.svg {
+  display: block;
+  overflow: visible;
+}
+
+.subTitle {
+  font-size: 10.5px;
+  color: var(--text);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.driftNote {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+.quadNote {
+  font-size: 9.5px;
+  color: var(--muted);
+  margin-top: 4px;
+}

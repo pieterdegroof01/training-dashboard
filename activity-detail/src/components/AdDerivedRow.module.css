@@ -1,0 +1,71 @@
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cell {
+  flex: 1 1 0;
+  min-width: 88px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-cell);
+  padding: 10px 12px;
+}
+
+.value {
+  font-size: 18px;
+  font-weight: 800;
+  font-family: var(--font-tight);
+  letter-spacing: -0.4px;
+  line-height: 1.1;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.label {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.8px;
+  font-weight: 700;
+}
+
+.sub {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 500;
+  margin-top: 1px;
+}
+
+.ref {
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.refVal {
+  color: var(--muted);
+}
+
+.refVal strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.refBand {
+  color: var(--muted);
+  font-style: italic;
+}

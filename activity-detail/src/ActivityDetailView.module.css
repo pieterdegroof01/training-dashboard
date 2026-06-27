@@ -1,0 +1,37 @@
+.desktop {
+  color: var(--text);
+}
+
+.metricRow {
+  margin-bottom: 14px;
+}
+
+.derivedRow {
+  margin-bottom: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: var(--gap-desktop);
+  align-items: start;
+}
+
+.left,
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-desktop);
+}
+
+/* ── Telefoon ── */
+.phone {
+  color: var(--text);
+  padding-bottom: 8px;
+}
+
+.phoneFeed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-phone);
+}
