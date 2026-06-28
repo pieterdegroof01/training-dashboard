@@ -2,7 +2,7 @@ import s from './AdAnalysis.module.css'
 
 /* Vermogen–HR scatter */
 function Scatter({ points, color, quad, w = 280, h = 200, ariaLabel }) {
-  const pad = { l: 32, r: 10, t: 12, b: 24 }
+  const pad = { l: 32, r: 10, t: 12, b: 32 }
   const cw = w - pad.l - pad.r
   const ch = h - pad.t - pad.b
   const xs = points.map((p) => p.x)
@@ -13,6 +13,9 @@ function Scatter({ points, color, quad, w = 280, h = 200, ariaLabel }) {
   const yr = (ymax - ymin) || 1
   const px = (x) => pad.l + ((x - xmin) / xr) * cw
   const py = (y) => pad.t + (1 - (y - ymin) / yr) * ch
+
+  const xUnit = quad ? quad.xLabel : 'W'
+  const xMid  = Math.round((xmin + xmax) / 2)
 
   return (
     <svg
@@ -69,17 +72,21 @@ function Scatter({ points, color, quad, w = 280, h = 200, ariaLabel }) {
         <circle key={i} cx={px(p.x)} cy={py(p.y)} r="2.6" fill={color} opacity="0.55" />
       ))}
 
-      {/* As-labels */}
-      <text x={pad.l - 5} y={pad.t + 5} textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{Math.round(ymax)}</text>
-      <text x={pad.l - 5} y={pad.t + ch} textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{Math.round(ymin)}</text>
-      <text x={pad.l + cw} y={h - 6} textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{quad ? quad.xLabel : 'W'}</text>
+      {/* Y-as labels */}
+      <text x={pad.l - 5} y={pad.t + 5}      textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{Math.round(ymax)}</text>
+      <text x={pad.l - 5} y={pad.t + ch}     textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{Math.round(ymin)}</text>
+
+      {/* X-as labels: min, mid, max met eenheid */}
+      <text x={pad.l}           y={h - 4} textAnchor="start" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{Math.round(xmin)}</text>
+      <text x={pad.l + cw / 2} y={h - 4} textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{xMid}</text>
+      <text x={pad.l + cw}     y={h - 4} textAnchor="end"   fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{Math.round(xmax)} {xUnit}</text>
     </svg>
   )
 }
 
 /* HR-drift (EF over de rit) */
-function Drift({ series, w = 280, h = 120 }) {
-  const pad = { l: 8, r: 8, t: 12, b: 22 }
+function Drift({ series, w = 280, h = 130 }) {
+  const pad = { l: 30, r: 8, t: 12, b: 22 }
   const cw = w - pad.l - pad.r
   const ch = h - pad.t - pad.b
   const min = Math.min(...series), max = Math.max(...series)
@@ -105,6 +112,13 @@ function Drift({ series, w = 280, h = 120 }) {
         role="img"
         aria-label={`HR-drift: EF 1e helft ${a1.toFixed(2)}, EF 2e helft ${a2.toFixed(2)}`}
       >
+        {/* Y-as */}
+        <line x1={pad.l} y1={pad.t} x2={pad.l} y2={pad.t + ch} stroke="var(--divider)" strokeWidth="1" />
+
+        {/* Y-as labels: max boven, min onder */}
+        <text x={pad.l - 4} y={pad.t + 4}  textAnchor="end" fontSize="8.5" fill="var(--muted)" fontFamily="var(--font-mono)">{max.toFixed(2)}</text>
+        <text x={pad.l - 4} y={pad.t + ch} textAnchor="end" fontSize="8.5" fill="var(--muted)" fontFamily="var(--font-mono)">{min.toFixed(2)}</text>
+
         {/* Halveer-lijn */}
         <line
           x1={pad.l + cw / 2} y1={pad.t}
@@ -129,8 +143,8 @@ function Drift({ series, w = 280, h = 120 }) {
           strokeLinejoin="round"
         />
 
-        {/* Labels onder */}
-        <text x={pad.l} y={h - 5} fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">
+        {/* Labels onder: 1e/2e helft */}
+        <text x={pad.l + 2} y={h - 5} fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">
           1e helft EF {a1.toFixed(2)}
         </text>
         <text x={w - pad.r} y={h - 5} textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">
@@ -150,7 +164,7 @@ export function AdAnalysis({ scatter, quadrant, drift, cadence, ftp, layout = 'd
   return (
     <div className={`${s.grid} ${isDesktop ? s.desktop : s.phone}`}>
       {/* Vermogen–HR scatter */}
-      <div>
+      <div className={s.section}>
         <div className={s.subTitle}>Vermogen–hartslag relatie</div>
         <Scatter
           points={scatter}
@@ -161,24 +175,28 @@ export function AdAnalysis({ scatter, quadrant, drift, cadence, ftp, layout = 'd
 
       <div>
         {/* HR-drift */}
-        <div className={s.subTitle}>EF-drift over de rit</div>
-        <Drift series={drift} />
+        <div className={s.section}>
+          <div className={s.subTitle}>EF-drift over de rit</div>
+          <Drift series={drift} />
+        </div>
 
         {/* Vermogenskwadranten */}
-        <div className={s.subTitle} style={{ marginTop: 16 }}>Vermogenskwadranten</div>
-        <Scatter
-          points={quadrant}
-          color="var(--accent2)"
-          quad={{
-            xMid: cadence || 88,
-            yMid: ftp || 268,
-            labels: ['Kracht', 'Sprint', 'Herstel', 'Soepel'],
-            xLabel: 'rpm',
-          }}
-          ariaLabel="Vermogenskwadranten: cadans versus vermogen"
-        />
-        <div className={s.quadNote}>
-          Kwadrantgrenzen: FTP {ftp}W · gem. cadans {cadence} rpm
+        <div className={s.section}>
+          <div className={s.subTitle}>Vermogenskwadranten</div>
+          <Scatter
+            points={quadrant}
+            color="var(--accent2)"
+            quad={{
+              xMid: cadence || 88,
+              yMid: ftp || 268,
+              labels: ['Kracht', 'Sprint', 'Herstel', 'Soepel'],
+              xLabel: 'rpm',
+            }}
+            ariaLabel="Vermogenskwadranten: cadans versus vermogen"
+          />
+          <div className={s.quadNote}>
+            Kwadrantgrenzen: FTP {ftp}W · gem. cadans {cadence} rpm
+          </div>
         </div>
       </div>
     </div>

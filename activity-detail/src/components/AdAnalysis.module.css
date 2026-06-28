@@ -1,6 +1,6 @@
 .grid {
   display: grid;
-  gap: 16px;
+  gap: 20px;
 }
 
 .desktop {
@@ -16,22 +16,31 @@
   overflow: visible;
 }
 
+/* Subsectie-wrapper voor consistente verticale spacing */
+.section {
+  margin-bottom: 24px;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
 .subTitle {
   font-size: 10.5px;
   color: var(--text);
   font-weight: 700;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .driftNote {
   font-size: 10px;
   font-weight: 700;
   font-family: var(--font-mono);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .quadNote {
   font-size: 9.5px;
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 6px;
 }

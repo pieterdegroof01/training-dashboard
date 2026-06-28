@@ -20,12 +20,21 @@
   flex-shrink: 0;
 }
 
-.bar {
+/* Shared-axis track: takes all remaining width */
+.barTrack {
   flex: 1;
+  height: 14px;
+  display: flex;
+  align-items: center;
+}
+
+/* Actual bar: proportional width within the track */
+.bar {
   display: flex;
   height: 14px;
   border-radius: 4px;
   overflow: hidden;
+  min-width: 2px;
 }
 
 .segment {
@@ -36,6 +45,7 @@
   margin-top: 12px;
   display: flex;
   gap: 18px;
+  flex-wrap: wrap;
 }
 
 .miniLabel {

@@ -9,8 +9,8 @@ function extractActivityId() {
 }
 
 export default function App() {
-  const [theme, setTheme]   = useState('light')
-  const [layout, setLayout] = useState('desktop')
+  const [theme, setTheme]   = useState(() => localStorage.getItem('pf-theme') || 'light')
+  const [layout, setLayout] = useState(() => window.innerWidth < 768 ? 'phone' : 'desktop')
   const [activity, setActivity] = useState(null)
   const [error, setError]   = useState(null)
   const [aiText, setAiText] = useState(null)
@@ -20,7 +20,12 @@ export default function App() {
   const demo = import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo')
 
   useEffect(() => {
-    // Dev-only demo-modus: render met synthetische data zonder backend.
+    const handleResize = () => setLayout(window.innerWidth < 768 ? 'phone' : 'desktop')
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  useEffect(() => {
     if (demo) {
       import('./_demoData.js')
         .then(({ demoApi }) => {
@@ -60,25 +65,10 @@ export default function App() {
       .finally(() => setAiLoading(false))
   }, [id, activity?.id])
 
-  const toggleTheme  = () => setTheme(t  => t  === 'light' ? 'dark' : 'light')
-  const toggleLayout = () => setLayout(l => l === 'desktop' ? 'phone' : 'desktop')
-
   const activityWithAi = activity ? { ...activity, ai: aiText, aiLoading } : null
 
   return (
     <div data-theme={theme} className={s.root}>
-      <div className={s.toolbar}>
-        <span className={s.brand}>PeakForm</span>
-        <div className={s.controls}>
-          <button className={s.btn} onClick={toggleLayout}>
-            {layout === 'desktop' ? '📱 Telefoon' : '🖥 Desktop'}
-          </button>
-          <button className={s.btn} onClick={toggleTheme}>
-            {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-          </button>
-        </div>
-      </div>
-
       <div className={`${s.page} ${layout === 'phone' ? s.phoneWrap : ''}`}>
         {error && (
           <div style={{ padding: '40px', color: 'var(--red)', fontFamily: 'var(--font-body)' }}>
