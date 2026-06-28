@@ -2075,6 +2075,7 @@ function feedRow(item) {
     const dur = _hevyDurMin(w);
     primary = sets ? `${sets} sets` : '–';
     secondary = dur ? `${dur} min` : '';
+    if (w.id) clickAttr = `onclick="navigateToWorkout('${w.id}')"`;
   } else {
     const a = item.a;
     const isCyc = a.type === 'Ride' || a.type === 'VirtualRide';
@@ -3404,6 +3405,10 @@ function navigateToActivity(id) {
   window.location.href = '/activity/' + id;
 }
 
+function navigateToWorkout(hevyId) {
+  window.location.href = '/workout/' + hevyId;
+}
+
 function renderActivityBack() {
   if (window.history.length > 1) {
     history.back();
@@ -3420,9 +3425,12 @@ function renderActivityBack() {
 }
 
 window.addEventListener('popstate', () => {
-  const match = window.location.pathname.match(/^\/activity\/(\d+)$/);
-  if (match) {
-    renderActivityPage(match[1]);
+  const actMatch = window.location.pathname.match(/^\/activity\/(\d+)$/);
+  const wktMatch = window.location.pathname.match(/^\/workout\/([0-9a-zA-Z-]+)$/);
+  if (actMatch) {
+    renderActivityPage(actMatch[1]);
+  } else if (wktMatch) {
+    renderWorkoutPage(wktMatch[1]);
   } else {
     const page = document.getElementById('activity-page');
     if (page) page.style.display = 'none';
@@ -3738,6 +3746,182 @@ async function renderActivityPage(id) {
     admRenderDistributies(d, FTP);
     admRenderAnalyse(d, FTP);
   }, 100);
+}
+
+// ── Workout page (Hevy strength detail) ──────────────────────────────────────
+
+async function renderWorkoutPage(hevyId) {
+  const appLayout = document.querySelector('.app-layout');
+  const header = document.querySelector('.header');
+  if (appLayout) appLayout.style.display = 'none';
+  if (header) header.style.display = 'none';
+
+  let page = document.getElementById('activity-page');
+  if (!page) {
+    page = document.createElement('div');
+    page.id = 'activity-page';
+    document.body.appendChild(page);
+  }
+  page.style.display = 'block';
+  page.innerHTML = `
+    <div class="activity-header">
+      <button class="ap-back-btn" onclick="renderActivityBack()">← Activiteiten</button>
+      <div class="activity-header-center"><h2 class="ap-title">Laden...</h2></div>
+      <button class="ap-close-btn" onclick="renderActivityBack()">×</button>
+    </div>
+    <div class="ap-body"><div style="padding:40px;text-align:center;color:var(--muted)">Workout laden...</div></div>
+  `;
+
+  let summary;
+  try {
+    const resp = await fetch('/api/hevy/workout/' + hevyId + '/summary');
+    if (!resp.ok) throw new Error(await resp.text());
+    summary = await resp.json();
+  } catch(e) {
+    page.querySelector('.ap-body').innerHTML =
+      `<div class="alert alert-error" style="margin:16px">Fout bij laden: ${e.message}</div>`;
+    return;
+  }
+
+  const workoutName = summary.workoutName || 'Workout';
+  const workoutDate = summary.workoutDate ? fmtD(summary.workoutDate, true) : '';
+  const splitLabel  = summary.workoutDescription || 'Krachttraining';
+
+  const metricsHtml = [
+    `<div class="metric-card"><div class="metric-card-val">${summary.workingSets}</div><div class="metric-card-lbl">Werksets</div></div>`,
+    `<div class="metric-card"><div class="metric-card-val">${summary.tonnage}&nbsp;kg</div><div class="metric-card-lbl">Tonnage</div></div>`,
+    summary.durationMin ? `<div class="metric-card"><div class="metric-card-val">${summary.durationMin}&nbsp;min</div><div class="metric-card-lbl">Duur</div></div>` : '',
+    summary.avgRPE != null ? `<div class="metric-card"><div class="metric-card-val">${summary.avgRPE}</div><div class="metric-card-lbl">Gem. RPE</div></div>` : '',
+    summary.topE1rm ? `<div class="metric-card"><div class="metric-card-val">${summary.topE1rm.e1rm}&nbsp;kg</div><div class="metric-card-lbl">${summary.topE1rm.exercise}</div></div>` : '',
+  ].join('');
+
+  const exercisesHtml = (summary.perExercise || []).map(ex => {
+    const rows = ex.sets.map((s, i) => {
+      const e1rmCell = s.e1rm != null
+        ? (s.lowConfidence ? `<span class="ws-e1rm-low">~${s.e1rm} kg</span>` : `${s.e1rm} kg`)
+        : '–';
+      return `<tr>
+        <td>${i + 1}</td>
+        <td>${s.weight ? s.weight + ' kg' : '–'}</td>
+        <td>${s.reps || '–'}</td>
+        <td>${s.rpe != null ? s.rpe : '–'}</td>
+        <td>${e1rmCell}</td>
+      </tr>`;
+    }).join('');
+    const bestBadge = ex.bestE1rm
+      ? `<span class="ws-exercise-best">${ex.bestE1rm} kg e1RM</span>` : '';
+    return `
+      <div class="ws-exercise-block">
+        <div class="ws-exercise-name">${ex.name}${bestBadge}</div>
+        <table class="ws-set-table">
+          <thead><tr><th>#</th><th>Gewicht</th><th>Reps</th><th>RPE</th><th>e1RM</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:13px">Geen oefeningen gevonden.</div>';
+
+  const e1RMTrends = S.fullState?.strengthMetrics?.e1RMTrends || [];
+  const thisNames  = new Set((summary.perExercise || []).map(e => e.name));
+  const relevant   = e1RMTrends.filter(t => thisNames.has(t.exercise) && t.sessions.length >= 2);
+  const progressieHtml = relevant.length > 0
+    ? relevant.map(t => {
+        const last  = t.sessions[t.sessions.length - 1];
+        const prev  = t.sessions[t.sessions.length - 2];
+        const delta = Math.round((last.e1rm - prev.e1rm) * 10) / 10;
+        const sign  = delta >= 0 ? '+' : '';
+        const col   = delta > 0 ? 'var(--green)' : delta < 0 ? 'var(--red)' : 'var(--muted)';
+        const recent = t.sessions.slice(-4);
+        const maxE   = Math.max(...recent.map(s => s.e1rm)) || 1;
+        const bars   = recent.map(s => {
+          const h = Math.round(s.e1rm / maxE * 40);
+          return `<div style="width:18px;height:${h}px;background:var(--accent);border-radius:2px 2px 0 0;margin-right:2px" title="${s.date}: ${s.e1rm} kg"></div>`;
+        }).join('');
+        return `
+          <div class="ws-prog-block">
+            <div class="ws-prog-name">${t.exercise}</div>
+            <div class="ws-prog-row">
+              <div style="display:flex;align-items:flex-end;height:44px;margin-right:10px">${bars}</div>
+              <div>
+                <div style="font-size:15px;font-weight:700;font-family:'Inter Tight',sans-serif">${last.e1rm} kg</div>
+                <div style="font-size:11px;color:${col}">${sign}${delta} kg vs vorige sessie</div>
+              </div>
+            </div>
+          </div>`;
+      }).join('')
+    : '<div style="color:var(--muted);font-size:13px;padding:8px 0">Nog geen trenddata voor oefeningen in deze sessie.</div>';
+
+  page.innerHTML = `
+    <div class="activity-header">
+      <button class="ap-back-btn" onclick="renderActivityBack()">← Activiteiten</button>
+      <div class="activity-header-center">
+        <h2 class="ap-title">${workoutName}</h2>
+        <span class="ap-meta">${workoutDate} · Hevy <span class="pf-badge pf-badge-tss" style="font-size:9px;margin-left:4px">${splitLabel}</span></span>
+      </div>
+      <button class="ap-close-btn" onclick="renderActivityBack()">×</button>
+    </div>
+    <div class="ap-body">
+      <div class="activity-metrics-strip">${metricsHtml}</div>
+
+      <details class="ap-accordion-section" open>
+        <summary>Spiergroepen</summary>
+        <div class="ap-section">
+          <div id="ws-muscle-body" style="color:var(--muted);font-size:13px">Wordt geladen...</div>
+        </div>
+      </details>
+
+      <details class="ap-accordion-section" open>
+        <summary>Oefeningen</summary>
+        <div class="ap-section">${exercisesHtml}</div>
+      </details>
+
+      <details class="ap-accordion-section" open>
+        <summary>Progressie</summary>
+        <div class="ap-section">${progressieHtml}</div>
+      </details>
+
+      <details class="ap-accordion-section" open>
+        <summary>Coach-analyse</summary>
+        <div class="activity-ai-block ap-section">
+          <h3 class="adm-section-title">COACH-ANALYSE</h3>
+          <div id="ws-ai-content"><span style="font-size:13px;opacity:0.6">Analyseren...</span></div>
+        </div>
+      </details>
+    </div>
+  `;
+
+  if (window.innerWidth >= 601) {
+    document.querySelectorAll('details.ap-accordion-section').forEach(el => { el.open = true; });
+  }
+  window.addEventListener('resize', function _wpResize() {
+    if (!document.getElementById('activity-page') || document.getElementById('activity-page').style.display === 'none') {
+      window.removeEventListener('resize', _wpResize); return;
+    }
+    if (window.innerWidth >= 601) {
+      document.querySelectorAll('details.ap-accordion-section').forEach(el => { el.open = true; });
+    }
+  });
+
+  loadWorkoutAnalysis(hevyId);
+}
+
+async function loadWorkoutAnalysis(hevyId) {
+  const container = document.getElementById('ws-ai-content');
+  if (!container) return;
+  container.innerHTML = '<span style="font-size:13px;opacity:0.6">Analyseren...</span>';
+  try {
+    const resp = await fetch('/api/hevy/workout/' + hevyId + '/analyse', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const d = await resp.json();
+    const c = document.getElementById('ws-ai-content');
+    if (!c) return;
+    c.innerHTML = '<div class="adm-ai-text">' + (d.text || 'Analyse niet beschikbaar.') + '</div>';
+  } catch(e) {
+    const c = document.getElementById('ws-ai-content');
+    if (c) c.innerHTML = '<span style="font-size:13px;opacity:0.6">Fout bij laden.</span>';
+  }
 }
 
 function renderActivityMmpChart(detail) {
@@ -4311,9 +4495,13 @@ function initInfoTooltips() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 const _activityPageMatch = window.location.pathname.match(/^\/activity\/(\d+)$/);
+const _workoutPageMatch  = window.location.pathname.match(/^\/workout\/([0-9a-zA-Z-]+)$/);
 if (_activityPageMatch) {
   loadUserData(); // load settings (needed for zone colors etc.)
   renderActivityPage(_activityPageMatch[1]);
+} else if (_workoutPageMatch) {
+  loadUserData(); // load S.fullState (e1RMTrends) en S.hevyWorkouts
+  renderWorkoutPage(_workoutPageMatch[1]);
 } else {
   syncAll();
   (TAB_INSIGHTS['overview'] || []).forEach(p => loadInsight(p));

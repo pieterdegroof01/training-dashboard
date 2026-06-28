@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const engine = require('./engine');
 const { buildPlan } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
-const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume } = require('./engine');
+const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
 const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
@@ -1989,6 +1989,76 @@ app.get('/api/hevy/workout/:hevyId/muscles', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/hevy/workout/:hevyId/summary', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    const { rows } = await query(
+      'SELECT raw FROM hevy_workouts WHERE user_id = $1 AND hevy_id = $2',
+      [user.id, req.params.hevyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Workout niet gevonden' });
+    const workout = rows[0].raw;
+    const summary = computeWorkoutStrengthSummary(workout);
+    res.json({
+      ...summary,
+      workoutName: workout.name || 'Workout',
+      workoutDate: workout.start_time || null,
+      workoutDescription: workout.description || null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/hevy/workout/:hevyId/analyse', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'Anthropic API key niet ingesteld' });
+    const { hevyId } = req.params;
+    const user = await getDefaultUser();
+
+    const cacheKey = 'workout_v1_' + hevyId;
+    const cached   = user.ai_insights?.[cacheKey];
+    if (cached?.ts && (Date.now() - cached.ts) < 7 * 24 * 60 * 60 * 1000) {
+      return res.json({ text: cached.text });
+    }
+
+    const { rows } = await query(
+      'SELECT raw FROM hevy_workouts WHERE user_id = $1 AND hevy_id = $2',
+      [user.id, hevyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Workout niet gevonden' });
+    const workout = rows[0].raw;
+
+    const summary        = computeWorkoutStrengthSummary(workout);
+    const templatesById  = await getExerciseTemplates(user.id);
+    const muscles        = computeWorkoutMuscleVolume(workout, templatesById);
+
+    const topE = summary.topE1rm;
+    const lines = [
+      `Workout: ${workout.name || 'Onbekend'}, ${workout.start_time?.split('T')[0] || '–'}`,
+      `Werksets: ${summary.workingSets}, tonnage: ${summary.tonnage} kg, duur: ${summary.durationMin ? summary.durationMin + ' min' : 'onbekend'}`,
+      summary.avgRPE != null ? `Gem. RPE: ${summary.avgRPE} (${summary.loggedRpeSets} sets gelogd)` : null,
+      topE ? `Top e1RM: ${topE.exercise} — ${topE.e1rm} kg (${topE.weight}×${topE.reps} reps)` : null,
+      `Oefeningen: ${summary.perExercise.map(e => e.name + ' (' + e.sets.length + ' sets)').join(', ')}`,
+      (muscles.distribution || []).length
+        ? `Spierverdeling: ${muscles.distribution.slice(0, 6).map(d => d.muscle + ' ' + d.pct + '%').join(', ')}`
+        : null,
+    ].filter(Boolean);
+
+    const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-sonnet-4-5', max_tokens: 250,
+      system: 'Je bent een persoonlijke krachttrainingscoach. Schrijf exact 3 zinnen, niet meer. Zin 1: wat valt op aan de sessie (volume, tonnage, RPE, top e1RM, gestimuuleerde spiergroepen). Zin 2: wat zegt dit over de trainingstoestand en voortgang. Zin 3: één concrete aanbeveling voor de komende 48 uur. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets.',
+      messages: [{ role: 'user', content: lines.join('\n') }]
+    }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
+
+    const responseText = aiResp.data.content?.[0]?.text || '';
+    const freshUser = await getDefaultUser();
+    const updatedInsights = { ...(freshUser.ai_insights || {}) };
+    updatedInsights[cacheKey] = { text: responseText, ts: Date.now() };
+    await saveUserFields(freshUser.id, { ai_insights: updatedInsights });
+
+    res.json({ text: responseText });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Slaap ─────────────────────────────────────────────────────────────────────
 
 app.post('/api/sleep', async (req, res) => {
@@ -3219,6 +3289,10 @@ app.post('/webhook/strava', (req, res) => {
 
 app.get('/activity/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'activity-detail', 'dist', 'index.html'));
+});
+
+app.get('/workout/:id', (req, res) => {
+  res.sendFile('index.html', { root: path.join(__dirname, 'public') });
 });
 
 // ── Eenmalige migratie: data.json → Postgres ──────────────────────────────────

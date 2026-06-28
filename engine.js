@@ -438,6 +438,76 @@ function computeStrengthMetrics(hevyWorkouts) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// SINGLE-WORKOUT STRENGTH SUMMARY
+// ────────────────────────────────────────────────────────────────────────────
+function computeWorkoutStrengthSummary(workout) {
+  if (!workout) return null;
+
+  let workingSets = 0;
+  let tonnageRaw  = 0;
+  let totalRpe    = 0;
+  let loggedRpeSets = 0;
+  let topE1rmEntry  = null;
+  const perExercise = [];
+
+  let durationMin = null;
+  if (workout.start_time && workout.end_time) {
+    const diff = new Date(workout.end_time) - new Date(workout.start_time);
+    if (!isNaN(diff) && diff > 0) durationMin = Math.round(diff / 60000);
+  }
+
+  (workout.exercises || []).forEach(ex => {
+    const workSets = [];
+    let bestE1rm = 0;
+
+    (ex.sets || []).forEach(s => {
+      const sType = s.set_type || 'normal';
+      if (!WORKING_SET_TYPES.has(sType)) return;
+
+      workingSets++;
+      const w = s.weight_kg || 0;
+      const r = s.reps || 0;
+      tonnageRaw += w * r;
+
+      if (s.rpe != null) { totalRpe += s.rpe; loggedRpeSets++; }
+
+      const e1rm = (w > 0 && r > 0) ? w * (1 + r / 30) : null;
+      const lowConfidence = r > 8;
+
+      if (e1rm) {
+        if (e1rm > bestE1rm) bestE1rm = e1rm;
+        if (!topE1rmEntry || e1rm > topE1rmEntry.e1rm) {
+          topE1rmEntry = { exercise: ex.title, e1rm: Math.round(e1rm * 10) / 10, reps: r, weight: w };
+        }
+      }
+
+      workSets.push({
+        weight: w, reps: r, rpe: s.rpe ?? null,
+        e1rm: e1rm ? Math.round(e1rm * 10) / 10 : null,
+        lowConfidence,
+      });
+    });
+
+    if (workSets.length) {
+      perExercise.push({
+        name: ex.title, sets: workSets,
+        bestE1rm: bestE1rm > 0 ? Math.round(bestE1rm * 10) / 10 : null,
+      });
+    }
+  });
+
+  return {
+    workingSets,
+    tonnage: Math.round(tonnageRaw),
+    durationMin,
+    avgRPE: loggedRpeSets > 0 ? Math.round(totalRpe / loggedRpeSets * 10) / 10 : null,
+    loggedRpeSets,
+    topE1rm: topE1rmEntry,
+    perExercise,
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // ATL / CTL / TSB / ACWR / MONOTONY / STRAIN
 // ────────────────────────────────────────────────────────────────────────────
 function computeLoadMetrics(dailyETL, asOfDate = null) {
@@ -1482,4 +1552,5 @@ module.exports = {
   powerProfileLevel, POWER_PROFILE_MALE, POWER_PROFILE_CATEGORIES, classifyRiderType,
   ENDURANCE_TYPES, STRENGTH_TYPES,
   computeWorkoutMuscleVolume, PRIMARY_WEIGHT, SECONDARY_WEIGHT,
+  computeWorkoutStrengthSummary,
 };
