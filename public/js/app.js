@@ -3935,29 +3935,34 @@ const _WS_MUSCLE_NL = {
   triceps: 'Triceps', upper_back: 'Bovenrug'
 };
 
-// Hevy muscle label → body-highlighter slug (many-to-one)
+// Hevy muscle label → body-highlighter slug(s)
+// Values are arrays; one label may light up multiple SVG regions.
+// SVG anatomy note: package "trapezius" draws the upper-back triangle,
+// "upper-back" draws the broad lateral slab (functionally the lats zone).
 const _WS_HEVY_TO_SLUG = {
-  chest:       'chest',
-  abdominals:  'abs',
-  biceps:      'biceps',
-  calves:      'calves',
-  forearms:    'forearm',
-  glutes:      'gluteal',
-  hamstrings:  'hamstring',
-  quadriceps:  'quadriceps',
-  shoulders:   'deltoids',
-  triceps:     'triceps',
-  lower_back:  'lower-back',
-  upper_back:  'upper-back',
-  lats:        'upper-back',
-  adductors:   'adductors',
+  chest:       ['chest'],
+  abdominals:  ['abs', 'obliques'],
+  biceps:      ['biceps'],
+  triceps:     ['triceps'],
+  shoulders:   ['deltoids'],
+  forearms:    ['forearm'],
+  quadriceps:  ['quadriceps'],
+  adductors:   ['adductors'],
+  calves:      ['calves'],
+  glutes:      ['gluteal'],
+  hamstrings:  ['hamstring'],
+  lower_back:  ['lower-back'],
+  upper_back:  ['trapezius'],
+  lats:        ['upper-back'],
 };
 
 // Inverse: slug → [hevy labels]
 const _WS_SLUG_TO_HEVY = {};
-Object.entries(_WS_HEVY_TO_SLUG).forEach(([hevy, slug]) => {
-  if (!_WS_SLUG_TO_HEVY[slug]) _WS_SLUG_TO_HEVY[slug] = [];
-  _WS_SLUG_TO_HEVY[slug].push(hevy);
+Object.entries(_WS_HEVY_TO_SLUG).forEach(([hevy, slugs]) => {
+  slugs.forEach(slug => {
+    if (!_WS_SLUG_TO_HEVY[slug]) _WS_SLUG_TO_HEVY[slug] = [];
+    _WS_SLUG_TO_HEVY[slug].push(hevy);
+  });
 });
 
 // Dutch label for slug (used in panel title when a slug maps to multiple Hevy labels)
@@ -3973,7 +3978,9 @@ const _WS_SLUG_NL = {
   'deltoids':    'Schouders',
   'triceps':     'Triceps',
   'lower-back':  'Lage rug',
-  'upper-back':  'Bovenrug / Latissimus',
+  'upper-back':  'Latissimus',
+  'trapezius':   'Bovenrug',
+  'obliques':    'Buikspieren',
   'adductors':   'Adductoren',
 };
 
@@ -4047,7 +4054,7 @@ function _buildMuscleSvg(dist, maxVal) {
 
   // Unmapped slugs (no Hevy label maps to them) render as neutral background
   const NEUTRAL_SLUGS = new Set([
-    'head', 'hair', 'neck', 'hands', 'feet', 'ankles', 'knees', 'tibialis', 'obliques', 'trapezius'
+    'head', 'hair', 'neck', 'hands', 'feet', 'ankles', 'knees', 'tibialis'
   ]);
 
   function pathAttrs(slug) {
