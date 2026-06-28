@@ -3902,6 +3902,7 @@ async function renderWorkoutPage(hevyId) {
   });
 
   loadWorkoutAnalysis(hevyId);
+  loadWorkoutMuscles(hevyId);
 }
 
 async function loadWorkoutAnalysis(hevyId) {
@@ -3922,6 +3923,196 @@ async function loadWorkoutAnalysis(hevyId) {
     const c = document.getElementById('ws-ai-content');
     if (c) c.innerHTML = '<span style="font-size:13px;opacity:0.6">Fout bij laden.</span>';
   }
+}
+
+// ── Muscle body visualization ──────────────────────────────────────────────
+
+const _WS_MUSCLE_NL = {
+  abdominals: 'Buikspieren', adductors: 'Adductoren', biceps: 'Biceps',
+  calves: 'Kuiten', chest: 'Borst', forearms: 'Onderarmen',
+  glutes: 'Bilspieren', hamstrings: 'Hamstrings', lats: 'Latissimus',
+  lower_back: 'Lage rug', quadriceps: 'Quadriceps', shoulders: 'Schouders',
+  triceps: 'Triceps', upper_back: 'Bovenrug'
+};
+
+async function loadWorkoutMuscles(hevyId) {
+  const container = document.getElementById('ws-muscle-body');
+  if (!container) return;
+
+  let data;
+  try {
+    const resp = await fetch('/api/hevy/workout/' + hevyId + '/muscles');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    data = await resp.json();
+  } catch (e) {
+    container.style.cssText = '';
+    container.innerHTML = '<span style="font-size:13px;color:var(--muted)">Spierdata niet beschikbaar.</span>';
+    return;
+  }
+
+  const dist     = data.distribution || {};
+  const byMuscle = data.byMuscle    || {};
+  const unmapped = data.unmapped    || [];
+  const maxVal   = Math.max(0.001, ...Object.values(dist));
+
+  container.style.cssText = '';
+  container.innerHTML =
+    '<div class="ws-mb-layout">' +
+      '<div class="ws-mb-svg-box">' + _buildMuscleSvg(dist, maxVal) + '</div>' +
+      '<div class="ws-mb-panel-box"><div id="ws-mb-panel" class="ws-mb-panel">' +
+        _buildMuscleDefault(dist, maxVal) +
+      '</div></div>' +
+    '</div>' +
+    (unmapped.length
+      ? '<p class="ws-mb-unmapped">Niet toegewezen aan een spiergroep: ' + unmapped.join(', ') + '</p>'
+      : '');
+
+  const svgEl = container.querySelector('svg');
+  if (!svgEl) return;
+
+  svgEl.addEventListener('click', function (e) {
+    const region     = e.target.closest('[data-muscle]');
+    const panel      = document.getElementById('ws-mb-panel');
+    const allRegions = svgEl.querySelectorAll('[data-muscle]');
+    if (!panel) return;
+
+    if (!region) {
+      allRegions.forEach(el => el.classList.remove('ws-mb-selected'));
+      panel.innerHTML = _buildMuscleDefault(dist, maxVal);
+      return;
+    }
+
+    const muscle     = region.dataset.muscle;
+    const isSelected = region.classList.contains('ws-mb-selected');
+    allRegions.forEach(el => el.classList.remove('ws-mb-selected'));
+
+    if (!isSelected) {
+      svgEl.querySelectorAll('[data-muscle="' + muscle + '"]')
+           .forEach(el => el.classList.add('ws-mb-selected'));
+      panel.innerHTML = _buildMuscleDetail(muscle, dist, byMuscle);
+    } else {
+      panel.innerHTML = _buildMuscleDefault(dist, maxVal);
+    }
+  });
+}
+
+function _buildMuscleSvg(dist, maxVal) {
+  function rAttr(muscle) {
+    const f = dist[muscle] ? Math.min(1, dist[muscle] / maxVal) : 0;
+    if (f <= 0) {
+      return 'data-muscle="' + muscle + '" class="ws-mb-region ws-mb-inactive" fill="var(--border)" fill-opacity="1" stroke="var(--border2)" stroke-width="1"';
+    }
+    const fo = +(0.18 + f * 0.77).toFixed(2);
+    return 'data-muscle="' + muscle + '" class="ws-mb-region ws-mb-active" fill="var(--accent)" fill-opacity="' + fo + '" stroke="var(--accent2)" stroke-width="1"';
+  }
+  const bg = 'fill="var(--surface2)" stroke="var(--border)" stroke-width="1.5"';
+
+  return `<svg viewBox="0 0 380 295" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
+  <text x="90" y="9" text-anchor="middle" font-size="7.5" font-family="JetBrains Mono,monospace" font-weight="700" letter-spacing="1.5" fill="var(--muted)">VOOR</text>
+  <text x="290" y="9" text-anchor="middle" font-size="7.5" font-family="JetBrains Mono,monospace" font-weight="700" letter-spacing="1.5" fill="var(--muted)">ACHTER</text>
+  <!-- front outline -->
+  <ellipse ${bg} cx="90" cy="33" rx="18" ry="21"/>
+  <rect ${bg} x="83" y="52" width="14" height="18" rx="5"/>
+  <rect ${bg} x="58" y="68" width="64" height="90" rx="10"/>
+  <rect ${bg} x="36" y="68" width="20" height="72" rx="10"/>
+  <rect ${bg} x="124" y="68" width="20" height="72" rx="10"/>
+  <rect ${bg} x="38" y="142" width="18" height="56" rx="9"/>
+  <rect ${bg} x="124" y="142" width="18" height="56" rx="9"/>
+  <rect ${bg} x="60" y="160" width="26" height="72" rx="10"/>
+  <rect ${bg} x="94" y="160" width="26" height="72" rx="10"/>
+  <rect ${bg} x="62" y="234" width="22" height="54" rx="10"/>
+  <rect ${bg} x="96" y="234" width="22" height="54" rx="10"/>
+  <!-- front muscles -->
+  <ellipse ${rAttr('shoulders')} cx="46" cy="82" rx="11" ry="16"/>
+  <ellipse ${rAttr('shoulders')} cx="134" cy="82" rx="11" ry="16"/>
+  <ellipse ${rAttr('chest')} cx="90" cy="85" rx="22" ry="15"/>
+  <ellipse ${rAttr('biceps')} cx="46" cy="112" rx="9" ry="18"/>
+  <ellipse ${rAttr('biceps')} cx="134" cy="112" rx="9" ry="18"/>
+  <ellipse ${rAttr('abdominals')} cx="90" cy="126" rx="18" ry="22"/>
+  <ellipse ${rAttr('forearms')} cx="47" cy="163" rx="8" ry="22"/>
+  <ellipse ${rAttr('forearms')} cx="133" cy="163" rx="8" ry="22"/>
+  <ellipse ${rAttr('quadriceps')} cx="70" cy="200" rx="11" ry="28"/>
+  <ellipse ${rAttr('quadriceps')} cx="110" cy="200" rx="11" ry="28"/>
+  <ellipse ${rAttr('adductors')} cx="79" cy="200" rx="8" ry="24"/>
+  <ellipse ${rAttr('adductors')} cx="101" cy="200" rx="8" ry="24"/>
+  <!-- back outline -->
+  <ellipse ${bg} cx="290" cy="33" rx="18" ry="21"/>
+  <rect ${bg} x="283" y="52" width="14" height="18" rx="5"/>
+  <rect ${bg} x="258" y="68" width="64" height="90" rx="10"/>
+  <rect ${bg} x="236" y="68" width="20" height="72" rx="10"/>
+  <rect ${bg} x="324" y="68" width="20" height="72" rx="10"/>
+  <rect ${bg} x="238" y="142" width="18" height="56" rx="9"/>
+  <rect ${bg} x="324" y="142" width="18" height="56" rx="9"/>
+  <rect ${bg} x="260" y="160" width="26" height="72" rx="10"/>
+  <rect ${bg} x="294" y="160" width="26" height="72" rx="10"/>
+  <rect ${bg} x="262" y="234" width="22" height="54" rx="10"/>
+  <rect ${bg} x="296" y="234" width="22" height="54" rx="10"/>
+  <!-- back muscles -->
+  <ellipse ${rAttr('shoulders')} cx="246" cy="82" rx="11" ry="16"/>
+  <ellipse ${rAttr('shoulders')} cx="334" cy="82" rx="11" ry="16"/>
+  <ellipse ${rAttr('upper_back')} cx="290" cy="85" rx="22" ry="16"/>
+  <ellipse ${rAttr('lats')} cx="268" cy="113" rx="11" ry="24"/>
+  <ellipse ${rAttr('lats')} cx="312" cy="113" rx="11" ry="24"/>
+  <ellipse ${rAttr('lower_back')} cx="290" cy="143" rx="16" ry="12"/>
+  <ellipse ${rAttr('triceps')} cx="246" cy="112" rx="9" ry="18"/>
+  <ellipse ${rAttr('triceps')} cx="334" cy="112" rx="9" ry="18"/>
+  <ellipse ${rAttr('forearms')} cx="247" cy="163" rx="8" ry="22"/>
+  <ellipse ${rAttr('forearms')} cx="333" cy="163" rx="8" ry="22"/>
+  <ellipse ${rAttr('glutes')} cx="276" cy="172" rx="16" ry="14"/>
+  <ellipse ${rAttr('glutes')} cx="304" cy="172" rx="16" ry="14"/>
+  <ellipse ${rAttr('hamstrings')} cx="270" cy="202" rx="11" ry="28"/>
+  <ellipse ${rAttr('hamstrings')} cx="310" cy="202" rx="11" ry="28"/>
+  <ellipse ${rAttr('calves')} cx="270" cy="252" rx="9" ry="20"/>
+  <ellipse ${rAttr('calves')} cx="310" cy="252" rx="9" ry="20"/>
+</svg>`;
+}
+
+function _buildMuscleDefault(dist, maxVal) {
+  const sorted = Object.entries(dist).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  if (!sorted.length) {
+    return '<p style="color:var(--muted);font-size:13px">Geen spierdata voor deze sessie.</p>';
+  }
+  return '<div class="ws-mb-ptitle">MEEST BELAST</div>' +
+    sorted.map(([m, v], i) => {
+      const pct = Math.round(v / maxVal * 100);
+      return '<div class="ws-mb-top-item">' +
+        '<div class="ws-mb-top-hd">' +
+          '<span class="ws-mb-top-rank">' + (i + 1) + '</span>' +
+          '<span class="ws-mb-top-name">' + (_WS_MUSCLE_NL[m] || m) + '</span>' +
+          '<span class="ws-mb-top-val">' + v.toFixed(1) + '</span>' +
+        '</div>' +
+        '<div class="ws-mb-bar-wrap"><div class="ws-mb-bar-fill" style="width:' + pct + '%"></div></div>' +
+      '</div>';
+    }).join('') +
+    '<p class="ws-mb-hint">Klik een spierregio voor details</p>';
+}
+
+function _buildMuscleDetail(muscle, dist, byMuscle) {
+  const name  = _WS_MUSCLE_NL[muscle] || muscle;
+  const total = dist[muscle] || 0;
+  const exs   = [...(byMuscle[muscle] || [])].sort((a, b) =>
+    a.role !== b.role ? (a.role === 'primary' ? -1 : 1) : b.workingSets - a.workingSets
+  );
+
+  let lastRole = null, first = true;
+  const rows = exs.map(ex => {
+    let hd = '';
+    if (ex.role !== lastRole) {
+      lastRole = ex.role;
+      const sep = first ? '' : 'border-top:1px solid var(--divider);margin-top:8px;padding-top:6px;';
+      first = false;
+      hd = '<div class="ws-mb-role-hd" style="' + sep + '">' + (ex.role === 'primary' ? 'Primair' : 'Secundair') + '</div>';
+    }
+    return hd +
+      '<div class="ws-mb-ex-row">' +
+        '<span class="ws-mb-ex-name">' + ex.exercise + '</span>' +
+        '<span class="ws-mb-ex-meta">' + ex.workingSets + '× · ' + ex.contribution.toFixed(1) + ' pts</span>' +
+      '</div>';
+  }).join('');
+
+  return '<div class="ws-mb-ptitle">' + name.toUpperCase() + '</div>' +
+    '<div class="ws-mb-total">Gewogen sets: <strong>' + total.toFixed(1) + '</strong></div>' +
+    '<div class="ws-mb-ex-list">' + (rows || '<span style="color:var(--muted);font-size:12px">Geen oefeningen.</span>') + '</div>';
 }
 
 function renderActivityMmpChart(detail) {
