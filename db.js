@@ -101,6 +101,19 @@ async function initSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_hevy_user_date ON hevy_workouts (user_id, start_date);
 
+    CREATE TABLE IF NOT EXISTS exercise_templates (
+      user_id                 BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      template_id             TEXT NOT NULL,
+      title                   TEXT,
+      primary_muscle_group    TEXT,
+      secondary_muscle_groups JSONB,
+      type                    TEXT,
+      is_custom               BOOLEAN,
+      raw                     JSONB,
+      fetched_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, template_id)
+    );
+
     CREATE TABLE IF NOT EXISTS activity_streams (
       user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       strava_id  TEXT NOT NULL,
@@ -533,6 +546,51 @@ async function setPrescriptionStatus(id, status) {
   );
 }
 
+async function upsertExerciseTemplate(userId, tpl) {
+  await query(
+    `INSERT INTO exercise_templates
+       (user_id, template_id, title, primary_muscle_group, secondary_muscle_groups,
+        type, is_custom, raw, fetched_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+     ON CONFLICT (user_id, template_id) DO UPDATE SET
+       title                   = EXCLUDED.title,
+       primary_muscle_group    = EXCLUDED.primary_muscle_group,
+       secondary_muscle_groups = EXCLUDED.secondary_muscle_groups,
+       type                    = EXCLUDED.type,
+       is_custom               = EXCLUDED.is_custom,
+       raw                     = EXCLUDED.raw,
+       fetched_at              = EXCLUDED.fetched_at`,
+    [
+      userId,
+      tpl.id,
+      tpl.title || null,
+      tpl.primary_muscle_group || null,
+      tpl.secondary_muscle_groups != null ? JSON.stringify(tpl.secondary_muscle_groups) : null,
+      tpl.type || null,
+      tpl.is_custom ?? null,
+      JSON.stringify(tpl),
+    ]
+  );
+}
+
+async function getExerciseTemplates(userId) {
+  const { rows } = await query(
+    `SELECT template_id, title, primary_muscle_group, secondary_muscle_groups, is_custom
+     FROM exercise_templates WHERE user_id = $1`,
+    [userId]
+  );
+  const map = {};
+  for (const row of rows) {
+    map[row.template_id] = {
+      primary:   row.primary_muscle_group,
+      secondary: row.secondary_muscle_groups || [],
+      title:     row.title,
+      isCustom:  row.is_custom,
+    };
+  }
+  return map;
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
@@ -544,4 +602,5 @@ module.exports = {
   insertPrescription, supersedePrescription, getActivePrescriptions,
   upsertSessionOutcome, getLearnedParams, getOutcomeHistory,
   setPrescriptionStatus,
+  upsertExerciseTemplate, getExerciseTemplates,
 };

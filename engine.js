@@ -10,6 +10,9 @@ const DEFAULT_HR_MAX = 197;
 const ENDURANCE_TYPES = new Set(['Ride','VirtualRide','Run','TrailRun','Swim','Hike','Walk']);
 const STRENGTH_TYPES  = new Set(['WeightTraining','Workout']);
 
+const PRIMARY_WEIGHT   = 1.0;
+const SECONDARY_WEIGHT = 0.5;
+
 // ────────────────────────────────────────────────────────────────────────────
 // HULPFUNCTIES
 // ────────────────────────────────────────────────────────────────────────────
@@ -1400,6 +1403,55 @@ function classifySession(powerTimeline, ftp) {
   return { sessionType, boutCount, boutDurationCV, polarizationIndex, dominantBinFraction };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// SPIER-VOLUME VERDELING — op basis van Hevy exercise templates
+// ────────────────────────────────────────────────────────────────────────────
+const WORKING_SET_TYPES = new Set(['normal', 'dropset', 'failure']);
+
+function computeWorkoutMuscleVolume(workout, templatesById) {
+  const distribution = {};
+  const byMuscle     = {};
+  const unmapped     = [];
+  let   totalWorkingSets = 0;
+
+  for (const ex of (workout.exercises || [])) {
+    const templateId = ex.exercise_template_id;
+    const template   = templateId ? templatesById[templateId] : null;
+
+    const workingSets = (ex.sets || []).filter(s => WORKING_SET_TYPES.has(s.type));
+    const setCount    = workingSets.length;
+    if (setCount === 0) continue;
+
+    if (!template) {
+      const label = ex.title || templateId || 'unknown';
+      if (!unmapped.includes(label)) unmapped.push(label);
+      continue;
+    }
+
+    totalWorkingSets += setCount;
+
+    const primary   = template.primary;
+    const secondary = Array.isArray(template.secondary) ? template.secondary : [];
+    const label     = ex.title || templateId;
+
+    if (primary) {
+      const contrib = PRIMARY_WEIGHT * setCount;
+      distribution[primary] = (distribution[primary] || 0) + contrib;
+      if (!byMuscle[primary]) byMuscle[primary] = [];
+      byMuscle[primary].push({ exercise: label, role: 'primary', workingSets: setCount, contribution: contrib });
+    }
+
+    for (const sec of secondary) {
+      const contrib = SECONDARY_WEIGHT * setCount;
+      distribution[sec] = (distribution[sec] || 0) + contrib;
+      if (!byMuscle[sec]) byMuscle[sec] = [];
+      byMuscle[sec].push({ exercise: label, role: 'secondary', workingSets: setCount, contribution: contrib });
+    }
+  }
+
+  return { distribution, byMuscle, unmapped, totalWorkingSets };
+}
+
 module.exports = {
   computeETLForActivity,
   computeETLForHevyWorkout,
@@ -1428,5 +1480,6 @@ module.exports = {
   computeMMP,
   computeMMPFull,
   powerProfileLevel, POWER_PROFILE_MALE, POWER_PROFILE_CATEGORIES, classifyRiderType,
-  ENDURANCE_TYPES, STRENGTH_TYPES
+  ENDURANCE_TYPES, STRENGTH_TYPES,
+  computeWorkoutMuscleVolume, PRIMARY_WEIGHT, SECONDARY_WEIGHT,
 };

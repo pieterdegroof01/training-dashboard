@@ -12,8 +12,8 @@ const crypto = require('crypto');
 const engine = require('./engine');
 const { buildPlan } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
-const { classifySession, classifySessionFromHR } = require('./engine');
-const { initSchema, pool, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus } = require('./db');
+const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume } = require('./engine');
+const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -920,6 +920,39 @@ Retourneer JSON array. Per sessie exact dit formaat:
     console.error('adjustCurrentWeek API error:', e.message);
   }
   return data.weekPlan;
+}
+
+// ── Exercise template sync ────────────────────────────────────────────────────
+
+async function syncExerciseTemplates(userId, workouts) {
+  const knownIds = new Set(Object.keys(await getExerciseTemplates(userId)));
+
+  const neededIds = new Set();
+  for (const w of workouts) {
+    for (const ex of (w.exercises || [])) {
+      if (ex.exercise_template_id) neededIds.add(ex.exercise_template_id);
+    }
+  }
+
+  const missingIds = [...neededIds].filter(id => !knownIds.has(id));
+  if (!missingIds.length) return;
+
+  for (let i = 0; i < missingIds.length; i++) {
+    const id = missingIds[i];
+    try {
+      const resp = await axios.get(`https://api.hevyapp.com/v1/exercise_templates/${id}`, {
+        headers: { 'api-key': process.env.HEVY_API_KEY },
+      });
+      await upsertExerciseTemplate(userId, resp.data);
+    } catch (e) {
+      if (e.response?.status === 404) {
+        console.warn(`syncExerciseTemplates: template ${id} niet gevonden (404), overgeslagen`);
+      } else {
+        console.warn(`syncExerciseTemplates: fout bij template ${id}:`, e.message);
+      }
+    }
+    if (i < missingIds.length - 1) await new Promise(r => setTimeout(r, 150));
+  }
 }
 
 // ── API Routes ────────────────────────────────────────────────────────────────
@@ -1930,7 +1963,29 @@ app.get('/api/hevy/workouts', async (req, res) => {
 
     const merged = await getHevyWorkouts(userId);
     merged.sort((a, b) => b.start_time.localeCompare(a.start_time));
+
+    if (process.env.HEVY_API_KEY) {
+      try { await syncExerciseTemplates(userId, merged); }
+      catch (e) { console.warn('syncExerciseTemplates fout:', e.message); }
+    }
+
     res.json(merged);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/hevy/workout/:hevyId/muscles', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const { rows } = await query(
+      'SELECT raw FROM hevy_workouts WHERE user_id = $1 AND hevy_id = $2',
+      [userId, req.params.hevyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Workout niet gevonden' });
+    const workout = rows[0].raw;
+    const templatesById = await getExerciseTemplates(userId);
+    const result = computeWorkoutMuscleVolume(workout, templatesById);
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
