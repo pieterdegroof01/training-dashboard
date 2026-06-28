@@ -3935,6 +3935,48 @@ const _WS_MUSCLE_NL = {
   triceps: 'Triceps', upper_back: 'Bovenrug'
 };
 
+// Hevy muscle label → body-highlighter slug (many-to-one)
+const _WS_HEVY_TO_SLUG = {
+  chest:       'chest',
+  abdominals:  'abs',
+  biceps:      'biceps',
+  calves:      'calves',
+  forearms:    'forearm',
+  glutes:      'gluteal',
+  hamstrings:  'hamstring',
+  quadriceps:  'quadriceps',
+  shoulders:   'deltoids',
+  triceps:     'triceps',
+  lower_back:  'lower-back',
+  upper_back:  'upper-back',
+  lats:        'upper-back',
+  adductors:   'adductors',
+};
+
+// Inverse: slug → [hevy labels]
+const _WS_SLUG_TO_HEVY = {};
+Object.entries(_WS_HEVY_TO_SLUG).forEach(([hevy, slug]) => {
+  if (!_WS_SLUG_TO_HEVY[slug]) _WS_SLUG_TO_HEVY[slug] = [];
+  _WS_SLUG_TO_HEVY[slug].push(hevy);
+});
+
+// Dutch label for slug (used in panel title when a slug maps to multiple Hevy labels)
+const _WS_SLUG_NL = {
+  'chest':       'Borst',
+  'abs':         'Buikspieren',
+  'biceps':      'Biceps',
+  'calves':      'Kuiten',
+  'forearm':     'Onderarmen',
+  'gluteal':     'Bilspieren',
+  'hamstring':   'Hamstrings',
+  'quadriceps':  'Quadriceps',
+  'deltoids':    'Schouders',
+  'triceps':     'Triceps',
+  'lower-back':  'Lage rug',
+  'upper-back':  'Bovenrug / Latissimus',
+  'adductors':   'Adductoren',
+};
+
 async function loadWorkoutMuscles(hevyId) {
   const container = document.getElementById('ws-muscle-body');
   if (!container) return;
@@ -3982,14 +4024,14 @@ async function loadWorkoutMuscles(hevyId) {
       return;
     }
 
-    const muscle     = region.dataset.muscle;
+    const slug       = region.dataset.muscle;
     const isSelected = region.classList.contains('ws-mb-selected');
     allRegions.forEach(el => el.classList.remove('ws-mb-selected'));
 
     if (!isSelected) {
-      svgEl.querySelectorAll('[data-muscle="' + muscle + '"]')
+      svgEl.querySelectorAll('[data-muscle="' + slug + '"]')
            .forEach(el => el.classList.add('ws-mb-selected'));
-      panel.innerHTML = _buildMuscleDetail(muscle, dist, byMuscle);
+      panel.innerHTML = _buildMuscleDetail(slug, dist, byMuscle);
     } else {
       panel.innerHTML = _buildMuscleDefault(dist, maxVal);
     }
@@ -3997,74 +4039,54 @@ async function loadWorkoutMuscles(hevyId) {
 }
 
 function _buildMuscleSvg(dist, maxVal) {
-  function rAttr(muscle) {
-    const f = dist[muscle] ? Math.min(1, dist[muscle] / maxVal) : 0;
+  // Per-slug combined load (sum all Hevy labels that map to this slug)
+  function slugLoad(slug) {
+    const hevyLabels = _WS_SLUG_TO_HEVY[slug] || [];
+    return hevyLabels.reduce((sum, h) => sum + (dist[h] || 0), 0);
+  }
+
+  // Unmapped slugs (no Hevy label maps to them) render as neutral background
+  const NEUTRAL_SLUGS = new Set([
+    'head', 'hair', 'neck', 'hands', 'feet', 'ankles', 'knees', 'tibialis', 'obliques', 'trapezius'
+  ]);
+
+  function pathAttrs(slug) {
+    if (NEUTRAL_SLUGS.has(slug)) {
+      return 'fill="var(--surface2)" stroke="var(--border)" stroke-width="0.8" style="cursor:default"';
+    }
+    const load = slugLoad(slug);
+    const f = load > 0 ? Math.min(1, load / maxVal) : 0;
     if (f <= 0) {
-      return 'data-muscle="' + muscle + '" class="ws-mb-region ws-mb-inactive" fill="var(--border)" fill-opacity="1" stroke="var(--border2)" stroke-width="1"';
+      return 'data-muscle="' + slug + '" class="ws-mb-region ws-mb-inactive" ' +
+        'fill="var(--border)" fill-opacity="1" stroke="var(--border2)" stroke-width="0.8"';
     }
     const fo = +(0.18 + f * 0.77).toFixed(2);
-    return 'data-muscle="' + muscle + '" class="ws-mb-region ws-mb-active" fill="var(--accent)" fill-opacity="' + fo + '" stroke="var(--accent2)" stroke-width="1"';
+    return 'data-muscle="' + slug + '" class="ws-mb-region ws-mb-active" ' +
+      'fill="var(--accent)" fill-opacity="' + fo + '" stroke="var(--accent2)" stroke-width="0.8"';
   }
-  const bg = 'fill="var(--surface2)" stroke="var(--border)" stroke-width="1.5"';
 
-  return `<svg viewBox="0 0 380 295" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
-  <text x="90" y="9" text-anchor="middle" font-size="7.5" font-family="JetBrains Mono,monospace" font-weight="700" letter-spacing="1.5" fill="var(--muted)">VOOR</text>
-  <text x="290" y="9" text-anchor="middle" font-size="7.5" font-family="JetBrains Mono,monospace" font-weight="700" letter-spacing="1.5" fill="var(--muted)">ACHTER</text>
-  <!-- front outline -->
-  <ellipse ${bg} cx="90" cy="33" rx="18" ry="21"/>
-  <rect ${bg} x="83" y="52" width="14" height="18" rx="5"/>
-  <rect ${bg} x="58" y="68" width="64" height="90" rx="10"/>
-  <rect ${bg} x="36" y="68" width="20" height="72" rx="10"/>
-  <rect ${bg} x="124" y="68" width="20" height="72" rx="10"/>
-  <rect ${bg} x="38" y="142" width="18" height="56" rx="9"/>
-  <rect ${bg} x="124" y="142" width="18" height="56" rx="9"/>
-  <rect ${bg} x="60" y="160" width="26" height="72" rx="10"/>
-  <rect ${bg} x="94" y="160" width="26" height="72" rx="10"/>
-  <rect ${bg} x="62" y="234" width="22" height="54" rx="10"/>
-  <rect ${bg} x="96" y="234" width="22" height="54" rx="10"/>
-  <!-- front muscles -->
-  <ellipse ${rAttr('shoulders')} cx="46" cy="82" rx="11" ry="16"/>
-  <ellipse ${rAttr('shoulders')} cx="134" cy="82" rx="11" ry="16"/>
-  <ellipse ${rAttr('chest')} cx="90" cy="85" rx="22" ry="15"/>
-  <ellipse ${rAttr('biceps')} cx="46" cy="112" rx="9" ry="18"/>
-  <ellipse ${rAttr('biceps')} cx="134" cy="112" rx="9" ry="18"/>
-  <ellipse ${rAttr('abdominals')} cx="90" cy="126" rx="18" ry="22"/>
-  <ellipse ${rAttr('forearms')} cx="47" cy="163" rx="8" ry="22"/>
-  <ellipse ${rAttr('forearms')} cx="133" cy="163" rx="8" ry="22"/>
-  <ellipse ${rAttr('quadriceps')} cx="70" cy="200" rx="11" ry="28"/>
-  <ellipse ${rAttr('quadriceps')} cx="110" cy="200" rx="11" ry="28"/>
-  <ellipse ${rAttr('adductors')} cx="79" cy="200" rx="8" ry="24"/>
-  <ellipse ${rAttr('adductors')} cx="101" cy="200" rx="8" ry="24"/>
-  <!-- back outline -->
-  <ellipse ${bg} cx="290" cy="33" rx="18" ry="21"/>
-  <rect ${bg} x="283" y="52" width="14" height="18" rx="5"/>
-  <rect ${bg} x="258" y="68" width="64" height="90" rx="10"/>
-  <rect ${bg} x="236" y="68" width="20" height="72" rx="10"/>
-  <rect ${bg} x="324" y="68" width="20" height="72" rx="10"/>
-  <rect ${bg} x="238" y="142" width="18" height="56" rx="9"/>
-  <rect ${bg} x="324" y="142" width="18" height="56" rx="9"/>
-  <rect ${bg} x="260" y="160" width="26" height="72" rx="10"/>
-  <rect ${bg} x="294" y="160" width="26" height="72" rx="10"/>
-  <rect ${bg} x="262" y="234" width="22" height="54" rx="10"/>
-  <rect ${bg} x="296" y="234" width="22" height="54" rx="10"/>
-  <!-- back muscles -->
-  <ellipse ${rAttr('shoulders')} cx="246" cy="82" rx="11" ry="16"/>
-  <ellipse ${rAttr('shoulders')} cx="334" cy="82" rx="11" ry="16"/>
-  <ellipse ${rAttr('upper_back')} cx="290" cy="85" rx="22" ry="16"/>
-  <ellipse ${rAttr('lats')} cx="268" cy="113" rx="11" ry="24"/>
-  <ellipse ${rAttr('lats')} cx="312" cy="113" rx="11" ry="24"/>
-  <ellipse ${rAttr('lower_back')} cx="290" cy="143" rx="16" ry="12"/>
-  <ellipse ${rAttr('triceps')} cx="246" cy="112" rx="9" ry="18"/>
-  <ellipse ${rAttr('triceps')} cx="334" cy="112" rx="9" ry="18"/>
-  <ellipse ${rAttr('forearms')} cx="247" cy="163" rx="8" ry="22"/>
-  <ellipse ${rAttr('forearms')} cx="333" cy="163" rx="8" ry="22"/>
-  <ellipse ${rAttr('glutes')} cx="276" cy="172" rx="16" ry="14"/>
-  <ellipse ${rAttr('glutes')} cx="304" cy="172" rx="16" ry="14"/>
-  <ellipse ${rAttr('hamstrings')} cx="270" cy="202" rx="11" ry="28"/>
-  <ellipse ${rAttr('hamstrings')} cx="310" cy="202" rx="11" ry="28"/>
-  <ellipse ${rAttr('calves')} cx="270" cy="252" rx="9" ry="20"/>
-  <ellipse ${rAttr('calves')} cx="310" cy="252" rx="9" ry="20"/>
-</svg>`;
+  const bodyFront = (typeof window !== 'undefined' ? window.BODY_FRONT : []) || [];
+  const bodyBack  = (typeof window !== 'undefined' ? window.BODY_BACK  : []) || [];
+
+  let paths = '';
+  bodyFront.forEach(muscle => {
+    const attrs = pathAttrs(muscle.slug);
+    muscle.paths.forEach(d => {
+      paths += '<path ' + attrs + ' d="' + d + '"/>';
+    });
+  });
+  bodyBack.forEach(muscle => {
+    const attrs = pathAttrs(muscle.slug);
+    muscle.paths.forEach(d => {
+      paths += '<path ' + attrs + ' d="' + d + '"/>';
+    });
+  });
+
+  return '<svg viewBox="0 0 1448 1448" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">' +
+    '<text x="362" y="28" text-anchor="middle" font-size="28" font-family="JetBrains Mono,monospace" font-weight="700" letter-spacing="4" fill="var(--muted)">VOOR</text>' +
+    '<text x="1086" y="28" text-anchor="middle" font-size="28" font-family="JetBrains Mono,monospace" font-weight="700" letter-spacing="4" fill="var(--muted)">ACHTER</text>' +
+    paths +
+    '</svg>';
 }
 
 function _buildMuscleDefault(dist, maxVal) {
@@ -4087,32 +4109,51 @@ function _buildMuscleDefault(dist, maxVal) {
     '<p class="ws-mb-hint">Klik een spierregio voor details</p>';
 }
 
-function _buildMuscleDetail(muscle, dist, byMuscle) {
-  const name  = _WS_MUSCLE_NL[muscle] || muscle;
-  const total = dist[muscle] || 0;
-  const exs   = [...(byMuscle[muscle] || [])].sort((a, b) =>
-    a.role !== b.role ? (a.role === 'primary' ? -1 : 1) : b.workingSets - a.workingSets
-  );
+function _buildMuscleDetail(slug, dist, byMuscle) {
+  const hevyLabels = _WS_SLUG_TO_HEVY[slug] || [];
+  const title = _WS_SLUG_NL[slug] || slug;
 
-  let lastRole = null, first = true;
-  const rows = exs.map(ex => {
-    let hd = '';
-    if (ex.role !== lastRole) {
-      lastRole = ex.role;
-      const sep = first ? '' : 'border-top:1px solid var(--divider);margin-top:8px;padding-top:6px;';
-      first = false;
-      hd = '<div class="ws-mb-role-hd" style="' + sep + '">' + (ex.role === 'primary' ? 'Primair' : 'Secundair') + '</div>';
+  // Combine all Hevy labels that map to this slug
+  const total = hevyLabels.reduce((s, h) => s + (dist[h] || 0), 0);
+
+  let sections = '';
+  hevyLabels.forEach((hevyLabel, idx) => {
+    const labelTotal = dist[hevyLabel] || 0;
+    if (!labelTotal && !(byMuscle[hevyLabel] || []).length) return;
+
+    const exs = [...(byMuscle[hevyLabel] || [])].sort((a, b) =>
+      a.role !== b.role ? (a.role === 'primary' ? -1 : 1) : b.workingSets - a.workingSets
+    );
+
+    // If the slug covers more than one Hevy label, show a sub-heading per label
+    if (hevyLabels.length > 1) {
+      const sepStyle = idx === 0 ? '' : 'border-top:1px solid var(--divider);margin-top:10px;padding-top:8px;';
+      sections += '<div class="ws-mb-role-hd" style="' + sepStyle + '">' +
+        (_WS_MUSCLE_NL[hevyLabel] || hevyLabel).toUpperCase() +
+        '<span style="font-weight:400;margin-left:4px;color:var(--muted)">(' + labelTotal.toFixed(1) + ' pts)</span>' +
+        '</div>';
     }
-    return hd +
-      '<div class="ws-mb-ex-row">' +
-        '<span class="ws-mb-ex-name">' + ex.exercise + '</span>' +
-        '<span class="ws-mb-ex-meta">' + ex.workingSets + '× · ' + ex.contribution.toFixed(1) + ' pts</span>' +
-      '</div>';
-  }).join('');
 
-  return '<div class="ws-mb-ptitle">' + name.toUpperCase() + '</div>' +
+    let lastRole = null, firstRow = true;
+    sections += exs.map(ex => {
+      let hd = '';
+      if (ex.role !== lastRole) {
+        lastRole = ex.role;
+        const sep = firstRow ? '' : 'border-top:1px solid var(--divider);margin-top:8px;padding-top:6px;';
+        firstRow = false;
+        hd = '<div class="ws-mb-role-hd" style="' + sep + '">' + (ex.role === 'primary' ? 'Primair' : 'Secundair') + '</div>';
+      }
+      return hd +
+        '<div class="ws-mb-ex-row">' +
+          '<span class="ws-mb-ex-name">' + ex.exercise + '</span>' +
+          '<span class="ws-mb-ex-meta">' + ex.workingSets + '× · ' + ex.contribution.toFixed(1) + ' pts</span>' +
+        '</div>';
+    }).join('');
+  });
+
+  return '<div class="ws-mb-ptitle">' + title.toUpperCase() + '</div>' +
     '<div class="ws-mb-total">Gewogen sets: <strong>' + total.toFixed(1) + '</strong></div>' +
-    '<div class="ws-mb-ex-list">' + (rows || '<span style="color:var(--muted);font-size:12px">Geen oefeningen.</span>') + '</div>';
+    '<div class="ws-mb-ex-list">' + (sections || '<span style="color:var(--muted);font-size:12px">Geen oefeningen.</span>') + '</div>';
 }
 
 function renderActivityMmpChart(detail) {

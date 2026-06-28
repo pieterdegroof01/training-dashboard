@@ -711,9 +711,14 @@ details.ap-accordion-section > summary { display:none; }
 
 /* ── Muscle body (ws-mb) ──────────────────────────────────────────────────── */
 .ws-mb-layout { display:flex; gap:16px; align-items:flex-start; }
-.ws-mb-svg-box { flex:none; width:260px; }
+/* SVG is 2:1 wide (two bodies side by side). Give it 460px on desktop so
+   each body half is ~230px — anatomically clear without dominating the card. */
+.ws-mb-svg-box { flex:none; width:460px; max-width:100%; }
 .ws-mb-svg-box svg { cursor:default; }
 .ws-mb-panel-box { flex:1; min-width:140px; max-width:240px; }
+@media (max-width:900px) {
+  .ws-mb-svg-box { width:100%; }
+}
 @media (max-width:600px) {
   .ws-mb-layout { flex-direction:column; }
   .ws-mb-svg-box { width:100%; }
@@ -721,8 +726,8 @@ details.ap-accordion-section > summary { display:none; }
 }
 .ws-mb-region { cursor:pointer; transition:fill-opacity 0.15s,stroke 0.15s,fill 0.15s; }
 .ws-mb-region.ws-mb-inactive:hover { fill:var(--border2) !important; }
-.ws-mb-region.ws-mb-active:hover { stroke:var(--accent) !important; stroke-width:2 !important; }
-.ws-mb-region.ws-mb-selected { stroke:var(--text) !important; stroke-width:2.5 !important; }
+.ws-mb-region.ws-mb-active:hover { stroke:var(--accent) !important; stroke-width:1.5 !important; }
+.ws-mb-region.ws-mb-selected { stroke:var(--text) !important; stroke-width:2 !important; }
 .ws-mb-panel { font-size:13px; }
 .ws-mb-ptitle { font-size:8.5px; color:var(--muted); font-family:'JetBrains Mono',monospace; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; margin-bottom:10px; }
 .ws-mb-top-item { margin-bottom:8px; }
