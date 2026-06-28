@@ -319,6 +319,12 @@ export function transformApiResponse(api) {
     metrics, derived, route, series, zones, decoupling,
     mmp, dist, scatter, drift, quadrant, cadence, wbal, planned,
     ai: null,
+    // Raw timelines for interactive components
+    gpsTrackRaw: gpsTrack ?? null,
+    powerRaw: powerTimeline ?? null,
+    hrRaw: hrTimeline ?? null,
+    mmpCurveFull: activityMmpCurve ?? null,
+    mmpBestFull: bestMmpCurve ?? null,
   }
 }
 

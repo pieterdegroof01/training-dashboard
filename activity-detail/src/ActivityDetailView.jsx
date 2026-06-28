@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AdHeader } from './components/AdHeader.jsx'
 import { AdMetricStrip } from './components/AdMetricStrip.jsx'
 import { AdDerivedRow } from './components/AdDerivedRow.jsx'
@@ -18,27 +19,55 @@ import { AdContext } from './components/AdContext.jsx'
 import { Card } from './components/Card.jsx'
 import s from './ActivityDetailView.module.css'
 
-export function ActivityDetailView({ activity, onBack, layout = 'desktop' }) {
+export function ActivityDetailView({ activity, onBack, layout = 'desktop', theme = 'light' }) {
   const d = activity
   const vi = d.derived.find((x) => x.l === 'VI')?.v
 
+  // Shared interactive state
+  const [hoverT, setHoverT] = useState(null)
+  const [selection, setSelection] = useState(null)
+
+  const handleHover = (t) => setHoverT(t)
+  const handleSelect = (sel) => setSelection(sel)
+
   // ── Gedeelde kaarten ────────────────────────────────────────────────────────
 
-  const routeCard = d.route && (
+  const routeCard = d.gpsTrackRaw && (
     <AdSection title="Ritprofiel" sub={d.metrics[0] ? `${d.metrics[0].v} ${d.metrics[0].u}` : ''}>
-      <AdRouteMap route={d.route} />
+      <AdRouteMap
+        gpsTrack={d.gpsTrackRaw}
+        hoverT={hoverT}
+        selection={selection}
+        theme={theme}
+      />
     </AdSection>
   )
 
-  const chartCard = d.series && (
+  const chartCard = (d.powerRaw || d.hrRaw) && (
     <AdSection title="Vermogen & hartslag" sub="over de hele activiteit">
-      <AdDualChart series={d.series} w={layout === 'desktop' ? 620 : 520} />
+      <AdDualChart
+        power={d.powerRaw}
+        hr={d.hrRaw}
+        ftp={d.ftp}
+        durationMin={d.durationMin}
+        hoverT={hoverT}
+        selection={selection}
+        onHover={handleHover}
+        onSelect={handleSelect}
+        w={layout === 'desktop' ? 620 : 520}
+      />
     </AdSection>
   )
 
-  const mmpCard = d.mmp && (
-    <AdSection title="Mean Maximal Power" sub="deze rit vs 90-dagen best">
-      <AdMmpChart mmp={d.mmp} w={layout === 'desktop' ? 620 : 520} />
+  const mmpCard = d.mmpCurveFull && (
+    <AdSection title="Mean Maximal Power" sub="klik op de curve om een piekvenster te selecteren">
+      <AdMmpChart
+        mmpCurveFull={d.mmpCurveFull}
+        mmpBestFull={d.mmpBestFull}
+        power={d.powerRaw}
+        onSelect={handleSelect}
+        w={layout === 'desktop' ? 620 : 520}
+      />
     </AdSection>
   )
 

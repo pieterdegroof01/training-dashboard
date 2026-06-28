@@ -95,6 +95,7 @@ export default function App() {
             activity={activityWithAi}
             onBack={() => window.history.back()}
             layout={layout}
+            theme={theme}
           />
         )}
       </div>

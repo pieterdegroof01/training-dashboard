@@ -1,115 +1,424 @@
+import { useRef, useEffect } from 'react'
 import s from './AdDualChart.module.css'
 
-const COLOR_MAP = {
-  accent: 'var(--accent)',
-  red:    'var(--red)',
-  green:  'var(--green)',
-  blue:   'var(--accent2)',
-  yellow: 'var(--yellow)',
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function downsample(pts, maxPts) {
+  if (!pts || pts.length <= maxPts) return pts || []
+  const step = Math.ceil(pts.length / maxPts)
+  return pts.filter((_, i) => i % step === 0)
 }
 
-const resolveColor = (key) => COLOR_MAP[key] || key
+function smoothPower(pts, windowSize = 15) {
+  if (!pts.length) return pts
+  const half = Math.floor(windowSize / 2)
+  return pts.map((p, i) => {
+    const from = Math.max(0, i - half)
+    const to = Math.min(pts.length - 1, i + half)
+    let sum = 0
+    for (let j = from; j <= to; j++) sum += pts[j].w
+    return { ...p, w: sum / (to - from + 1) }
+  })
+}
 
-export function AdDualChart({ series, w = 640, h = 168 }) {
-  const { primary, secondary, xLabels } = series
-  const pad = { l: 6, r: 6, t: 14, b: 18 }
-  const cw = w - pad.l - pad.r
-  const ch = h - pad.t - pad.b
+function nearest(pts, key, t) {
+  if (!pts?.length) return null
+  let best = pts[0], bestDist = Math.abs(pts[0].t - t)
+  for (const p of pts) {
+    const d = Math.abs(p.t - t)
+    if (d < bestDist) { best = p; bestDist = d }
+    if (p.t > t + 10) break
+  }
+  return best?.[key] ?? null
+}
 
-  const makeLine = (vals) => {
-    const min = Math.min(...vals), max = Math.max(...vals)
-    const range = (max - min) || 1
-    return vals.map((v, i) => [
-      pad.l + (i / (vals.length - 1)) * cw,
-      pad.t + (1 - (v - min) / range) * ch,
-    ])
+function fmtTime(sec, range) {
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const ss = Math.round(sec % 60)
+  if (h > 0) return `${h}u${String(m).padStart(2, '0')}`
+  if (range > 300) return `${m}min`
+  return `${m}m${String(ss).padStart(2, '0')}s`
+}
+
+function fmtDur(sec) {
+  if (sec < 60) return `${Math.round(sec)}s`
+  if (sec < 3600) return `${Math.round(sec / 60)}m`
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60)
+  return m ? `${h}u${String(m).padStart(2, '0')}` : `${h}u`
+}
+
+function avg(pts, key) {
+  if (!pts?.length) return null
+  return Math.round(pts.reduce((a, p) => a + p[key], 0) / pts.length)
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, onHover, onSelect, w = 640, h = 200 }) {
+  const svgRef = useRef(null)
+  const overlayRef = useRef(null)
+  const crosshairRef = useRef(null)
+  const selRectRef = useRef(null)
+  const tooltipRef = useRef(null)
+  const dragRef = useRef({ startX: null, isDragging: false })
+
+  // paramsRef holds latest render state; handlers read from it to avoid stale closures
+  const paramsRef = useRef({})
+
+  const tMin = selection ? selection.tStart : 0
+  const tMax = selection ? selection.tEnd : (durationMin * 60 || 1)
+  const tRange = tMax - tMin || 1
+  const pad = { left: 50, top: 18, right: 54, bottom: 26 }
+  const drawW = w - pad.left - pad.right
+  const drawH = h - pad.top - pad.bottom
+
+  paramsRef.current = { tMin, tMax, tRange, drawW, drawH, pad, w, h, power, hr, ftp, onHover, onSelect }
+
+  // ── Derived display data ────────────────────────────────────────────────────
+
+  const powerInWindow = power ? power.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
+  const hrInWindow = hr ? hr.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
+
+  const powerDisplay = powerInWindow.length ? smoothPower(downsample(powerInWindow, Math.max(drawW, 300))) : []
+  const hrDisplay = hrInWindow.length ? downsample(hrInWindow, Math.max(drawW, 300)) : []
+
+  const maxP = powerInWindow.length ? Math.max(...powerInWindow.map(p => p.w), (ftp || 200) * 1.1) : (ftp || 400) * 1.1
+  const maxHr = hrInWindow.length ? Math.max(...hrInWindow.map(p => p.hr)) * 1.05 : 200
+  const minHr = hrInWindow.length ? Math.min(...hrInWindow.map(p => p.hr)) * 0.95 : 100
+
+  const xS = t => pad.left + ((t - tMin) / tRange) * drawW
+  const yP = wv => pad.top + (1 - wv / maxP) * drawH
+  const yH = hv => pad.top + (1 - (hv - minHr) / (maxHr - minHr)) * drawH
+
+  const powerPath = powerDisplay.length >= 2
+    ? powerDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yP(p.w)}`).join(' ') : null
+  const hrPath = hrDisplay.length >= 2
+    ? hrDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yH(p.hr)}`).join(' ') : null
+  const powerFill = powerPath
+    ? `${powerPath} L${xS(powerDisplay[powerDisplay.length - 1].t)},${pad.top + drawH} L${xS(powerDisplay[0].t)},${pad.top + drawH} Z`
+    : null
+
+  // Averages from raw data (not smoothed)
+  const avgP = avg(powerInWindow, 'w')
+  const avgHr = avg(hrInWindow, 'hr')
+
+  // FTP line
+  const ftpY = ftp ? yP(ftp) : null
+
+  // Time grid
+  const rawDur = tRange
+  const interval = rawDur > 7200 ? 1800 : rawDur > 3600 ? 900 : rawDur > 1800 ? 600 : rawDur > 600 ? 300 : rawDur > 300 ? 60 : 30
+  const firstTick = Math.ceil(tMin / interval) * interval
+  const timeTicks = []
+  for (let t = firstTick; t <= tMax; t += interval) {
+    timeTicks.push({ t, label: fmtTime(t, tRange), x: xS(t) })
   }
 
-  const toPath = (pts) =>
-    pts.map(([x, y], i) => (i === 0 ? `M${x},${y}` : `L${x},${y}`)).join(' ')
+  // Y-axis labels
+  const powerYLabels = powerInWindow.length
+    ? [0, maxP / 2, maxP].map(v => ({ v: Math.round(v), y: yP(v) })) : []
+  const hrYLabels = hrInWindow.length
+    ? [minHr, (minHr + maxHr) / 2, maxHr].map(v => ({ v: Math.round(v), y: yH(v) })) : []
 
-  const pPts = makeLine(primary.values)
-  const sPts = secondary ? makeLine(secondary.values) : null
+  // ── Tooltip (body-level portal) ─────────────────────────────────────────────
 
-  const pColor = resolveColor(primary.colorKey)
-  const sColor = secondary ? resolveColor(secondary.colorKey) : null
+  useEffect(() => {
+    const tip = document.createElement('div')
+    tip.style.cssText = [
+      'position:fixed', 'display:none', 'z-index:9999', 'pointer-events:none',
+      'background:rgba(6,17,46,0.93)', 'color:#f6f2e6', 'border-radius:10px',
+      'padding:7px 11px', 'font-size:11px', 'min-width:140px',
+      'box-shadow:0 2px 8px rgba(0,0,0,0.4)', 'line-height:1.6',
+    ].join(';')
+    document.body.appendChild(tip)
+    tooltipRef.current = tip
+    return () => { document.body.removeChild(tip) }
+  }, [])
 
-  const avg = (vals) =>
-    Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+  // ── Touch handlers (non-passive) ────────────────────────────────────────────
 
-  const fillPath = `${toPath(pPts)} L${pad.l + cw},${pad.t + ch} L${pad.l},${pad.t + ch} Z`
+  useEffect(() => {
+    const overlay = overlayRef.current
+    if (!overlay) return
+
+    function onTouchStart(e) {
+      e.preventDefault()
+      const touch = e.touches[0]
+      const svg = svgRef.current
+      if (!svg) return
+      const { w } = paramsRef.current
+      const svgRect = svg.getBoundingClientRect()
+      const scaleX = w / svgRect.width
+      dragRef.current.startX = (touch.clientX - svgRect.left) * scaleX
+      dragRef.current.isDragging = false
+    }
+
+    function onTouchMove(e) {
+      e.preventDefault()
+      const touch = e.touches[0]
+      const svg = svgRef.current
+      if (!svg) return
+      const { tMin, tRange, drawW, pad, w, onHover } = paramsRef.current
+      const svgRect = svg.getBoundingClientRect()
+      const scaleX = w / svgRect.width
+      const mouseX = (touch.clientX - svgRect.left) * scaleX
+      const drag = dragRef.current
+
+      if (drag.startX !== null && Math.abs(mouseX - drag.startX) > 4) {
+        drag.isDragging = true
+        const selRect = selRectRef.current
+        if (selRect) {
+          const x1 = Math.min(drag.startX, mouseX)
+          const x2 = Math.max(drag.startX, mouseX)
+          selRect.setAttribute('x', x1)
+          selRect.setAttribute('width', x2 - x1)
+          selRect.style.display = ''
+        }
+        return
+      }
+
+      if (mouseX < pad.left || mouseX > pad.left + drawW) return
+      const tCurrent = tMin + ((mouseX - pad.left) / drawW) * tRange
+      onHover?.(tCurrent)
+      const crosshair = crosshairRef.current
+      if (crosshair) {
+        crosshair.setAttribute('x1', mouseX)
+        crosshair.setAttribute('x2', mouseX)
+        crosshair.style.display = ''
+      }
+    }
+
+    function onTouchEnd(e) {
+      const selRect = selRectRef.current
+      if (selRect) selRect.style.display = 'none'
+      const drag = dragRef.current
+      if (drag.isDragging && drag.startX !== null) {
+        const touch = e.changedTouches[0]
+        const svg = svgRef.current
+        if (svg) {
+          const { tMin, tRange, drawW, pad, w, onSelect } = paramsRef.current
+          const svgRect = svg.getBoundingClientRect()
+          const scaleX = w / svgRect.width
+          const mouseX = (touch.clientX - svgRect.left) * scaleX
+          const x1 = Math.min(drag.startX, mouseX)
+          const x2 = Math.max(drag.startX, mouseX)
+          if (x2 - x1 >= 8) {
+            const newTStart = tMin + Math.max(0, (x1 - pad.left) / drawW) * tRange
+            const newTEnd = tMin + Math.min(1, (x2 - pad.left) / drawW) * tRange
+            onSelect?.({ tStart: newTStart, tEnd: newTEnd })
+          }
+        }
+      }
+      drag.startX = null
+      drag.isDragging = false
+      if (crosshairRef.current) crosshairRef.current.style.display = 'none'
+      if (tooltipRef.current) tooltipRef.current.style.display = 'none'
+      paramsRef.current.onHover?.(null)
+    }
+
+    overlay.addEventListener('touchstart', onTouchStart, { passive: false })
+    overlay.addEventListener('touchmove', onTouchMove, { passive: false })
+    overlay.addEventListener('touchend', onTouchEnd)
+    return () => {
+      overlay.removeEventListener('touchstart', onTouchStart)
+      overlay.removeEventListener('touchmove', onTouchMove)
+      overlay.removeEventListener('touchend', onTouchEnd)
+    }
+  }, []) // reads from paramsRef.current at call time
+
+  // ── Mouse handlers ─────────────────────────────────────────────────────────
+
+  function handleMouseMove(e) {
+    const { tMin, tRange, drawW, pad, w, power, hr, onHover } = paramsRef.current
+    const drag = dragRef.current
+    const svg = svgRef.current
+    if (!svg) return
+
+    const svgRect = svg.getBoundingClientRect()
+    const scaleX = w / svgRect.width
+    const mouseX = (e.clientX - svgRect.left) * scaleX
+
+    if (drag.startX !== null) {
+      const dx = Math.abs(mouseX - drag.startX)
+      if (dx > 4) {
+        drag.isDragging = true
+        if (crosshairRef.current) crosshairRef.current.style.display = 'none'
+        if (tooltipRef.current) tooltipRef.current.style.display = 'none'
+        const selRect = selRectRef.current
+        if (selRect) {
+          const x1 = Math.min(drag.startX, mouseX)
+          const x2 = Math.max(drag.startX, mouseX)
+          selRect.setAttribute('x', x1)
+          selRect.setAttribute('width', x2 - x1)
+          selRect.style.display = ''
+        }
+      }
+      return
+    }
+
+    if (mouseX < pad.left || mouseX > pad.left + drawW) {
+      if (crosshairRef.current) crosshairRef.current.style.display = 'none'
+      if (tooltipRef.current) tooltipRef.current.style.display = 'none'
+      return
+    }
+
+    const tCurrent = tMin + ((mouseX - pad.left) / drawW) * tRange
+    onHover?.(tCurrent)
+
+    if (crosshairRef.current) {
+      crosshairRef.current.setAttribute('x1', mouseX)
+      crosshairRef.current.setAttribute('x2', mouseX)
+      crosshairRef.current.style.display = ''
+    }
+
+    const pVal = nearest(power, 'w', tCurrent)
+    const hrVal = nearest(hr, 'hr', tCurrent)
+    const timeStr = fmtTime(tCurrent, tRange)
+    const tip = tooltipRef.current
+    if (tip) {
+      let html = `<div style="font-weight:700;font-size:10px;color:#aab3d0;margin-bottom:3px">${timeStr}</div>`
+      if (pVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:5px"></span>Vermogen: <strong>${Math.round(pVal)} W</strong></div>`
+      if (hrVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--red);margin-right:5px"></span>Hartslag: <strong>${Math.round(hrVal)} bpm</strong></div>`
+      tip.innerHTML = html
+      tip.style.display = 'block'
+      const tipW = 160
+      let tipX = e.clientX + 14
+      if (tipX + tipW > window.innerWidth) tipX = e.clientX - tipW - 14
+      tip.style.left = tipX + 'px'
+      tip.style.top = (e.clientY - 60) + 'px'
+    }
+  }
+
+  function handleMouseDown(e) {
+    const svg = svgRef.current
+    if (!svg) return
+    const { w } = paramsRef.current
+    const svgRect = svg.getBoundingClientRect()
+    const scaleX = w / svgRect.width
+    dragRef.current.startX = (e.clientX - svgRect.left) * scaleX
+    dragRef.current.isDragging = false
+    e.preventDefault()
+  }
+
+  function handleMouseUp(e) {
+    if (selRectRef.current) selRectRef.current.style.display = 'none'
+    const drag = dragRef.current
+    if (!drag.isDragging || drag.startX === null) { drag.startX = null; drag.isDragging = false; return }
+    const { tMin, tRange, drawW, pad, w, onSelect } = paramsRef.current
+    const svg = svgRef.current
+    if (!svg) return
+    const svgRect = svg.getBoundingClientRect()
+    const scaleX = w / svgRect.width
+    const mouseX = (e.clientX - svgRect.left) * scaleX
+    const x1 = Math.min(drag.startX, mouseX)
+    const x2 = Math.max(drag.startX, mouseX)
+    drag.startX = null; drag.isDragging = false
+    if (x2 - x1 < 8) return
+    const newTStart = tMin + Math.max(0, (x1 - pad.left) / drawW) * tRange
+    const newTEnd = tMin + Math.min(1, (x2 - pad.left) / drawW) * tRange
+    onSelect?.({ tStart: newTStart, tEnd: newTEnd })
+  }
+
+  function handleMouseLeave() {
+    if (!dragRef.current.isDragging) {
+      if (crosshairRef.current) crosshairRef.current.style.display = 'none'
+      if (tooltipRef.current) tooltipRef.current.style.display = 'none'
+      paramsRef.current.onHover?.(null)
+    }
+  }
+
+  function handleDblClick() {
+    paramsRef.current.onSelect?.(null)
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div>
+    <div className={s.wrap}>
       <div className={s.legend}>
-        <LegendPill color={pColor} label={`${primary.label} · gem ${avg(primary.values)} ${primary.unit}`} />
-        {secondary && (
-          <LegendPill color={sColor} label={secondary.label} dashed />
-        )}
+        {avgP != null && <LegendPill color="var(--accent)" label={`Vermogen · gem ${avgP} W`} />}
+        {avgHr != null && <LegendPill color="var(--red)" label={`Hartslag · gem ${avgHr} bpm`} dashed />}
       </div>
+
+      {selection && (
+        <div className={s.selectionInfo}>
+          <strong>{fmtDur(tRange)}</strong>
+          {avgP != null && <span> · <span style={{ color: 'var(--accent)' }}>{avgP} W gem.</span></span>}
+          {avgHr != null && <span> · <span style={{ color: 'var(--red)' }}>{avgHr} bpm gem.</span></span>}
+          <span className={s.resetHint}> — dubbelklik om te resetten</span>
+        </div>
+      )}
+
       <svg
+        ref={svgRef}
         width="100%"
         viewBox={`0 0 ${w} ${h}`}
         className={s.svg}
-        role="img"
-        aria-label="Grafiek vermogen en hartslag over de rit"
       >
-        {/* Gridlijnen */}
-        {[0.25, 0.5, 0.75].map((g) => (
-          <line
-            key={g}
-            x1={pad.l} x2={w - pad.r}
-            y1={pad.t + g * ch} y2={pad.t + g * ch}
-            stroke="var(--divider)" strokeWidth="1"
-          />
+        {/* Time grid */}
+        {timeTicks.map(({ t, label, x }) => (
+          <g key={t}>
+            <line x1={x} y1={pad.top} x2={x} y2={pad.top + drawH} stroke="var(--divider)" strokeWidth="0.5" opacity="0.5" />
+            <text x={x} y={h - 4} textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{label}</text>
+          </g>
         ))}
 
-        {/* Fill onder primaire lijn */}
-        {primary.fill && (
-          <path
-            d={fillPath}
-            style={{ fill: pColor, opacity: 'var(--fill-opacity)' }}
-          />
+        {/* Left Y-axis (power) */}
+        {powerYLabels.map(({ v, y }) => (
+          <text key={`py${v}`} x={pad.left - 5} y={y + 3} textAnchor="end" fontSize="8" fill="var(--muted)" fontFamily="var(--font-mono)">{v}</text>
+        ))}
+
+        {/* Right Y-axis (HR) */}
+        {hrYLabels.map(({ v, y }) => (
+          <text key={`hy${v}`} x={pad.left + drawW + 5} y={y + 3} textAnchor="start" fontSize="8" fill="var(--red)" opacity="0.7" fontFamily="var(--font-mono)">{v}</text>
+        ))}
+
+        {/* FTP reference line */}
+        {ftpY != null && powerInWindow.length > 0 && (
+          <g>
+            <line x1={pad.left} y1={ftpY} x2={pad.left + drawW} y2={ftpY} stroke="var(--red)" strokeWidth="1" strokeDasharray="3,3" opacity="0.55" />
+            <text x={pad.left + 4} y={ftpY - 3} fontSize="9" fill="var(--red)" opacity="0.7">FTP {ftp}W</text>
+          </g>
         )}
 
-        {/* Secundaire lijn (gestippeld) */}
-        {sPts && (
-          <path
-            d={toPath(sPts)}
-            fill="none"
-            stroke={sColor}
-            strokeWidth="1.8"
-            strokeDasharray="4 4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity="0.85"
-          />
-        )}
+        {/* Fill under power */}
+        {powerFill && <path d={powerFill} fill="var(--accent)" opacity="var(--fill-opacity)" />}
 
-        {/* Primaire lijn */}
-        <path
-          d={toPath(pPts)}
-          fill="none"
-          stroke={pColor}
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+        {/* HR line */}
+        {hrPath && <path d={hrPath} fill="none" stroke="var(--red)" strokeWidth="1.5" strokeDasharray="4,4" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />}
+
+        {/* Power line */}
+        {powerPath && <path d={powerPath} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+
+        {/* Crosshair */}
+        <line
+          ref={crosshairRef}
+          y1={pad.top} y2={pad.top + drawH}
+          stroke="rgba(255,255,255,0.4)" strokeWidth="1" strokeDasharray="3,3"
+          style={{ display: 'none', pointerEvents: 'none' }}
         />
 
-        {/* X-as labels */}
-        {xLabels.map((l, i) => (
-          <text
-            key={l + i}
-            x={pad.l + (i / (xLabels.length - 1)) * cw}
-            y={h - 4}
-            textAnchor={i === 0 ? 'start' : i === xLabels.length - 1 ? 'end' : 'middle'}
-            fontSize="10"
-            fill="var(--muted)"
-            fontFamily="var(--font-mono)"
-          >
-            {l}
-          </text>
-        ))}
+        {/* Drag-selection rect */}
+        <rect
+          ref={selRectRef}
+          y={pad.top} height={drawH}
+          fill="rgba(255,255,255,0.10)" stroke="rgba(255,255,255,0.45)" strokeWidth="1"
+          style={{ display: 'none', pointerEvents: 'none' }}
+        />
+
+        {/* Interactive overlay (mouse + double-click) */}
+        <rect
+          ref={overlayRef}
+          x={pad.left} y={pad.top} width={drawW} height={drawH}
+          fill="transparent"
+          style={{ cursor: 'crosshair' }}
+          onMouseMove={handleMouseMove}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          onDoubleClick={handleDblClick}
+        />
       </svg>
     </div>
   )
@@ -118,11 +427,7 @@ export function AdDualChart({ series, w = 640, h = 168 }) {
 function LegendPill({ color, label, dashed }) {
   return (
     <span className={s.legendPill}>
-      <span
-        className={s.legendLine}
-        style={{ borderTopStyle: dashed ? 'dashed' : 'solid', borderTopColor: color }}
-        aria-hidden="true"
-      />
+      <span className={s.legendLine} style={{ borderTopStyle: dashed ? 'dashed' : 'solid', borderTopColor: color }} aria-hidden="true" />
       <span style={{ color }}>{label}</span>
     </span>
   )

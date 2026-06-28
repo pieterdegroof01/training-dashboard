@@ -40,3 +40,14 @@
   line-height: 1.5;
   font-style: italic;
 }
+
+.clickHint {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.clickHintSub {
+  opacity: 0.6;
+  font-size: 10px;
+}
