@@ -1317,6 +1317,7 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
   const acts = activities || [];
   const activity = acts.find(a => String(a.id) === sid);
   const actDate  = activity?.start_date?.split('T')[0] || '';
+  const isRun    = activity?.type === 'Run' || activity?.type === 'TrailRun';
 
   function buildMeta(act) {
     const duration_min = Math.round((act.moving_time || 0) / 60);
@@ -1338,8 +1339,9 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
 
   function findPlanned(date) {
     const dayPlan = weekPlan?.[date] || [];
+    const planType = isRun ? 'running' : 'cycling';
     const s = dayPlan.find(s =>
-      s.type === 'cycling' && (
+      s.type === planType && (
         String(s.matchedActivityId) === sid ||
         (s.completionScore !== undefined && !s.missed)
       )
@@ -1386,7 +1388,8 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
   }
 
   const cached = await getActivityStream(userId, sid);
-  if (cached) {
+  // Voor runs met schema < 2 ontbreken de NGP-velden; forceer een herberekening.
+  if (cached && !(isRun && (cached.schemaV == null || cached.schemaV < 2))) {
     const { activityMmpCurve, bestMmpCurve } = buildActivityMmpCurves(cached.powerTimeline, activity?.powerSource);
     return {
       activity:          activity ? buildMeta(activity) : null,
@@ -1408,7 +1411,15 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
       ftp:               FTP,
       plannedSession:    activity ? findPlanned(actDate) : null,
       sessionClassification: cached.sessionClassification,
-      activityMmpCurve, bestMmpCurve
+      activityMmpCurve, bestMmpCurve,
+      ngp:               cached.ngp               ?? null,
+      gapTimeline:       cached.gapTimeline        ?? null,
+      runLoad:           cached.runLoad            ?? null,
+      runningEF:         cached.runningEF          ?? null,
+      runningDecoupling: cached.runningDecoupling  ?? null,
+      runHrZones:        cached.runHrZones         ?? null,
+      eccentric:         cached.eccentric          ?? null,
+      runCadence:        cached.runCadence         ?? null,
     };
   }
 
@@ -1681,15 +1692,60 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
     }
   } catch(e) { console.warn('Gradient timeline:', e.message); }
 
+  // ── Hardloop-specifieke berekeningen ─────────────────────────────────────
+  let ngp = null, gapTimeline = null, runLoad = null, runningEF = null;
+  let runningDecoupling = null, runHrZones = null, eccentric = null, runCadence = null;
+
+  if (isRun) {
+    try {
+      if (timeS && velS && gradeS) {
+        const samples = timeS.data.map((t, i) => ({
+          t,
+          v: velS.data[i] || 0,
+          g: (gradeS.data[i] || 0) / 100
+        }));
+        const hrRaw = hrS ? hrS.data : null;
+
+        ngp = engine.computeNGP(samples);
+        gapTimeline = ngp?.gapTimeline ?? null;
+
+        if (hrRaw) {
+          runningDecoupling = engine.computeRunningDecoupling(samples, hrRaw);
+        }
+      }
+
+      if (ngp?.ngpSpeed && ngp.ngpSpeed > 0) {
+        runLoad    = engine.computeRunningLoad(activity.moving_time || 0, ngp.ngpSpeed, activity, settings);
+        runningEF  = engine.computeRunningEF(ngp.ngpSpeed, hrSummary?.avgHR);
+      } else {
+        runLoad = engine.computeRunningLoad(activity.moving_time || 0, 0, activity, settings);
+      }
+
+      runHrZones = hrTimeline ? engine.computeRunHrZones(hrTimeline, settings) : null;
+      eccentric  = engine.computeEccentricLoad(altitudeTimeline, runHrZones);
+
+      runCadence = {
+        avgSpm: avgCadence ? avgCadence * 2 : null,
+        max: cadenceTimeline && cadenceTimeline.length > 0
+          ? Math.max(...cadenceTimeline.map(p => p.c)) * 2
+          : null,
+        timelineSpm: cadenceTimeline ? cadenceTimeline.map(p => ({ t: p.t, c: p.c * 2 })) : null
+      };
+    } catch(e) { console.warn('Running metrics:', e.message); }
+  }
+
   // Persist cache
   try {
     await upsertActivityStream(userId, sid, {
+      schemaV: 2,
       cachedAt: new Date().toISOString(),
       zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null,
       hrTimeline, altitudeTimeline, mmpCurve,
       aerobicDecoupling, vi, ef,
       velocityTimeline, cadenceTimeline, gradientTimeline,
-      distanceTimeline, gpsTrack, sessionClassification
+      distanceTimeline, gpsTrack, sessionClassification,
+      ngp, gapTimeline, runLoad, runningEF, runningDecoupling,
+      runHrZones, eccentric, runCadence
     });
   } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
 
@@ -1704,7 +1760,9 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
     ftp:               FTP,
     plannedSession:    activity ? findPlanned(actDate) : null,
     sessionClassification,
-    activityMmpCurve, bestMmpCurve
+    activityMmpCurve, bestMmpCurve,
+    ngp, gapTimeline, runLoad, runningEF, runningDecoupling,
+    runHrZones, eccentric, runCadence
   };
 }
 
@@ -1756,32 +1814,65 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
     const a  = detail.activity;
     const zb = detail.zoneBreakdown;
     const ps = detail.plannedSession;
-    const sc = detail.sessionClassification ||
-      classifySession(detail.powerTimeline, detail.ftp);
+    const isRunActivity = (a.type === 'Run' || a.type === 'TrailRun');
 
-    const lines = [
-      `Activiteit: ${a.name}, ${a.date}, ${a.duration_min} min, ${a.distance_km || '–'} km, ${a.elevation_m} hm`,
-      a.avg_watts
-        ? `Vermogen: gem. ${a.avg_watts}W, NP ${a.np || '–'}W, IF ${a.IF || '–'}, TSS ${a.tss}`
-        : 'Geen vermogensdata beschikbaar',
-      a.suffer_score ? `Suffer score: ${a.suffer_score}` : null,
-      zb && !zb.estimated
-        ? `Zone-verdeling: Z1 ${zb.z1Min}min | Z2 ${zb.z2Min}min | Z3 ${zb.z3Min}min | Z4 ${zb.z4Min}min | Z5 ${zb.z5Min}min — Low ${Math.round(zb.lowPct*100)}% Mid ${Math.round(zb.midPct*100)}% High ${Math.round(zb.highPct*100)}%`
-        : null,
-      `Sessieclassificatie: ${sc.sessionType} (bouts: ${sc.boutCount}, CV: ${sc.boutDurationCV ?? '–'}, polarisatie: ${sc.polarizationIndex ?? '–'}, dominanteBin: ${sc.dominantBinFraction ?? '–'})`,
-      ps ? `Gepland: ${ps.title || '–'}, target TSS ${ps.targetTSS}, ${ps.duration} min` : null,
-      ps ? `Geplande blokken: ${JSON.stringify(ps.blokken)}` : null,
-      ps ? `Werkelijke TSS: ${a.tss} (afwijking: ${a.tss - (ps.targetTSS || 0)})` : null,
-      computed.maxRolling30 ? `Max 30s gem. vermogen: ${computed.maxRolling30}W`    : null,
-      computed.maxPower     ? `Max momentaan vermogen: ${computed.maxPower}W`        : null,
-      computed.maxHR        ? `Max hartslag: ${computed.maxHR} bpm`                 : null,
-      `Huidige TSB: ${state.enduranceMetrics?.tsb ?? '–'}`,
-      `Fase: ${state.trainingPlan?.phase || 'onbekend'}`
-    ].filter(l => l !== null);
+    let lines, systemPrompt;
+
+    if (isRunActivity) {
+      const runNgp    = detail.ngp;
+      const runLoad   = detail.runLoad;
+      const runZones  = detail.runHrZones;
+      const runDec    = detail.runningDecoupling;
+      const eccentric = detail.eccentric;
+
+      const ngpPaceMinKm = runNgp?.ngpPaceSecPerKm
+        ? +(runNgp.ngpPaceSecPerKm / 60).toFixed(2) : null;
+      const actualPaceMinKm = (a.distance_km && a.duration_min)
+        ? +(a.duration_min / a.distance_km).toFixed(2) : null;
+
+      lines = [
+        `Activiteit: ${a.name}, ${a.date}, ${a.duration_min} min, ${a.distance_km || '–'} km, ${a.elevation_m} hm`,
+        actualPaceMinKm ? `Werkelijk tempo: ${actualPaceMinKm} min/km` : null,
+        ngpPaceMinKm    ? `NGP (grade-gecorrigeerd): ${ngpPaceMinKm} min/km` : null,
+        runLoad ? `Hardloopbelasting: ${runLoad.load} (bron: ${runLoad.source}${runLoad.IF ? ', IF: ' + runLoad.IF : ''})` : null,
+        runZones ? `Hartslagzones: Z1 ${runZones.z1Min}min | Z2 ${runZones.z2Min}min | Z3 ${runZones.z3Min}min | Z4 ${runZones.z4Min}min | Z5 ${runZones.z5Min}min (basis: ${runZones.basis})` : null,
+        runDec ? `Aerobe koppeling: EF1=${runDec.ef1}, EF2=${runDec.ef2}, drift=${(runDec.decoupling * 100).toFixed(1)}%, status: ${runDec.status}` : null,
+        eccentric ? `Eccentrische belasting: ${eccentric.descentM}m daling, flag: ${eccentric.eccentricFlag} — ${eccentric.reason}` : null,
+        `Huidige TSB: ${state.enduranceMetrics?.tsb ?? '–'}`,
+        `Fase: ${state.trainingPlan?.phase || 'onbekend'}`
+      ].filter(l => l !== null);
+
+      systemPrompt = 'Je bent een persoonlijke hardloopcoach. Schrijf exact 3 zinnen, niet meer. Zin 1: beoordeel of de run aeroob bleef op basis van de aerobe koppeling en de hartslagzoneverdeling. Zin 2: geef aan of de eccentrische belasting (dalingsmeters of hoge intensiteit) de komende krachttraining kan verstoren. Zin 3: één concrete aanbeveling voor de komende 48 uur. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets.';
+    } else {
+      const sc = detail.sessionClassification ||
+        classifySession(detail.powerTimeline, detail.ftp);
+
+      lines = [
+        `Activiteit: ${a.name}, ${a.date}, ${a.duration_min} min, ${a.distance_km || '–'} km, ${a.elevation_m} hm`,
+        a.avg_watts
+          ? `Vermogen: gem. ${a.avg_watts}W, NP ${a.np || '–'}W, IF ${a.IF || '–'}, TSS ${a.tss}`
+          : 'Geen vermogensdata beschikbaar',
+        a.suffer_score ? `Suffer score: ${a.suffer_score}` : null,
+        zb && !zb.estimated
+          ? `Zone-verdeling: Z1 ${zb.z1Min}min | Z2 ${zb.z2Min}min | Z3 ${zb.z3Min}min | Z4 ${zb.z4Min}min | Z5 ${zb.z5Min}min — Low ${Math.round(zb.lowPct*100)}% Mid ${Math.round(zb.midPct*100)}% High ${Math.round(zb.highPct*100)}%`
+          : null,
+        `Sessieclassificatie: ${sc.sessionType} (bouts: ${sc.boutCount}, CV: ${sc.boutDurationCV ?? '–'}, polarisatie: ${sc.polarizationIndex ?? '–'}, dominanteBin: ${sc.dominantBinFraction ?? '–'})`,
+        ps ? `Gepland: ${ps.title || '–'}, target TSS ${ps.targetTSS}, ${ps.duration} min` : null,
+        ps ? `Geplande blokken: ${JSON.stringify(ps.blokken)}` : null,
+        ps ? `Werkelijke TSS: ${a.tss} (afwijking: ${a.tss - (ps.targetTSS || 0)})` : null,
+        computed.maxRolling30 ? `Max 30s gem. vermogen: ${computed.maxRolling30}W`    : null,
+        computed.maxPower     ? `Max momentaan vermogen: ${computed.maxPower}W`        : null,
+        computed.maxHR        ? `Max hartslag: ${computed.maxHR} bpm`                 : null,
+        `Huidige TSB: ${state.enduranceMetrics?.tsb ?? '–'}`,
+        `Fase: ${state.trainingPlan?.phase || 'onbekend'}`
+      ].filter(l => l !== null);
+
+      systemPrompt = 'Je bent een persoonlijke wielrencoach. Schrijf exact 3 zinnen, niet meer. Het sessionType veld vertelt je wat voor rit dit was op basis van vermogensanalyse — gebruik dit als vertrekpunt, niet VI. Zin 1: wat valt op aan de cijfers (watt, TSS, zones, IF) en wat voor type rit was dit. Zin 2: wat verklaart dit in context van de belastingsstatus. Zin 3: één concrete aanbeveling voor de komende 48 uur. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets.';
+    }
 
     const aiResp = await axios.post('https://api.anthropic.com/v1/messages', {
       model: 'claude-sonnet-4-5', max_tokens: 250,
-      system: 'Je bent een persoonlijke wielrencoach. Schrijf exact 3 zinnen, niet meer. Het sessionType veld vertelt je wat voor rit dit was op basis van vermogensanalyse — gebruik dit als vertrekpunt, niet VI. Zin 1: wat valt op aan de cijfers (watt, TSS, zones, IF) en wat voor type rit was dit. Zin 2: wat verklaart dit in context van de belastingsstatus. Zin 3: één concrete aanbeveling voor de komende 48 uur. Gebruik uitsluitend platte tekst: geen markdown, geen sterretjes, geen nummers, geen vet, geen bullets.',
+      system: systemPrompt,
       messages: [{ role: 'user', content: lines.join('\n') }]
     }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } });
 

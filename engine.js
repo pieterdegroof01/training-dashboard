@@ -1522,6 +1522,227 @@ function computeWorkoutMuscleVolume(workout, templatesById) {
   return { distribution, byMuscle, unmapped, totalWorkingSets };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// HARDLOPEN — grade-adjustment en NGP (Minetti 2002)
+// ────────────────────────────────────────────────────────────────────────────
+
+// Energiekost C(i) in J/kg/m via Minetti 2002 5e-graads polynoom.
+// gradeFraction is de gradiënt als fractie (grade_smooth% / 100).
+function gradeAdjustFactor(gradeFraction) {
+  const i = Math.max(-0.45, Math.min(0.45, gradeFraction));
+  const C = 155.4 * i**5 - 30.4 * i**4 - 43.3 * i**3 + 46.3 * i**2 + 19.5 * i + 3.6;
+  return C / 3.6; // C(0) = 3.6
+}
+
+// Normalised Graded Pace — analogie aan Coggan NP maar voor hardlopen.
+// samples: array van {t, v, g} op ~1s resolutie (t = cumulatieve seconden,
+// v = m/s, g = gradiënt als fractie). Stilstand (v <= 0.5) wordt genegeerd.
+function computeNGP(samples) {
+  const n = samples.length;
+  if (n < 30) return { ngpSpeed: null, ngpPaceSecPerKm: null, gapTimeline: [] };
+
+  const vAdj = samples.map(s => s.v * gradeAdjustFactor(s.g));
+
+  // 30s voortschrijdend gemiddelde via sliding window op tijdbasis
+  const smoothed = new Array(n);
+  let windowSum = 0, windowStart = 0;
+  for (let i = 0; i < n; i++) {
+    windowSum += vAdj[i];
+    while (samples[i].t - samples[windowStart].t >= 30) {
+      windowSum -= vAdj[windowStart];
+      windowStart++;
+    }
+    smoothed[i] = windowSum / (i - windowStart + 1);
+  }
+
+  // 4e macht, gemiddelde, 4e wortel — alleen bewegende samples
+  let sumFourth = 0, cntMoving = 0;
+  for (let i = 0; i < n; i++) {
+    if (samples[i].v <= 0.5) continue;
+    sumFourth += smoothed[i] ** 4;
+    cntMoving++;
+  }
+
+  if (cntMoving === 0) return { ngpSpeed: null, ngpPaceSecPerKm: null, gapTimeline: [] };
+
+  const ngpSpeed = sumFourth === 0 ? 0 : (sumFourth / cntMoving) ** 0.25;
+  const ngpPaceSecPerKm = ngpSpeed > 0 ? 1000 / ngpSpeed : null;
+
+  // gapTimeline: grade-adjusted pace per 5s venster in sec/km
+  const gapBuckets = {};
+  for (let i = 0; i < n; i++) {
+    if (samples[i].v <= 0.5) continue;
+    const ws = Math.floor(samples[i].t / 5) * 5;
+    if (!gapBuckets[ws]) gapBuckets[ws] = { sum: 0, cnt: 0 };
+    gapBuckets[ws].sum += vAdj[i];
+    gapBuckets[ws].cnt++;
+  }
+  const gapTimeline = Object.keys(gapBuckets)
+    .map(Number).sort((a, b) => a - b)
+    .map(ws => {
+      const avg = gapBuckets[ws].sum / gapBuckets[ws].cnt;
+      return { t: ws, pace: avg > 0 ? Math.round(1000 / avg) : null };
+    })
+    .filter(p => p.pace !== null);
+
+  return { ngpSpeed, ngpPaceSecPerKm, gapTimeline };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// HARDLOOP-LOAD — rTSS (bij drempeltempo) of hrTSS/TRIMP-fallback
+// ────────────────────────────────────────────────────────────────────────────
+function computeRunningLoad(durationSec, ngpSpeed, activity, settings) {
+  const lthr  = settings?.lthr  || null;
+  const hrMax = settings?.hrMax || DEFAULT_HR_MAX;
+
+  if (settings?.thresholdPace && ngpSpeed > 0) {
+    const ftpSpeed = 1000 / settings.thresholdPace; // m/s
+    const IF  = ngpSpeed / ftpSpeed;
+    const rTSS = IF * IF * (durationSec / 3600) * 100;
+    return { load: Math.min(Math.round(rTSS), 400), source: 'rtss', IF: Math.round(IF * 100) / 100 };
+  }
+
+  if (lthr && activity.average_heartrate) {
+    const hrTss = computeHrTSS(activity, lthr);
+    if (hrTss !== null) return { load: Math.min(hrTss, 400), source: 'hr', IF: null };
+  }
+
+  const durH = durationSec / 3600;
+  if (activity.average_heartrate) {
+    const hrR  = (activity.average_heartrate - 60) / (hrMax - 60);
+    const trimp = durH * 60 * hrR * (0.64 * Math.exp(1.92 * hrR));
+    return { load: Math.min(Math.round(trimp * 1.2), 400), source: 'fallback', IF: null };
+  }
+
+  return { load: Math.round(durH * 75 * 1.2), source: 'fallback', IF: null };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// HARDLOOP EF EN PACE:HR-KOPPELING
+// ────────────────────────────────────────────────────────────────────────────
+// EF = meter per minuut per hartslag
+function computeRunningEF(ngpSpeed, avgHR) {
+  if (!avgHR || !ngpSpeed) return null;
+  return Math.round((ngpSpeed * 60) / avgHR * 100) / 100;
+}
+
+// Aerobe koppeling op basis van grade-adjusted snelheid vs hartslag.
+// samples: [{t, v, g}] op 1s resolutie; hrSamples: HR-waarden per index.
+function computeRunningDecoupling(samples, hrSamples) {
+  if (!samples || !hrSamples || samples.length < 2) return null;
+  const n = samples.length;
+  const totalDuration = samples[n - 1].t - samples[0].t;
+  if (totalDuration < 1800) return null;
+
+  const halfTime = samples[0].t + totalDuration / 2;
+  let sumVAdj1 = 0, sumHR1 = 0, cnt1 = 0;
+  let sumVAdj2 = 0, sumHR2 = 0, cnt2 = 0;
+
+  for (let i = 0; i < n; i++) {
+    const hr = hrSamples[i];
+    if (!hr || hr <= 0) continue;
+    const vAdj = samples[i].v * gradeAdjustFactor(samples[i].g);
+    if (samples[i].t < halfTime) {
+      sumVAdj1 += vAdj; sumHR1 += hr; cnt1++;
+    } else {
+      sumVAdj2 += vAdj; sumHR2 += hr; cnt2++;
+    }
+  }
+
+  if (cnt1 === 0 || cnt2 === 0 || sumHR1 === 0 || sumHR2 === 0) return null;
+
+  const ef1 = (sumVAdj1 / cnt1) / (sumHR1 / cnt1);
+  const ef2 = (sumVAdj2 / cnt2) / (sumHR2 / cnt2);
+  const decoupling = (ef1 - ef2) / ef1;
+
+  return {
+    ef1: Math.round(ef1 * 10000) / 10000,
+    ef2: Math.round(ef2 * 10000) / 10000,
+    decoupling: Math.round(decoupling * 10000) / 10000,
+    status: Math.abs(decoupling) < 0.05 ? 'goed' : 'drift'
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// HARDLOOP HR-ZONEVERDELING — Friel (%LTHR) of %HRmax
+// ────────────────────────────────────────────────────────────────────────────
+// hrTimeline: [{t, hr}, ...] op 5s-resolutie (elk punt = 5 seconden)
+function computeRunHrZones(hrTimeline, settings) {
+  if (!hrTimeline || !hrTimeline.length) return null;
+
+  const lthr  = settings?.lthr  || null;
+  const hrMax = settings?.hrMax || DEFAULT_HR_MAX;
+
+  let z1s = 0, z2s = 0, z3s = 0, z4s = 0, z5s = 0;
+
+  for (const pt of hrTimeline) {
+    const hr = pt.hr;
+    if (!hr) continue;
+    let zone;
+    if (lthr) {
+      const pct = hr / lthr;
+      if      (pct < 0.85) zone = 1;
+      else if (pct < 0.90) zone = 2;
+      else if (pct < 0.95) zone = 3;
+      else if (pct < 1.00) zone = 4;
+      else                  zone = 5;
+    } else {
+      const pct = hr / hrMax;
+      if      (pct < 0.68) zone = 1;
+      else if (pct < 0.83) zone = 2;
+      else if (pct < 0.94) zone = 3;
+      else if (pct < 1.05) zone = 4;
+      else                  zone = 5;
+    }
+    if (zone === 1) z1s += 5;
+    else if (zone === 2) z2s += 5;
+    else if (zone === 3) z3s += 5;
+    else if (zone === 4) z4s += 5;
+    else                 z5s += 5;
+  }
+
+  const r = v => Math.round(v / 60 * 10) / 10;
+  return {
+    z1Min: r(z1s), z2Min: r(z2s), z3Min: r(z3s), z4Min: r(z4s), z5Min: r(z5s),
+    basis: lthr ? 'lthr' : 'hrmax'
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ECCENTRISCHE BELASTING — interferentie-flag voor krachttraining
+// Bron: Wilson 2012 — hardlopen (niet fietsen) drijft lower-body interferentie.
+// ────────────────────────────────────────────────────────────────────────────
+// altitudeTimeline: [{t, alt}, ...] op 5s-resolutie
+function computeEccentricLoad(altitudeTimeline, runHrZones) {
+  let descentM = 0;
+  if (altitudeTimeline && altitudeTimeline.length > 1) {
+    for (let i = 1; i < altitudeTimeline.length; i++) {
+      const diff = altitudeTimeline[i].alt - altitudeTimeline[i - 1].alt;
+      if (diff < 0) descentM += -diff;
+    }
+  }
+
+  let eccentricFlag = false;
+  let reason = 'Geen verhoogde eccentrische belasting';
+
+  if (descentM > 250) {
+    eccentricFlag = true;
+    reason = `Substantiële afdaling (${Math.round(descentM)}m dalingsmeters)`;
+  } else if (runHrZones) {
+    const total = (runHrZones.z1Min || 0) + (runHrZones.z2Min || 0) +
+                  (runHrZones.z3Min || 0) + (runHrZones.z4Min || 0) + (runHrZones.z5Min || 0);
+    if (total > 0) {
+      const highFrac = ((runHrZones.z4Min || 0) + (runHrZones.z5Min || 0)) / total;
+      if (highFrac > 0.25) {
+        eccentricFlag = true;
+        reason = `Hoge intensiteit: ${Math.round(highFrac * 100)}% tijd in Z4/Z5`;
+      }
+    }
+  }
+
+  return { descentM: Math.round(descentM), eccentricFlag, reason };
+}
+
 module.exports = {
   computeETLForActivity,
   computeETLForHevyWorkout,
@@ -1553,4 +1774,7 @@ module.exports = {
   ENDURANCE_TYPES, STRENGTH_TYPES,
   computeWorkoutMuscleVolume, PRIMARY_WEIGHT, SECONDARY_WEIGHT,
   computeWorkoutStrengthSummary,
+  gradeAdjustFactor, computeNGP,
+  computeRunningLoad, computeRunningEF, computeRunningDecoupling,
+  computeRunHrZones, computeEccentricLoad,
 };
