@@ -283,7 +283,12 @@
 
 <div class="card">
   <div class="card-header" style="margin-bottom:6px">
-    <div class="card-label" style="margin:0" id="actFeedLabel">Activiteiten · 21 dagen</div>
+    <div class="card-label" style="margin:0">Activiteiten</div>
+    <div class="pf-win-seg" id="actWindowSeg">
+      <button class="pf-win-btn active" data-days="21" onclick="setActivityWindow(21)">21d</button>
+      <button class="pf-win-btn" data-days="90" onclick="setActivityWindow(90)">90d</button>
+      <button class="pf-win-btn" data-days="0" onclick="setActivityWindow(0)">Alles</button>
+    </div>
   </div>
   <div id="allActs"><div style="color:var(--muted);font-size:13px;padding:16px 0">Laden...</div></div>
 </div>

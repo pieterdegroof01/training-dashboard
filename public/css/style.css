@@ -659,6 +659,10 @@ details.ap-accordion-section > summary { display:none; }
 .pf-pill { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; transition: all 0.15s; }
 .pf-pill:hover { border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--text); }
 .pf-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pf-win-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--bg-secondary); border: 1px solid var(--border); }
+.pf-win-btn { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 999px; border: none; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; line-height: 1; }
+.pf-win-btn:hover { color: var(--text); }
+.pf-win-btn.active { background: var(--accent); color: #fff; }
 .stats-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 @media (max-width: 600px) { .stats-grid-4 { grid-template-columns: repeat(2, 1fr); } }
 

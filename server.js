@@ -969,7 +969,6 @@ app.get('/api/strava/activities', async (req, res) => {
   try {
     const user = await getDefaultUser();
     const userId = user.id;
-    const windowDays = Math.max(1, parseInt(req.query.days, 10) || 21);
 
     const existing = await getActivities(userId);
 
@@ -991,10 +990,12 @@ app.get('/api/strava/activities', async (req, res) => {
       console.warn('Strava incrementele sync mislukt, val terug op DB:', e.message);
     }
 
+    // Volledige set uit de DB; het tijdvenster (21d/90d/alles) wordt client-side gekozen en
+    // symmetrisch over Strava en Hevy toegepast. Streams gaan niet mee: de feed gebruikt ze niet
+    // en het houdt de payload klein. De detailpagina laadt streams apart via /api/activity/:id/detail.
     const all = await getActivities(userId);
-    const cutoff = Date.now() - windowDays * 86400000;
-    const windowed = all.filter(a => a.start_date && new Date(a.start_date).getTime() >= cutoff);
-    res.json(windowed);
+    const light = all.map(({ streams, ...rest }) => rest);
+    res.json(light);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

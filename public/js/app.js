@@ -1985,6 +1985,14 @@ function closeHelp(e) {
 
 // ── Activiteiten-tab (strikte uitvoeringspagina) ──────────────────────────────
 let currentActivityFilter = 'alles';
+let activityWindowDays = 21; // 0 = alles
+function setActivityWindow(days) {
+  activityWindowDays = days;
+  document.querySelectorAll('#actWindowSeg .pf-win-btn').forEach(b => {
+    b.classList.toggle('active', Number(b.dataset.days) === days);
+  });
+  renderActivityFeed();
+}
 
 function _last7Cut() { return Date.now() - 7 * 86400000; }
 function _hevyDurMin(w) {
@@ -2114,10 +2122,14 @@ function filterActivities(type) {
 function renderActivityFeed() {
   const el = document.getElementById('allActs');
   if (!el) return;
-  const items = _filterFeed(_unifiedFeed(), currentActivityFilter);
+  let items = _filterFeed(_unifiedFeed(), currentActivityFilter);
+  if (activityWindowDays > 0) {
+    const cutoff = Date.now() - activityWindowDays * 86400000;
+    items = items.filter(i => new Date(i.date).getTime() >= cutoff);
+  }
   el.innerHTML = items.length
     ? items.map(feedRow).join('')
-    : '<div class="empty"><div class="empty-text">Geen activiteiten voor dit filter</div></div>';
+    : '<div class="empty"><div class="empty-text">Geen activiteiten in dit venster</div></div>';
 }
 
 function renderActKpis() {
