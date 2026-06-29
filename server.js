@@ -967,13 +967,34 @@ app.get('/api/strava/athlete', async (req, res) => {
 
 app.get('/api/strava/activities', async (req, res) => {
   try {
-    const token = await getStravaToken();
-    const after = Math.floor((Date.now() - 21 * 86400000) / 1000);
-    const resp = await axios.get('https://www.strava.com/api/v3/athlete/activities', {
-      headers: { Authorization: `Bearer ${token}` },
-      params: { after, per_page: 50 }
-    });
-    res.json(resp.data);
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const windowDays = Math.max(1, parseInt(req.query.days, 10) || 21);
+
+    const existing = await getActivities(userId);
+
+    // Lichte incrementele sync vanaf de laatste bekende activiteit, identiek aan het Hevy-patroon.
+    // De DB is de bron van waarheid (gevuld door sync-all en webhooks). De live listing-endpoint
+    // van Strava respecteert scopes anders en mist soms prive of handmatige activiteiten, daarom DB-read.
+    // Faalt de Strava-call, dan vallen we terug op wat al in de DB staat.
+    try {
+      const token = await getStravaToken();
+      const lastTs = existing.length > 0
+        ? Math.floor(new Date(existing[existing.length - 1].start_date).getTime() / 1000)
+        : null;
+      const fresh = await fetchActivitiesFromStrava(token, lastTs);
+      for (const a of fresh) {
+        if (a.powerSource === undefined) assignPowerSource(a);
+        await upsertActivity(userId, a);
+      }
+    } catch (e) {
+      console.warn('Strava incrementele sync mislukt, val terug op DB:', e.message);
+    }
+
+    const all = await getActivities(userId);
+    const cutoff = Date.now() - windowDays * 86400000;
+    const windowed = all.filter(a => a.start_date && new Date(a.start_date).getTime() >= cutoff);
+    res.json(windowed);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
