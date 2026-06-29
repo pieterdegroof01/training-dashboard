@@ -4,11 +4,13 @@ import s from './AdDecoupling.module.css'
 const CONVENTION_NOTE =
   'De 5%-grens voor aerobe decoupling is een coaching-conventie (TrainingPeaks), niet peer-reviewed gevalideerd. Minder valide bij VI > 1.10 of inspanningsduur < 20 min.'
 
-export function AdDecoupling({ dc, vi }) {
+export function AdDecoupling({ dc, vi, kind = 'ride' }) {
   const good = dc.status === 'goed'
-  // Validiteitscheck: VI hoog of rit kort → caveat tonen
+  const isRide = kind !== 'run'
+  // Validiteitscheck: VI hoog → caveat tonen (alleen bij rit, niet bij hardlopen)
   const viVal = parseFloat(vi || 1.03)
-  const lowValidity = viVal > 1.10
+  const lowValidity = isRide && viVal > 1.10
+  const activity = isRide ? 'rit' : 'run'
 
   return (
     <div>
@@ -50,8 +52,8 @@ export function AdDecoupling({ dc, vi }) {
 
       <p className={s.description}>
         {good
-          ? 'Goede aerobe koppeling — het cardiovasculaire systeem bleef stabiel gedurende de rit, geen drift door uitputting.'
-          : 'HR-drift gedetecteerd — mogelijk door glycogeenuitputting, dehydratie of intensiteit boven de aerobe drempel.'}
+          ? `Goede aerobe koppeling — het cardiovasculaire systeem bleef stabiel gedurende de ${activity}, geen drift door uitputting.`
+          : `HR-drift gedetecteerd — mogelijk door glycogeenuitputting, dehydratie of intensiteit boven de aerobe drempel.`}
         {lowValidity && (
           <span className={s.caveat}>
             {' '}(Kanttekening: hoge VI maakt decoupling minder valide bij deze rit.)

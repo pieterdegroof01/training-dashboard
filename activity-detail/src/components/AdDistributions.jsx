@@ -54,8 +54,12 @@ function Histogram({ bins, colorKey, w = 320, h = 100 }) {
   )
 }
 
-export function AdDistributions({ dist }) {
-  const panels = [
+export function AdDistributions({ dist, kind = 'ride' }) {
+  const panels = kind === 'run' ? [
+    { label: 'Snelheid (km/u)', key: 'speed', colorKey: 'green' },
+    { label: 'Hartslag (bpm)',  key: 'hr',    colorKey: 'red' },
+    { label: 'Cadans (spm)',    key: 'cad',   colorKey: 'blue' },
+  ] : [
     { label: 'Vermogen (W)',    key: 'power', colorKey: 'accent' },
     { label: 'Hartslag (bpm)', key: 'hr',    colorKey: 'red' },
     { label: 'Cadans (rpm)',   key: 'cad',   colorKey: 'blue' },

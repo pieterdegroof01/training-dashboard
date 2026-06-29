@@ -17,7 +17,8 @@ export default function App() {
   const [aiLoading, setAiLoading] = useState(true)
 
   const id = extractActivityId()
-  const demo = import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo')
+  const demo    = import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo')
+  const demoRun = import.meta.env.DEV && new URLSearchParams(window.location.search).has('demo-run')
 
   useEffect(() => {
     const handleResize = () => setLayout(window.innerWidth < 768 ? 'phone' : 'desktop')
@@ -31,6 +32,16 @@ export default function App() {
         .then(({ demoApi }) => {
           setActivity(transformApiResponse(demoApi))
           setAiText('Demo-modus: dit is synthetische data om de render te controleren. De coach-analyse komt in productie van de Anthropic-API.')
+          setAiLoading(false)
+        })
+        .catch(e => setError(e.message))
+      return
+    }
+    if (demoRun) {
+      import('./_demoRunData.js')
+        .then(({ demoRunApi }) => {
+          setActivity(transformApiResponse(demoRunApi))
+          setAiText(null)
           setAiLoading(false)
         })
         .catch(e => setError(e.message))

@@ -86,9 +86,162 @@ function bucketize(values, edges, labels) {
   return labels.map((l, i) => ({ l, c: Math.round((counts[i] / total) * 100) }))
 }
 
-export function transformApiResponse(api) {
+// ── Pace helpers ──────────────────────────────────────────────────────────────
+
+function secToPace(sec) {
+  if (sec == null || !isFinite(sec) || sec <= 0) return '–'
+  const m = Math.floor(sec / 60)
+  const ss = Math.round(sec % 60)
+  return `${m}:${String(ss).padStart(2, '0')}`
+}
+
+function paceFromKmh(v) {
+  if (!v || v <= 0) return null
+  return 3600 / v
+}
+
+// ── Run transform ─────────────────────────────────────────────────────────────
+
+function transformRunResponse(api) {
   const {
-    activity: a, ftp: FTP = 280,
+    activity: a,
+    ngp, gapTimeline, runLoad, runningEF, runningDecoupling,
+    runHrZones, eccentric, runCadence,
+    velocityTimeline, hrTimeline, gpsTrack,
+    hrSummary, sessionClassification,
+  } = api
+
+  const sessionType = sessionClassification?.sessionType || TYPE_NL[a.type] || 'Duurloop'
+  const durationMin = a.duration_min || 1
+
+  const avgPaceSec = a.distance_km && durationMin ? (durationMin * 60) / a.distance_km : null
+
+  const metrics = [
+    a.distance_km != null && { l: 'AFSTAND', v: a.distance_km.toFixed(1), u: 'km' },
+    { l: 'TIJD', v: a.duration_str, u: '' },
+    avgPaceSec != null && { l: 'TEMPO', v: secToPace(avgPaceSec), u: '/km' },
+    ngp?.ngpPaceSecPerKm != null && { l: 'GAP', v: secToPace(ngp.ngpPaceSecPerKm), u: '/km' },
+    hrSummary?.avgHR != null && { l: 'GEM. HR', v: String(hrSummary.avgHR), u: 'bpm' },
+    a.elevation_m != null && { l: 'STIJGING', v: String(a.elevation_m), u: 'm' },
+    runCadence?.avgSpm != null && { l: 'CADANS', v: String(runCadence.avgSpm), u: 'spm' },
+    runLoad?.load != null && {
+      l: runLoad.source === 'rtss' ? 'rTSS' : 'hrTSS',
+      v: String(runLoad.load),
+      u: '',
+      accent: true,
+    },
+  ].filter(Boolean)
+
+  const derived = []
+  if (runLoad?.source === 'rtss' && runLoad.IF != null) {
+    derived.push({
+      v: runLoad.IF.toFixed(2), l: 'IF', sub: sessionType,
+      convention: true, conventionNote: CONV.if,
+    })
+  }
+  if (runningEF != null) {
+    derived.push({ v: Number(runningEF).toFixed(2), l: 'EF', sub: 'NGP / gem. HR' })
+  }
+  if (runningDecoupling) {
+    const ok  = runningDecoupling.status === 'goed'
+    const pct = Math.round(Math.abs(runningDecoupling.decoupling) * 1000) / 10
+    derived.push({
+      v: `${pct}%`, l: 'KOPPELING',
+      sub: ok ? '✓ Goed (<5%)' : '⚠ Drift (>5%)',
+      good: ok, convention: true, conventionNote: CONV.dec,
+    })
+  }
+
+  const route = projectGps(gpsTrack)
+
+  const zones = runHrZones ? [
+    { z: 'Z1', name: 'Herstel',   min: Math.round(runHrZones.z1Min || 0), cssVar: '--z1' },
+    { z: 'Z2', name: 'Endurance', min: Math.round(runHrZones.z2Min || 0), cssVar: '--z2' },
+    { z: 'Z3', name: 'Tempo',     min: Math.round(runHrZones.z3Min || 0), cssVar: '--z3' },
+    { z: 'Z4', name: 'Threshold', min: Math.round(runHrZones.z4Min || 0), cssVar: '--z4' },
+    { z: 'Z5', name: 'VO2max',    min: Math.round(runHrZones.z5Min || 0), cssVar: '--z5' },
+  ] : null
+
+  const decoupling = runningDecoupling ? {
+    ef1: runningDecoupling.ef1,
+    ef2: runningDecoupling.ef2,
+    pct: Math.round(Math.abs(runningDecoupling.decoupling) * 1000) / 10,
+    status: runningDecoupling.status,
+  } : null
+
+  const cadence = runCadence?.avgSpm ? {
+    avg: runCadence.avgSpm,
+    max: runCadence.max ?? runCadence.avgSpm,
+  } : null
+
+  const dist = (velocityTimeline?.length || hrTimeline?.length || runCadence?.timelineSpm?.length) ? {
+    speed: velocityTimeline?.length
+      ? bucketize(velocityTimeline.map(p => p.v),
+          [8, 10, 12, 14, 16, 18, 20],
+          ['<8', '8–10', '10–12', '12–14', '14–16', '16–18', '18–20', '>20'])
+      : [],
+    hr: hrTimeline?.length
+      ? bucketize(hrTimeline.map(p => p.hr),
+          [120, 130, 140, 150, 160, 170, 180],
+          ['<120', '120–130', '130–140', '140–150', '150–160', '160–170', '170–180', '>180'])
+      : [],
+    cad: runCadence?.timelineSpm?.length
+      ? bucketize(runCadence.timelineSpm.map(p => p.c),
+          [150, 160, 170, 180, 190],
+          ['<150', '150–160', '160–170', '170–180', '180–190', '>190'])
+      : [],
+  } : null
+
+  const impact = {
+    descentM:        eccentric?.descentM    ?? 0,
+    eccentricFlag:   eccentric?.eccentricFlag ?? false,
+    reason:          eccentric?.reason      ?? '',
+    loadSource:      runLoad?.source,
+    hasThresholdPace: runLoad?.source === 'rtss',
+  }
+
+  return {
+    id: a.id,
+    kind: 'run',
+    name: a.name,
+    when: formatDate(a.date),
+    where: TYPE_NL[a.type] || 'Hardloop',
+    source: 'Strava',
+    sessionType,
+    durationMin,
+    maxHr: hrSummary?.maxHR ?? null,
+    ftp: null,
+    metrics,
+    derived,
+    route,
+    speedRaw:    velocityTimeline ?? null,
+    gapRaw:      gapTimeline      ?? null,
+    hrRaw:       hrTimeline       ?? null,
+    gpsTrackRaw: gpsTrack         ?? null,
+    powerRaw:    null,
+    mmpCurveFull: null,
+    mmpBestFull:  null,
+    zones,
+    zonesBasis: runHrZones?.basis ?? null,
+    decoupling,
+    cadence,
+    dist,
+    impact,
+    ai: null,
+    aiLoading: false,
+    series: null, mmp: null, scatter: null, drift: null,
+    quadrant: null, wbal: null, planned: null, context: null,
+  }
+}
+
+// ── Ride transform ────────────────────────────────────────────────────────────
+
+export function transformApiResponse(api) {
+  const { activity: a } = api
+  if (a.type === 'Run' || a.type === 'TrailRun') return transformRunResponse(api)
+
+  const {
+    ftp: FTP = 280,
     zoneBreakdown, powerTimeline, hrTimeline,
     cadenceTimeline, velocityTimeline, gpsTrack,
     hrSummary, avgCadence, aerobicDecoupling, vi, ef,

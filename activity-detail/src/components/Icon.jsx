@@ -30,3 +30,14 @@ export function IconArrowDown({ size = 12, color = 'currentColor' }) {
     </svg>
   );
 }
+
+export function IconRun({ size = 20, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="13" cy="4" r="1.5" />
+      <path d="M7 17l2-5 3 3 3-5 2 3" />
+      <path d="M9.5 12l-2 5H5" />
+      <path d="M14.5 10l3 2.5-1.5 4.5" />
+    </svg>
+  );
+}

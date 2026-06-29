@@ -1,9 +1,10 @@
-import { IconRide } from './Icon.jsx'
+import { IconRide, IconRun } from './Icon.jsx'
 import s from './AdHeader.module.css'
 
 export function AdHeader({ activity, onBack, layout = 'desktop' }) {
-  const { name, when, where, source, sessionType } = activity
+  const { name, when, where, source, sessionType, kind } = activity
   const isDesktop = layout === 'desktop'
+  const ActivityIcon = kind === 'run' ? IconRun : IconRide
 
   return (
     <div className={s.header}>
@@ -16,7 +17,7 @@ export function AdHeader({ activity, onBack, layout = 'desktop' }) {
           style={{ width: isDesktop ? 52 : 46, height: isDesktop ? 52 : 46 }}
           aria-hidden="true"
         >
-          <IconRide size={isDesktop ? 26 : 22} color="var(--accent)" />
+          <ActivityIcon size={isDesktop ? 26 : 22} color="var(--accent)" />
         </div>
         <div className={s.titleBlock}>
           <div className={s.titleRow}>

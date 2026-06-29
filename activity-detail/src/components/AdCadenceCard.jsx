@@ -1,14 +1,14 @@
 import s from './AdCadenceCard.module.css'
 
-export function AdCadenceCard({ activity }) {
+export function AdCadenceCard({ activity, unit = 'rpm' }) {
   const { cadence, maxHr, metrics } = activity
   const avgHr = metrics.find((m) => m.l === 'GEM. HR')?.v || '–'
 
   const tiles = [
-    { label: 'Gem. HR',    value: avgHr,      unit: 'bpm' },
-    { label: 'Max HR',     value: maxHr,       unit: 'bpm' },
-    { label: 'Gem. cadans', value: cadence.avg, unit: 'rpm' },
-    { label: 'Max cadans', value: cadence.max, unit: 'rpm' },
+    { label: 'Gem. HR',     value: avgHr,       unit: 'bpm' },
+    { label: 'Max HR',      value: maxHr,        unit: 'bpm' },
+    { label: 'Gem. cadans', value: cadence.avg,  unit },
+    { label: 'Max cadans',  value: cadence.max,  unit },
   ]
 
   return (
