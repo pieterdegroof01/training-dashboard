@@ -70,9 +70,13 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   const [showSpeed, setShowSpeed] = useState(false)
   const [showCadence, setShowCadence] = useState(false)
 
-  const tMin = selection ? selection.tStart : 0
-  const tMax = selection ? selection.tEnd : (durationMin * 60 || 1)
+  // Kijkvenster (x-as) kan breder zijn dan het piekvenster voor leesbaarheid bij korte selecties.
+  const peakStart = selection ? selection.tStart : 0
+  const peakEnd = selection ? selection.tEnd : (durationMin * 60 || 1)
+  const tMin = selection ? (selection.viewStart ?? selection.tStart) : 0
+  const tMax = selection ? (selection.viewEnd ?? selection.tEnd) : (durationMin * 60 || 1)
   const tRange = tMax - tMin || 1
+  const peakRange = (peakEnd - peakStart) || 1
   const pad = { left: 50, top: 18, right: 54, bottom: 26 }
   const drawW = w - pad.left - pad.right
   const drawH = h - pad.top - pad.bottom
@@ -83,6 +87,9 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
 
   const powerInWindow = power ? power.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
   const hrInWindow = hr ? hr.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
+  // Gemiddelden worden over het exacte piekvenster berekend, niet over het bredere kijkvenster.
+  const powerInPeak = power ? power.filter(p => p.t >= peakStart - 1 && p.t <= peakEnd + 1) : []
+  const hrInPeak = hr ? hr.filter(p => p.t >= peakStart - 1 && p.t <= peakEnd + 1) : []
 
   const powerDisplay = powerInWindow.length ? smoothPower(downsample(powerInWindow, Math.max(drawW, 300))) : []
   const hrDisplay = hrInWindow.length ? downsample(hrInWindow, Math.max(drawW, 300)) : []
@@ -137,9 +144,9 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   const cadPath = cadDisplay.length >= 2
     ? cadDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yCad(p.c)}`).join(' ') : null
 
-  // Averages from raw data (not smoothed)
-  const avgP = avg(powerInWindow, 'w')
-  const avgHr = avg(hrInWindow, 'hr')
+  // Averages from raw data (not smoothed), over het exacte piekvenster
+  const avgP = avg(powerInPeak, 'w')
+  const avgHr = avg(hrInPeak, 'hr')
 
   // FTP line
   const ftpY = ftp ? yP(ftp) : null
@@ -410,7 +417,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
 
       {selection && (
         <div className={s.selectionInfo}>
-          <strong>{fmtDur(tRange)}</strong>
+          <strong>{fmtDur(peakRange)}</strong>
           {avgP != null && <span> · <span style={{ color: 'var(--accent)' }}>{avgP} W gem.</span></span>}
           {avgHr != null && <span> · <span style={{ color: 'var(--red)' }}>{avgHr} bpm gem.</span></span>}
           <span className={s.resetHint}> — dubbelklik om te resetten</span>
@@ -434,6 +441,15 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
         {/* Hoogteprofiel als lichtgrijze achtergrond */}
         {altFill && <path d={altFill} fill="var(--muted)" opacity="0.12" />}
         {altPath && <path d={altPath} fill="none" stroke="var(--muted)" strokeWidth="1" opacity="0.26" />}
+
+        {/* Piekvenster-markering binnen breder kijkvenster */}
+        {selection && (selection.viewStart != null || selection.viewEnd != null) && (
+          <rect
+            x={xS(peakStart)} y={pad.top}
+            width={Math.max(0, xS(peakEnd) - xS(peakStart))} height={drawH}
+            fill="var(--accent)" opacity="0.10"
+          />
+        )}
 
         {/* Left Y-axis (power) */}
         {powerYLabels.map(({ v, y }) => (

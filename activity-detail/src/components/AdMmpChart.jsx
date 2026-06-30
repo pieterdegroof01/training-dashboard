@@ -135,7 +135,25 @@ export function AdMmpChart({ mmpCurveFull, mmpBestFull, power, onSelect, w = 620
 
     if (power?.length) {
       const win = findPeakWindow(power, point.dur)
-      if (win) onSelect?.(win)
+      if (win) {
+        // Korte piekvensters (5s/30s/1m) zijn te smal voor een leesbare tijdgrafiek.
+        // Geef een breder kijkvenster mee als context; het exacte piekvenster blijft win.tStart/win.tEnd.
+        const tFirst = power[0].t
+        const tLast = power[power.length - 1].t
+        const peakDur = win.tEnd - win.tStart
+        const minView = 90 // s context-breedte
+        if (peakDur < minView) {
+          const center = (win.tStart + win.tEnd) / 2
+          const half = minView / 2
+          let vStart = center - half
+          let vEnd = center + half
+          if (vStart < tFirst) { vEnd += tFirst - vStart; vStart = tFirst }
+          if (vEnd > tLast) { vStart = Math.max(tFirst, vStart - (vEnd - tLast)); vEnd = tLast }
+          onSelect?.({ ...win, viewStart: vStart, viewEnd: vEnd })
+        } else {
+          onSelect?.(win)
+        }
+      }
     }
   }
 
