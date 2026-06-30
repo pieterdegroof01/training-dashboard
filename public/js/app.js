@@ -572,7 +572,7 @@ function actRow(a, detail=false) {
 
 function renderRecentActs() {
   document.getElementById('recentActs').innerHTML = S.recentActs.length
-    ? S.recentActs.slice(0,6).map(a=>actRow(a,false)).join('')
+    ? [...S.recentActs].sort((a,b)=>new Date(b.start_date)-new Date(a.start_date)).slice(0,6).map(a=>actRow(a,false)).join('')
     : '<div class="empty"><div class="empty-icon">🏃</div><div class="empty-text">Geen recente activiteiten</div></div>';
   if (typeof renderActivityFeed === 'function') renderActivityFeed();
 }
