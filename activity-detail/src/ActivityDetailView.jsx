@@ -156,6 +156,10 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop', theme
       <AdDualChart
         power={d.powerRaw}
         hr={d.hrRaw}
+        speed={d.speedRaw}
+        cadence={d.cadenceRaw}
+        altitude={d.altitudeRaw}
+        gradient={d.gradientRaw}
         ftp={d.ftp}
         durationMin={d.durationMin}
         hoverT={hoverT}

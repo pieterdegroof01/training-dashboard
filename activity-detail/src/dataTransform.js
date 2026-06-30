@@ -243,7 +243,7 @@ export function transformApiResponse(api) {
   const {
     ftp: FTP = 280,
     zoneBreakdown, powerTimeline, hrTimeline,
-    cadenceTimeline, velocityTimeline, gpsTrack,
+    cadenceTimeline, velocityTimeline, altitudeTimeline, gradientTimeline, gpsTrack,
     hrSummary, avgCadence, aerobicDecoupling, vi, ef,
     plannedSession, sessionClassification, activityMmpCurve, bestMmpCurve,
   } = api
@@ -476,6 +476,10 @@ export function transformApiResponse(api) {
     gpsTrackRaw: gpsTrack ?? null,
     powerRaw: powerTimeline ?? null,
     hrRaw: hrTimeline ?? null,
+    speedRaw: velocityTimeline ?? null,
+    cadenceRaw: cadenceTimeline ?? null,
+    altitudeRaw: altitudeTimeline ?? null,
+    gradientRaw: gradientTimeline ?? null,
     mmpCurveFull: activityMmpCurve ?? null,
     mmpBestFull: bestMmpCurve ?? null,
   }

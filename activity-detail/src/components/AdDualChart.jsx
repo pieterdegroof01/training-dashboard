@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import s from './AdDualChart.module.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ function avg(pts, key) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, onHover, onSelect, w = 640, h = 200 }) {
+export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp, durationMin, hoverT, selection, onHover, onSelect, w = 640, h = 200 }) {
   const svgRef = useRef(null)
   const overlayRef = useRef(null)
   const crosshairRef = useRef(null)
@@ -66,6 +66,10 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
   // paramsRef holds latest render state; handlers read from it to avoid stale closures
   const paramsRef = useRef({})
 
+  // Toggles voor secundaire overlays (snelheid, cadans); hoogte is altijd zichtbaar als achtergrond
+  const [showSpeed, setShowSpeed] = useState(false)
+  const [showCadence, setShowCadence] = useState(false)
+
   const tMin = selection ? selection.tStart : 0
   const tMax = selection ? selection.tEnd : (durationMin * 60 || 1)
   const tRange = tMax - tMin || 1
@@ -73,7 +77,7 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
   const drawW = w - pad.left - pad.right
   const drawH = h - pad.top - pad.bottom
 
-  paramsRef.current = { tMin, tMax, tRange, drawW, drawH, pad, w, h, power, hr, ftp, onHover, onSelect }
+  paramsRef.current = { tMin, tMax, tRange, drawW, drawH, pad, w, h, power, hr, ftp, onHover, onSelect, speed, cadence, gradient, showSpeed, showCadence }
 
   // ── Derived display data ────────────────────────────────────────────────────
 
@@ -98,6 +102,40 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
   const powerFill = powerPath
     ? `${powerPath} L${xS(powerDisplay[powerDisplay.length - 1].t)},${pad.top + drawH} L${xS(powerDisplay[0].t)},${pad.top + drawH} Z`
     : null
+
+  // ── Hoogte (achtergrond), snelheid en cadans (toggles) ──────────────────────
+  const altInWindow = altitude ? altitude.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
+  const speedInWindow = speed ? speed.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
+  const cadInWindow = cadence ? cadence.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
+
+  const altDisplay = altInWindow.length ? downsample(altInWindow, Math.max(drawW, 300)) : []
+  const speedDisplay = (showSpeed && speedInWindow.length) ? downsample(speedInWindow, Math.max(drawW, 300)) : []
+  const cadDisplay = (showCadence && cadInWindow.length) ? downsample(cadInWindow, Math.max(drawW, 300)) : []
+
+  const minAlt = altInWindow.length ? Math.min(...altInWindow.map(p => p.alt)) : 0
+  const maxAlt = altInWindow.length ? Math.max(...altInWindow.map(p => p.alt)) : 1
+  const altSpan = (maxAlt - minAlt) || 1
+  const yAlt = av => pad.top + (1 - (av - minAlt) / altSpan) * drawH
+
+  const minSpd = speedInWindow.length ? Math.min(...speedInWindow.map(p => p.v)) : 0
+  const maxSpd = speedInWindow.length ? Math.max(...speedInWindow.map(p => p.v)) : 1
+  const spdSpan = (maxSpd - minSpd) || 1
+  const ySpd = sv => pad.top + (1 - (sv - minSpd) / spdSpan) * drawH
+
+  const minCad = cadInWindow.length ? Math.min(...cadInWindow.map(p => p.c)) : 0
+  const maxCad = cadInWindow.length ? Math.max(...cadInWindow.map(p => p.c)) : 1
+  const cadSpan = (maxCad - minCad) || 1
+  const yCad = cv => pad.top + (1 - (cv - minCad) / cadSpan) * drawH
+
+  const altPath = altDisplay.length >= 2
+    ? altDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yAlt(p.alt)}`).join(' ') : null
+  const altFill = altPath
+    ? `${altPath} L${xS(altDisplay[altDisplay.length - 1].t)},${pad.top + drawH} L${xS(altDisplay[0].t)},${pad.top + drawH} Z`
+    : null
+  const speedPath = speedDisplay.length >= 2
+    ? speedDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${ySpd(p.v)}`).join(' ') : null
+  const cadPath = cadDisplay.length >= 2
+    ? cadDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yCad(p.c)}`).join(' ') : null
 
   // Averages from raw data (not smoothed)
   const avgP = avg(powerInWindow, 'w')
@@ -230,7 +268,7 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
   // ── Mouse handlers ─────────────────────────────────────────────────────────
 
   function handleMouseMove(e) {
-    const { tMin, tRange, drawW, pad, w, power, hr, onHover } = paramsRef.current
+    const { tMin, tRange, drawW, pad, w, power, hr, gradient, speed, cadence, showSpeed, showCadence, onHover } = paramsRef.current
     const drag = dragRef.current
     const svg = svgRef.current
     if (!svg) return
@@ -274,12 +312,18 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
 
     const pVal = nearest(power, 'w', tCurrent)
     const hrVal = nearest(hr, 'hr', tCurrent)
+    const gradeVal = gradient ? nearest(gradient, 'g', tCurrent) : null
+    const spdVal = (showSpeed && speed) ? nearest(speed, 'v', tCurrent) : null
+    const cadVal = (showCadence && cadence) ? nearest(cadence, 'c', tCurrent) : null
     const timeStr = fmtTime(tCurrent, tRange)
     const tip = tooltipRef.current
     if (tip) {
       let html = `<div style="font-weight:700;font-size:10px;color:#aab3d0;margin-bottom:3px">${timeStr}</div>`
       if (pVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:5px"></span>Vermogen: <strong>${Math.round(pVal)} W</strong></div>`
       if (hrVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--red);margin-right:5px"></span>Hartslag: <strong>${Math.round(hrVal)} bpm</strong></div>`
+      if (gradeVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:5px"></span>Stijging: <strong>${gradeVal.toFixed(1)}%</strong></div>`
+      if (spdVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10B981;margin-right:5px"></span>Snelheid: <strong>${spdVal.toFixed(1)} km/u</strong></div>`
+      if (cadVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#F59E0B;margin-right:5px"></span>Cadans: <strong>${Math.round(cadVal)} rpm</strong></div>`
       tip.innerHTML = html
       tip.style.display = 'block'
       const tipW = 160
@@ -339,6 +383,29 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
       <div className={s.legend}>
         {avgP != null && <LegendPill color="var(--accent)" label={`Vermogen · gem ${avgP} W`} />}
         {avgHr != null && <LegendPill color="var(--red)" label={`Hartslag · gem ${avgHr} bpm`} dashed />}
+        {altInWindow.length > 0 && <LegendPill color="var(--muted)" label="Hoogte" />}
+        {speed?.length > 1 && (
+          <button
+            type="button"
+            className={`${s.legendToggle} ${showSpeed ? s.on : ''}`}
+            onClick={() => setShowSpeed(v => !v)}
+            aria-pressed={showSpeed}
+          >
+            <span className={s.toggleLine} style={{ borderTopColor: '#10B981' }} aria-hidden="true" />
+            Snelheid
+          </button>
+        )}
+        {cadence?.length > 1 && (
+          <button
+            type="button"
+            className={`${s.legendToggle} ${showCadence ? s.on : ''}`}
+            onClick={() => setShowCadence(v => !v)}
+            aria-pressed={showCadence}
+          >
+            <span className={s.toggleLine} style={{ borderTopColor: '#F59E0B' }} aria-hidden="true" />
+            Cadans
+          </button>
+        )}
       </div>
 
       {selection && (
@@ -363,6 +430,10 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
             <text x={x} y={h - 4} textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{label}</text>
           </g>
         ))}
+
+        {/* Hoogteprofiel als lichtgrijze achtergrond */}
+        {altFill && <path d={altFill} fill="var(--muted)" opacity="0.12" />}
+        {altPath && <path d={altPath} fill="none" stroke="var(--muted)" strokeWidth="1" opacity="0.26" />}
 
         {/* Left Y-axis (power) */}
         {powerYLabels.map(({ v, y }) => (
@@ -390,6 +461,12 @@ export function AdDualChart({ power, hr, ftp, durationMin, hoverT, selection, on
 
         {/* Power line */}
         {powerPath && <path d={powerPath} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+
+        {/* Snelheid (toggle) */}
+        {speedPath && <path d={speedPath} fill="none" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />}
+
+        {/* Cadans (toggle) */}
+        {cadPath && <path d={cadPath} fill="none" stroke="#F59E0B" strokeWidth="1.5" strokeDasharray="2,3" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />}
 
         {/* Crosshair */}
         <line
