@@ -1114,6 +1114,23 @@ async function computeMMPForActivity(userId, activityObj, token) {
   }
 }
 
+async function recomputeCpModel(userId) {
+  try {
+    const user = await getDefaultUser();
+    const allActivities = await getActivities(userId);
+    const mmpEntries = allActivities.map(a => a.mmp).filter(Boolean);
+    const ftp = (user.settings || {}).ftp || 280;
+    const cpModel = engine.computeCriticalPower(mmpEntries, ftp, {
+      now: Date.now(), windowDays: 90,
+    });
+    if (cpModel) await saveUserFields(userId, { cp_model: cpModel });
+    return cpModel;
+  } catch (e) {
+    console.warn('recomputeCpModel:', e.message);
+    return null;
+  }
+}
+
 app.post('/api/strava/mmp-batch', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.body?.limit) || 25, 50);
@@ -1150,6 +1167,8 @@ app.post('/api/strava/mmp-batch', async (req, res) => {
     }
 
     const remaining = candidates.length - processed;
+
+    await recomputeCpModel(userId);
 
     res.json({ processed, remaining, total: candidates.length, rateLimited });
   } catch(err) {
@@ -1929,6 +1948,15 @@ app.post('/api/calibration/recompute', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.post('/api/cp-model/recompute', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    const userId = user.id;
+    const cpModel = await recomputeCpModel(userId);
+    res.json(cpModel || { source: 'none' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/charts/data', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 365;
@@ -2644,6 +2672,7 @@ app.get('/api/state/full', async (req, res) => {
       weekPlan: user.week_plan || {},
       settings: user.settings || {},
       calibration: user.calibration || { factor: 1.0, count: 0, reliable: false },
+      cpModel: user.cp_model || null,
       goals: user.goals || {},
       patterns: user.patterns || [],
       aiInsights: user.ai_insights || {},
