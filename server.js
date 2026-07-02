@@ -1352,7 +1352,7 @@ app.get('/api/state/power-profile', async (req, res) => {
 
 // ── Activity detail helper ────────────────────────────────────────────────────
 
-async function getActivityDetail(stravaId, userId, activities, weekPlan, settings) {
+async function getActivityDetail(stravaId, userId, activities, weekPlan, settings, cpModel) {
   const sid  = String(stravaId);
   const FTP  = settings.ftp || 280;
   const acts = activities || [];
@@ -1430,7 +1430,7 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
 
   const cached = await getActivityStream(userId, sid);
   // Voor runs met schema < 2 ontbreken de NGP-velden; forceer een herberekening.
-  if (cached && !(isRun && (cached.schemaV == null || cached.schemaV < 2))) {
+  if (cached && cached.schemaV != null && cached.schemaV >= 3) {
     const { activityMmpCurve, bestMmpCurve } = buildActivityMmpCurves(cached.powerTimeline, activity?.powerSource);
     return {
       activity:          activity ? buildMeta(activity) : null,
@@ -1453,6 +1453,8 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
       plannedSession:    activity ? findPlanned(actDate) : null,
       sessionClassification: cached.sessionClassification,
       activityMmpCurve, bestMmpCurve,
+      wbalTimeline:      cached.wbalTimeline || null,
+      wbalModel:         cached.wbalModel    || null,
       ngp:               cached.ngp               ?? null,
       gapTimeline:       cached.gapTimeline        ?? null,
       runLoad:           cached.runLoad            ?? null,
@@ -1501,11 +1503,24 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
   }
 
   let powerTimeline = null;
+  let wbalTimeline = null, wbalModel = null;
   try {
     if (wattsS && timeS && !inUnreliable) {
       const wattsArr = wattsS.data;
       const raw = timeS.data.map((t, i) => ({ t, w: Math.max(0, wattsArr[i] || 0) }));
       powerTimeline = adaptiveSample(raw);
+      if (cpModel && Number.isFinite(cpModel.cp) && Number.isFinite(cpModel.wPrime)) {
+        const wbalFull = engine.computeWbal(raw, cpModel.cp, cpModel.wPrime);
+        if (wbalFull) {
+          wbalTimeline = adaptiveSample(wbalFull);
+          wbalModel = {
+            cp: cpModel.cp, wPrime: cpModel.wPrime,
+            wPrimeSE: cpModel.wPrimeSE ?? null,
+            source: cpModel.source ?? null,
+            fitQuality: cpModel.fitQuality ?? null,
+          };
+        }
+      }
     }
   } catch(e) { console.warn('Power timeline:', e.message); }
 
@@ -1778,7 +1793,7 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
   // Persist cache
   try {
     await upsertActivityStream(userId, sid, {
-      schemaV: 2,
+      schemaV: 3,
       cachedAt: new Date().toISOString(),
       zoneBreakdown, powerTimeline, hrSummary, avgCadence: avgCadence || null,
       hrTimeline, altitudeTimeline, mmpCurve,
@@ -1786,7 +1801,8 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
       velocityTimeline, cadenceTimeline, gradientTimeline,
       distanceTimeline, gpsTrack, sessionClassification,
       ngp, gapTimeline, runLoad, runningEF, runningDecoupling,
-      runHrZones, eccentric, runCadence
+      runHrZones, eccentric, runCadence,
+      wbalTimeline, wbalModel,
     });
   } catch(e) { console.warn('Cache opslaan mislukt:', e.message); }
 
@@ -1802,6 +1818,7 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
     plannedSession:    activity ? findPlanned(actDate) : null,
     sessionClassification,
     activityMmpCurve, bestMmpCurve,
+    wbalTimeline, wbalModel,
     ngp, gapTimeline, runLoad, runningEF, runningDecoupling,
     runHrZones, eccentric, runCadence
   };
@@ -1812,7 +1829,7 @@ app.get('/api/activity/:stravaId/detail', async (req, res) => {
     const user = await getDefaultUser();
     const activities = await getActivities(user.id);
     const settings = user.settings || {};
-    const result = await getActivityDetail(req.params.stravaId, user.id, activities, user.week_plan || {}, settings);
+    const result = await getActivityDetail(req.params.stravaId, user.id, activities, user.week_plan || {}, settings, user.cp_model || null);
     if (!result.activity) return res.status(404).json({ error: 'Activiteit niet gevonden in cache' });
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1840,7 +1857,7 @@ app.post('/api/activity/:stravaId/analyse', async (req, res) => {
       getNutrition(user.id),
     ]);
 
-    const detail = await getActivityDetail(stravaId, user.id, activities, user.week_plan || {}, settings);
+    const detail = await getActivityDetail(stravaId, user.id, activities, user.week_plan || {}, settings, user.cp_model || null);
     if (!detail.activity) return res.status(404).json({ error: 'Activiteit niet gevonden in cache' });
 
     const state = engine.computeFullState(

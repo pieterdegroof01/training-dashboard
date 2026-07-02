@@ -8,31 +8,13 @@
 
 import s from './AdWbal.module.css'
 
-function computeWbal(powerSeries, cp, wPrime, durationMin) {
-  const n = powerSeries.length
-  const totalSeconds = durationMin * 60
-  const dt = totalSeconds / (n - 1)
-
-  let wbal = wPrime
-  return powerSeries.map((p) => {
-    if (p > cp) {
-      wbal = Math.max(0, wbal - (p - cp) * dt)
-    } else {
-      const tauW = 546 * Math.exp(-0.01 * (cp - p)) + 316
-      wbal = wbal + (wPrime - wbal) * (1 - Math.exp(-dt / tauW))
-    }
-    return wbal
-  })
-}
-
-export function AdWbal({ wbalData, powerSeries, durationMin = 60, xLabels: xLabelsProp, w = 620, h = 140 }) {
-  const { cp, wPrime } = wbalData
+export function AdWbal({ wbalData, powerSeries, xLabels: xLabelsProp, w = 620, h = 140 }) {
+  const { cp, wPrime, wPrimeSE, source, series: wbalSeries } = wbalData
   const pad = { l: 44, r: 12, t: 12, b: 22 }
   const cw = w - pad.l - pad.r
   const ch = h - pad.t - pad.b
 
-  // Bereken W'bal met Skiba model
-  const series = computeWbal(powerSeries, cp, wPrime, durationMin)
+  const series = wbalSeries.map((p) => p.wbal)
 
   const EXHAUSTION_THRESHOLD = 1500 // 1.5 kJ = praktische uitputting
 
@@ -68,8 +50,8 @@ export function AdWbal({ wbalData, powerSeries, durationMin = 60, xLabels: xLabe
     <div>
       <div className={s.header}>
         <div className={s.stats}>
-          <Stat label="CP (proxy FTP)" value={`${cp} W`} />
-          <Stat label="W'" value={`${(wPrime / 1000).toFixed(0)} kJ`} />
+          <Stat label="CP" value={`${cp} W`} />
+          <Stat label="W'" value={`${(wPrime / 1000).toFixed(1)} kJ${wPrimeSE ? ` ±${(wPrimeSE/1000).toFixed(1)}` : ''}`} />
           <Stat label="Eind W'bal" value={`${(finalWbal / 1000).toFixed(1)} kJ`} color={statusGood ? 'var(--green)' : 'var(--yellow)'} />
           <Stat label="% Vol" value={`${pctFull}%`} color={statusGood ? 'var(--green)' : 'var(--yellow)'} />
         </div>
@@ -161,7 +143,7 @@ export function AdWbal({ wbalData, powerSeries, durationMin = 60, xLabels: xLabe
       </svg>
 
       <p className={s.note}>
-        Skiba 2014/2015 differentiaalmodel · CP = FTP als proxy (CP idealiter apart bepaald) ·
+        Skiba 2014/2015 differentiaalmodel · CP en W' gefit uit 90-daagse power-duration data (bron: {source || 'onbekend'}) ·
         Drempel 1,5 kJ = praktische uitputting ·{' '}
         {aboveCP ? (
           <>

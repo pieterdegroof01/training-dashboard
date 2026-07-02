@@ -207,7 +207,6 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop', theme
       <AdWbal
         wbalData={d.wbal}
         powerSeries={d.series.primary.values}
-        durationMin={d.durationMin}
         xLabels={d.series.xLabels}
         w={layout === 'desktop' ? 620 : 520}
       />

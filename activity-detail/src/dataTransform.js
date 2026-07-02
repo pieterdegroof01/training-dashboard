@@ -246,6 +246,7 @@ export function transformApiResponse(api) {
     cadenceTimeline, velocityTimeline, altitudeTimeline, gradientTimeline, gpsTrack,
     hrSummary, avgCadence, aerobicDecoupling, vi, ef,
     plannedSession, sessionClassification, activityMmpCurve, bestMmpCurve,
+    wbalTimeline, wbalModel,
   } = api
 
   const sessionType = sessionClassification?.sessionType || TYPE_NL[a.type] || 'Rit'
@@ -430,7 +431,7 @@ export function transformApiResponse(api) {
   }
 
   // ── W'bal ─────────────────────────────────────────────────────────────────
-  const wbal = series && powerValues.length ? { cp: FTP, wPrime: 21000 } : null
+  const wbal = (wbalModel && wbalTimeline) ? { ...wbalModel, series: wbalTimeline } : null
 
   // ── Gepland ───────────────────────────────────────────────────────────────
   let planned = null
