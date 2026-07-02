@@ -143,7 +143,7 @@ export function AdWbal({ wbalData, powerSeries, xLabels: xLabelsProp, w = 620, h
       </svg>
 
       <p className={s.note}>
-        Skiba 2014/2015 differentiaalmodel · CP en W' gefit uit 90-daagse power-duration data (bron: {source || 'onbekend'}) ·
+        Skiba 2014/2015 differentiaalmodel · CP en W' gefit op 90 dagen, FTP op 60 dagen, tot de ritdatum (bron: {source || 'onbekend'}) ·
         Drempel 1,5 kJ = praktische uitputting ·{' '}
         {aboveCP ? (
           <>

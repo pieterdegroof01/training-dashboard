@@ -79,9 +79,9 @@ function computeCalibrationFactor(activities, settings) {
 // ────────────────────────────────────────────────────────────────────────────
 // ROLLING FTP ESTIMATE
 // ────────────────────────────────────────────────────────────────────────────
-function rollingFtp(activities, settings, asOfDate = null) {
+function rollingFtp(activities, settings, asOfDate = null, windowDays = 60) {
   const cutoffEnd = asOfDate ? new Date(asOfDate) : new Date();
-  const cutoffStart = new Date(cutoffEnd); cutoffStart.setDate(cutoffStart.getDate() - 60);
+  const cutoffStart = new Date(cutoffEnd); cutoffStart.setDate(cutoffStart.getDate() - windowDays);
 
   const candidates = activities.filter(a => {
     if (a.type !== 'Ride' && a.type !== 'VirtualRide') return false;
@@ -110,8 +110,8 @@ function rollingFtp(activities, settings, asOfDate = null) {
   return { ftp: Math.round(median * 0.95), basedOn: top3, uncertainCount, method: 'top-20min × 0.95' };
 }
 
-function ftpForDate(activities, settings, date) {
-  const r = rollingFtp(activities, settings, date);
+function ftpForDate(activities, settings, date, windowDays = 60) {
+  const r = rollingFtp(activities, settings, date, windowDays);
   return r?.ftp || settings?.ftp || DEFAULT_FTP;
 }
 
@@ -167,11 +167,11 @@ function zoneToCategory(zone) {
 // ────────────────────────────────────────────────────────────────────────────
 // ETL — EQUIVALENT TRAINING LOAD
 // ────────────────────────────────────────────────────────────────────────────
-function computeETLForActivity(activity, settings) {
+function computeETLForActivity(activity, settings, ftpOverride = null) {
   const date = activity.start_date?.split('T')[0] || '';
   const inUnreliable = isUnreliablePower(date, settings);
   const durH = (activity.moving_time || 0) / 3600;
-  const ftp = settings?.ftp || DEFAULT_FTP;
+  const ftp = ftpOverride ?? (settings?.ftp || DEFAULT_FTP);
   const hrMax = settings?.hrMax || DEFAULT_HR_MAX;
   const sufferFactor = settings?.sufferToTSSFactor || 1.0;
   const lthr = settings?.lthr || null;
@@ -286,11 +286,14 @@ function buildDailyETLSeries(activities, hevyWorkouts, settings) {
   const strengthDailyETL  = {};
   const sources  = {};
 
+  const _ftpMemo = {};
+  const ftpAsOf = (d) => (_ftpMemo[d] ??= ftpForDate(activities, settings, d, 60));
+
   activities.forEach(a => {
     const d = a.start_date?.split('T')[0];
     if (!d) return;
     a._unreliablePower = isUnreliablePower(d, settings);
-    const result = computeETLForActivity(a, settings);
+    const result = computeETLForActivity(a, settings, ftpAsOf(a.start_date?.split('T')[0] || ''));
     const etl = result.etl;
     const tssSource = result.tssSource;
     if (!sources[d]) sources[d] = [];

@@ -244,33 +244,13 @@ async function fetchActivitiesFromStrava(token, afterTimestamp = null) {
 
 const ENDURANCE_TYPES = engine.ENDURANCE_TYPES;
 
-function estimateLoad(activity, settings) {
-  if (!ENDURANCE_TYPES.has(activity.type)) return 0;
-  const durationH = (activity.moving_time || 0) / 3600;
-  const date = activity.start_date?.split('T')[0] || '';
-  const inUnreliable = date >= (settings?.unreliablePowerStart || '2020-01-01') &&
-                       date <= (settings?.unreliablePowerEnd || '2020-12-31');
-  const sufferFactor = settings?.sufferToTSSFactor || 1.0;
-  const ftp = settings?.ftp || 280;
-
-  if (activity.type === 'Ride' || activity.type === 'VirtualRide') {
-    if (activity.average_watts && !inUnreliable) {
-      const np = activity.weighted_average_watts || activity.average_watts;
-      const IF = np / ftp;
-      return Math.min(Math.round(IF * IF * durationH * 100), 400);
-    }
-    if (activity.suffer_score > 0) return Math.round(activity.suffer_score * sufferFactor);
-  }
-  if (activity.suffer_score > 0) return activity.suffer_score;
-  const mult = { Ride: 55, VirtualRide: 50, Run: 75, TrailRun: 75, Swim: 65, Hike: 35, Walk: 20 };
-  return Math.round(durationH * (mult[activity.type] || 40));
-}
-
 function calcMetrics(activities, settings) {
   const dailyLoad = {};
+  const _m = {};
+  const ftpAsOf = (d) => (_m[d] ??= engine.ftpForDate(activities, settings, d, 60));
   activities.filter(a => ENDURANCE_TYPES.has(a.type)).forEach(a => {
     const d = a.start_date?.split('T')[0];
-    if (d) dailyLoad[d] = (dailyLoad[d] || 0) + estimateLoad(a, settings);
+    if (d) dailyLoad[d] = (dailyLoad[d] || 0) + engine.computeETLForActivity(a, settings, ftpAsOf(d)).etl;
   });
 
   const dates = Object.keys(dailyLoad).sort();
@@ -466,7 +446,8 @@ async function matchPlannedToActual(data) {
       if (rides.length > 0) {
         const actual = rides.reduce((best, a) => (a.moving_time || 0) > (best.moving_time || 0) ? a : best);
         session.completionScore   = computeSessionScore(session, actual, settings);
-        session.actualTSS         = estimateLoad(actual, settings);
+        session.actualTSS         = engine.computeETLForActivity(actual, settings,
+          engine.ftpForDate(activities, settings, actual.start_date?.split('T')[0] || '')).etl;
         session.actualDuration    = Math.round((actual.moving_time || 0) / 60);
         session.matchedActivityId = session.matchedActivityId || actual.id;
         changed = true;
@@ -542,7 +523,8 @@ async function matchPlannedToActual(data) {
 
       const unplanned = {
         type: 'cycling', unplanned: true, stravaId: act.id,
-        actualTSS: estimateLoad(act, settings),
+        actualTSS: engine.computeETLForActivity(act, settings,
+          engine.ftpForDate(activities, settings, act.start_date?.split('T')[0] || '')).etl,
         duration: Math.round((act.moving_time || 0) / 60),
         title: act.name, date
       };
@@ -1354,10 +1336,12 @@ app.get('/api/state/power-profile', async (req, res) => {
 
 async function getActivityDetail(stravaId, userId, activities, weekPlan, settings, cpModel) {
   const sid  = String(stravaId);
-  const FTP  = settings.ftp || 280;
   const acts = activities || [];
   const activity = acts.find(a => String(a.id) === sid);
   const actDate  = activity?.start_date?.split('T')[0] || '';
+  const FTP  = actDate
+    ? engine.ftpForDate(acts, settings, actDate)
+    : (settings.ftp || 280);
   const isRun    = activity?.type === 'Run' || activity?.type === 'TrailRun';
 
   function buildMeta(act) {
@@ -1373,7 +1357,7 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
       avg_watts:    act.average_watts          ? Math.round(act.average_watts)          : null,
       np:           act.weighted_average_watts ? Math.round(act.weighted_average_watts) : null,
       IF:           act.weighted_average_watts ? +((act.weighted_average_watts / FTP).toFixed(2)) : null,
-      tss:          Math.round(estimateLoad(act, settings)),
+      tss:          Math.round(engine.computeETLForActivity(act, settings, FTP).etl),
       suffer_score: act.suffer_score || null
     };
   }
@@ -1509,15 +1493,21 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
       const wattsArr = wattsS.data;
       const raw = timeS.data.map((t, i) => ({ t, w: Math.max(0, wattsArr[i] || 0) }));
       powerTimeline = adaptiveSample(raw);
-      if (cpModel && Number.isFinite(cpModel.cp) && Number.isFinite(cpModel.wPrime)) {
-        const wbalFull = engine.computeWbal(raw, cpModel.cp, cpModel.wPrime);
+      const mmpEntriesForFit = acts.map(a => a.mmp).filter(Boolean);
+      const actDateMs = activity?.start_date ? new Date(activity.start_date).getTime() : null;
+      const cpFit = actDateMs
+        ? engine.computeCriticalPower(mmpEntriesForFit, FTP, { now: actDateMs, windowDays: 90 })
+        : null;
+      if (cpFit && Number.isFinite(cpFit.cp) && Number.isFinite(cpFit.wPrime)) {
+        const wbalFull = engine.computeWbal(raw, cpFit.cp, cpFit.wPrime);
         if (wbalFull) {
           wbalTimeline = adaptiveSample(wbalFull);
           wbalModel = {
-            cp: cpModel.cp, wPrime: cpModel.wPrime,
-            wPrimeSE: cpModel.wPrimeSE ?? null,
-            source: cpModel.source ?? null,
-            fitQuality: cpModel.fitQuality ?? null,
+            cp: cpFit.cp, wPrime: cpFit.wPrime,
+            wPrimeSE: cpFit.wPrimeSE ?? null,
+            source: cpFit.source ?? null,
+            fitQuality: cpFit.fitQuality ?? null,
+            ftpAsOf: FTP, fitAsOf: activity.start_date,
           };
         }
       }
@@ -1993,9 +1983,11 @@ app.get('/api/charts/data', async (req, res) => {
 
     // ATL/CTL/TSB — alleen duurtraining
     const dailyLoad = {};
+    const _mt = {};
+    const ftpAsOf = (d) => (_mt[d] ??= engine.ftpForDate(activities, settings, d, 60));
     activities.filter(a => ENDURANCE_TYPES.has(a.type)).forEach(a => {
       const d = a.start_date?.split('T')[0];
-      if (d) dailyLoad[d] = (dailyLoad[d] || 0) + estimateLoad(a, cfg);
+      if (d) dailyLoad[d] = (dailyLoad[d] || 0) + engine.computeETLForActivity(a, settings, ftpAsOf(d)).etl;
     });
 
     const k7 = 1 - Math.exp(-1 / 7);
