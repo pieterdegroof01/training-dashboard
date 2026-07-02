@@ -1290,6 +1290,42 @@ function computeCriticalPower(mmpEntries, ftp, opts = {}) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// W'BAL (SKIBA DIFFERENTIAALMODEL)
+// ────────────────────────────────────────────────────────────────────────────
+// Volgt de resterende anaerobe werkcapaciteit sample voor sample: depletie lineair
+// boven CP, herstel exponentieel onder CP met een vermoeidheidsafhankelijke
+// tijdconstante (Skiba 2014/2015). Gebruikt de echte dt uit de t-velden zodat
+// onregelmatige sample-intervallen (gaten door pauzes) correct meewegen.
+function computeWbal(powerTimeline, cp, wPrime) {
+  if (!Array.isArray(powerTimeline) || !powerTimeline.length) return null;
+  if (!Number.isFinite(cp) || !Number.isFinite(wPrime)) return null;
+
+  const result = [];
+  let wbal = wPrime;
+  let prevT = null;
+
+  for (let i = 0; i < powerTimeline.length; i++) {
+    const { t, w } = powerTimeline[i];
+    const dt = i === 0 ? 1 : t - prevT;
+    prevT = t;
+
+    if (dt > 0) {
+      if (w > cp) {
+        wbal = wbal - (w - cp) * dt;
+      } else {
+        const tauW = 546 * Math.exp(-0.01 * (cp - w)) + 316;
+        wbal = wbal + (wPrime - wbal) * (1 - Math.exp(-dt / tauW));
+      }
+      wbal = Math.min(wPrime, Math.max(0, wbal));
+    }
+
+    result.push({ t, wbal: Math.round(wbal) });
+  }
+
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // AEROBE EFFICIËNTIE TREND
 // ────────────────────────────────────────────────────────────────────────────
 function computeAerobicEfficiencyTrend(activities, settings) {
@@ -1870,6 +1906,7 @@ module.exports = {
   computeMMP,
   computeMMPFull,
   computeCriticalPower,
+  computeWbal,
   powerProfileLevel, POWER_PROFILE_MALE, POWER_PROFILE_CATEGORIES, classifyRiderType,
   ENDURANCE_TYPES, STRENGTH_TYPES,
   computeWorkoutMuscleVolume, PRIMARY_WEIGHT, SECONDARY_WEIGHT,
