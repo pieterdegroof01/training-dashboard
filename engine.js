@@ -1191,6 +1191,105 @@ function computeMMPFull(powerTimeline) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// CRITICAL POWER / W' MODEL
+// ────────────────────────────────────────────────────────────────────────────
+// Schat CP en W' uit een rollend venster van MMP-historie via het 2-parameter
+// werk-tijd-model (Wj = CP * t + W'), met shrinkage naar een FTP-afgeleide prior
+// zodat schattingen met weinig datapunten niet wegschieten.
+function computeCriticalPower(mmpEntries, ftp, opts = {}) {
+  if (!mmpEntries || !mmpEntries.length) return null;
+  const now = opts.now !== undefined ? opts.now : Date.now();
+  const windowDays = opts.windowDays !== undefined ? opts.windowDays : 90;
+  const cutoff = now - windowDays * 24 * 60 * 60 * 1000;
+
+  const filtered = mmpEntries.filter(mmp =>
+    mmp && mmp.powerSource === 'measured' && mmp.v === 2 &&
+    Array.isArray(mmp.mmpArray) && mmp.date &&
+    new Date(mmp.date).getTime() >= cutoff
+  );
+  if (!filtered.length) return null;
+
+  const FIT_DURATIONS = [180, 300, 480, 720];
+  const points = [];
+  for (const t of FIT_DURATIONS) {
+    let best = 0;
+    for (const mmp of filtered) {
+      const arr = mmp.mmpArray;
+      if (arr.length < t) continue;
+      const p = arr[t - 1];
+      if (p > best) best = p;
+    }
+    if (best > 0) points.push({ t, p: best });
+  }
+
+  const n = points.length;
+  const cpPrior = 0.94 * ftp;
+  const wPrimePrior = 21000;
+
+  let cpFit = null, wPrimeFit = null, wPrimeSE = null, fitQuality = null;
+  if (n >= 2) {
+    const xs = points.map(pt => pt.t);
+    const ys = points.map(pt => pt.p * pt.t);
+    const meanX = xs.reduce((a, b) => a + b, 0) / n;
+    const meanY = ys.reduce((a, b) => a + b, 0) / n;
+    let sxx = 0, sxy = 0;
+    for (let i = 0; i < n; i++) {
+      sxx += (xs[i] - meanX) * (xs[i] - meanX);
+      sxy += (xs[i] - meanX) * (ys[i] - meanY);
+    }
+    if (sxx > 0) {
+      cpFit = sxy / sxx;
+      wPrimeFit = meanY - cpFit * meanX;
+      let ssRes = 0, ssTot = 0;
+      for (let i = 0; i < n; i++) {
+        const pred = cpFit * xs[i] + wPrimeFit;
+        ssRes += (ys[i] - pred) * (ys[i] - pred);
+        ssTot += (ys[i] - meanY) * (ys[i] - meanY);
+      }
+      fitQuality = ssTot > 0 ? 1 - ssRes / ssTot : null;
+      if (n > 2) {
+        const mse = ssRes / (n - 2);
+        wPrimeSE = Math.sqrt(mse * (1 / n + (meanX * meanX) / sxx));
+      }
+    }
+  }
+
+  const minT = n ? Math.min(...points.map(pt => pt.t)) : null;
+  const maxT = n ? Math.max(...points.map(pt => pt.t)) : null;
+
+  const validFit = n >= 3 && cpFit !== null && minT > 0 &&
+    (maxT / minT) >= 3 && cpFit > 0 && wPrimeFit > 0 &&
+    cpFit >= 0.70 * ftp && cpFit <= 1.10 * ftp;
+
+  let cp, wPrime, wPrimeSEOut, source;
+  if (validFit) {
+    const w = n / (n + 6);
+    cp = cpPrior + (cpFit - cpPrior) * w;
+    wPrime = wPrimePrior + (wPrimeFit - wPrimePrior) * w;
+    wPrimeSEOut = wPrimeSE;
+    source = w < 1 ? 'blended' : 'fitted';
+  } else {
+    cp = cpPrior;
+    wPrime = wPrimePrior;
+    wPrimeSEOut = null;
+    source = 'prior';
+  }
+
+  return {
+    cp: Math.round(cp),
+    wPrime: Math.round(wPrime),
+    wPrimeSE: wPrimeSEOut != null ? Math.round(wPrimeSEOut) : null,
+    ftp,
+    nPoints: n,
+    fitDurations: points.map(pt => pt.t),
+    windowDays,
+    fitQuality: validFit ? fitQuality : null,
+    source,
+    computedAt: now,
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // AEROBE EFFICIËNTIE TREND
 // ────────────────────────────────────────────────────────────────────────────
 function computeAerobicEfficiencyTrend(activities, settings) {
@@ -1770,6 +1869,7 @@ module.exports = {
   computeAerobicEfficiencyTrend,
   computeMMP,
   computeMMPFull,
+  computeCriticalPower,
   powerProfileLevel, POWER_PROFILE_MALE, POWER_PROFILE_CATEGORIES, classifyRiderType,
   ENDURANCE_TYPES, STRENGTH_TYPES,
   computeWorkoutMuscleVolume, PRIMARY_WEIGHT, SECONDARY_WEIGHT,
