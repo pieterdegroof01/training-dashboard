@@ -39,6 +39,17 @@ describe('computeCriticalPower', () => {
     assert.ok(Math.abs(result.cp - 250) <= 5, `cp=${result.cp} zou op recente set moeten volgen`);
   });
 
+  test('entries na "now" (toekomst t.o.v. de bekeken rit) worden genegeerd', () => {
+    const before = mmpEntry({ date: isoDaysAgo(10), formula: hyperbola });
+    // Toekomstige entry met een duidelijk andere, plausibele CP -- mag de fit
+    // voor een moment in het verleden niet beinvloeden.
+    const futureFormula = t => 280 + 21500 / t;
+    const future = mmpEntry({ date: isoDaysAgo(-30), formula: futureFormula });
+    const result = computeCriticalPower([before, future], 270, { now: NOW, windowDays: 90 });
+    assert.ok(result);
+    assert.ok(Math.abs(result.cp - 250) <= 5, `cp=${result.cp} zou toekomstige data moeten negeren`);
+  });
+
   test('lege input geeft null', () => {
     assert.strictEqual(computeCriticalPower([], 270, { now: NOW }), null);
   });

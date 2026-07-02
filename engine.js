@@ -1208,7 +1208,8 @@ function computeCriticalPower(mmpEntries, ftp, opts = {}) {
   const filtered = mmpEntries.filter(mmp =>
     mmp && mmp.powerSource === 'measured' && mmp.v === 2 &&
     Array.isArray(mmp.mmpArray) && mmp.date &&
-    new Date(mmp.date).getTime() >= cutoff
+    new Date(mmp.date).getTime() >= cutoff &&
+    new Date(mmp.date).getTime() <= now
   );
   if (!filtered.length) return null;
 
