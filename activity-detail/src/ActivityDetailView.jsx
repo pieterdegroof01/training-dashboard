@@ -42,7 +42,7 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop', theme
     )
 
     const runChartCard = (d.speedRaw || d.hrRaw) && (
-      <AdSection title="Tempo en hartslag" sub="over de hele activiteit">
+      <AdSection title="Tempo en hartslag" sub={selection ? undefined : 'over de hele activiteit'}>
         <AdRunChart
           speed={d.speedRaw}
           gap={d.gapRaw}
@@ -152,7 +152,7 @@ export function ActivityDetailView({ activity, onBack, layout = 'desktop', theme
   )
 
   const chartCard = (d.powerRaw || d.hrRaw) && (
-    <AdSection title="Vermogen & hartslag" sub="over de hele activiteit">
+    <AdSection title="Vermogen & hartslag" sub={selection ? undefined : 'over de hele activiteit'}>
       <AdDualChart
         power={d.powerRaw}
         hr={d.hrRaw}
