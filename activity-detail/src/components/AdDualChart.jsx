@@ -53,6 +53,28 @@ function mean(pts, key) {
   return pts.reduce((a, p) => a + p[key], 0) / pts.length
 }
 
+// Lookup op een oplopend gesorteerde reeks: geeft toKey terug voor een gegeven fromKey-waarde (lineair geïnterpoleerd, geclampt aan de randen).
+function lerpLookup(arr, fromKey, toKey, x) {
+  const n = arr.length
+  if (!n) return null
+  if (x <= arr[0][fromKey]) return arr[0][toKey]
+  if (x >= arr[n - 1][fromKey]) return arr[n - 1][toKey]
+  let lo = 0, hi = n - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (arr[mid][fromKey] <= x) lo = mid; else hi = mid
+  }
+  const a = arr[lo], b = arr[hi]
+  const span = b[fromKey] - a[fromKey]
+  if (span <= 0) return a[toKey]
+  return a[toKey] + ((x - a[fromKey]) / span) * (b[toKey] - a[toKey])
+}
+
+function fmtDist(km) {
+  if (km >= 10) return `${Math.round(km)}km`
+  return `${km % 1 === 0 ? km : km.toFixed(1)}km`
+}
+
 // Lane-hoogtes en volgorde volgen de PeakForm-designspec (Strava-stijl gestapelde lanes).
 // Elke metric krijgt een eigen verticale schaal, gedeelde tijd-as en één crosshair.
 const LANE_DEFS = [
@@ -69,7 +91,7 @@ const PAD = { top: 20, right: 42, bottom: 24, left: 44 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp, durationMin, hoverT, selection, onHover, onSelect, w = 640 }) {
+export function AdDualChart({ power, hr, distance, speed, cadence, altitude, gradient, ftp, durationMin, hoverT, selection, onHover, onSelect, w = 640 }) {
   const svgRef = useRef(null)
   const overlayRef = useRef(null)
   const crosshairRef = useRef(null)
@@ -96,7 +118,16 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   const peakRange = (peakEnd - peakStart) || 1
 
   const drawW = w - PAD.left - PAD.right
-  const xS = t => PAD.left + ((t - tMin) / tRange) * drawW
+
+  // Afstand-as met automatische terugval naar tijd wanneer er geen bruikbare afstand-stream is (indoor, geen GPS).
+  const useDistance = Array.isArray(distance) && distance.length > 1
+    && distance[distance.length - 1].d > distance[0].d
+  const dAt = t => useDistance ? lerpLookup(distance, 't', 'd', t) : t
+  const tAt = a => useDistance ? lerpLookup(distance, 'd', 't', a) : a
+  const axisMin = dAt(tMin)
+  const axisMax = dAt(tMax)
+  const axisRange = (axisMax - axisMin) || 1
+  const xS = t => PAD.left + ((dAt(t) - axisMin) / axisRange) * drawW
 
   // ── Lane-stapel opbouwen ────────────────────────────────────────────────────
   const dataOf = { power, hr, speed, cadence, gradient, altitude }
@@ -157,12 +188,21 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   const stackH = stackBottom - PAD.top
   const H = stackBottom + PAD.bottom
 
-  // ── Gedeelde tijd-as ────────────────────────────────────────────────────────
-  const interval = tRange > 7200 ? 1800 : tRange > 3600 ? 900 : tRange > 1800 ? 600 : tRange > 600 ? 300 : tRange > 300 ? 60 : 30
-  const firstTick = Math.ceil(tMin / interval) * interval
-  const timeTicks = []
-  for (let t = firstTick; t <= tMax; t += interval) {
-    timeTicks.push({ t, label: fmtTime(t, tRange), x: xS(t) })
+  // ── Gedeelde as-ticks: afstand indien beschikbaar, anders tijd ───────────────
+  const axisTicks = []
+  if (useDistance) {
+    const span = axisMax - axisMin
+    const interval = span > 100 ? 20 : span > 50 ? 10 : span > 20 ? 5 : span > 8 ? 2 : span > 3 ? 1 : 0.5
+    const firstTick = Math.ceil(axisMin / interval) * interval
+    for (let dk = firstTick; dk <= axisMax + 1e-6; dk += interval) {
+      axisTicks.push({ key: dk, label: fmtDist(dk), x: PAD.left + ((dk - axisMin) / axisRange) * drawW })
+    }
+  } else {
+    const interval = tRange > 7200 ? 1800 : tRange > 3600 ? 900 : tRange > 1800 ? 600 : tRange > 600 ? 300 : tRange > 300 ? 60 : 30
+    const firstTick = Math.ceil(tMin / interval) * interval
+    for (let t = firstTick; t <= tMax; t += interval) {
+      axisTicks.push({ key: t, label: fmtTime(t, tRange), x: xS(t) })
+    }
   }
 
   // ── Gemiddelden over de selectie (alle zichtbare metric-lanes, hoogte uitgezonderd) ──
@@ -174,7 +214,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
     return { key: L.key, color: L.color, text: `${val} ${L.unit}` }
   }).filter(Boolean)
 
-  paramsRef.current = { tMin, tMax, tRange, drawW, pad: PAD, w, power, hr, speed, cadence, gradient, showPower, showHr, showSpeed, showCadence, showGradient, onHover, onSelect }
+  paramsRef.current = { tMin, tMax, tRange, drawW, pad: PAD, w, power, hr, speed, cadence, gradient, showPower, showHr, showSpeed, showCadence, showGradient, onHover, onSelect, useDistance, axisMin, axisRange, tAt }
 
   // ── Tooltip (body-level portal) ─────────────────────────────────────────────
   useEffect(() => {
@@ -212,7 +252,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
       const touch = e.touches[0]
       const svg = svgRef.current
       if (!svg) return
-      const { tMin, tRange, drawW, pad, w, onHover } = paramsRef.current
+      const { tMin, tRange, drawW, pad, w, onHover, axisMin, axisRange, tAt } = paramsRef.current
       const svgRect = svg.getBoundingClientRect()
       const scaleX = w / svgRect.width
       const mouseX = (touch.clientX - svgRect.left) * scaleX
@@ -232,7 +272,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
       }
 
       if (mouseX < pad.left || mouseX > pad.left + drawW) return
-      const tCurrent = tMin + ((mouseX - pad.left) / drawW) * tRange
+      const tCurrent = tAt(axisMin + ((mouseX - pad.left) / drawW) * axisRange)
       onHover?.(tCurrent)
       const crosshair = crosshairRef.current
       if (crosshair) {
@@ -250,15 +290,15 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
         const touch = e.changedTouches[0]
         const svg = svgRef.current
         if (svg) {
-          const { tMin, tRange, drawW, pad, w, onSelect } = paramsRef.current
+          const { tMin, tRange, drawW, pad, w, onSelect, axisMin, axisRange, tAt } = paramsRef.current
           const svgRect = svg.getBoundingClientRect()
           const scaleX = w / svgRect.width
           const mouseX = (touch.clientX - svgRect.left) * scaleX
           const x1 = Math.min(drag.startX, mouseX)
           const x2 = Math.max(drag.startX, mouseX)
           if (x2 - x1 >= 8) {
-            const newTStart = tMin + Math.max(0, (x1 - pad.left) / drawW) * tRange
-            const newTEnd = tMin + Math.min(1, (x2 - pad.left) / drawW) * tRange
+            const newTStart = tAt(axisMin + Math.max(0, (x1 - pad.left) / drawW) * axisRange)
+            const newTEnd = tAt(axisMin + Math.min(1, (x2 - pad.left) / drawW) * axisRange)
             onSelect?.({ tStart: newTStart, tEnd: newTEnd })
           }
         }
@@ -282,7 +322,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
 
   // ── Mouse handlers ─────────────────────────────────────────────────────────
   function handleMouseMove(e) {
-    const { tMin, tRange, drawW, pad, w, power, hr, gradient, speed, cadence, showPower, showHr, showSpeed, showCadence, showGradient, onHover } = paramsRef.current
+    const { tMin, tRange, drawW, pad, w, power, hr, gradient, speed, cadence, showPower, showHr, showSpeed, showCadence, showGradient, onHover, useDistance, axisMin, axisRange, tAt } = paramsRef.current
     const drag = dragRef.current
     const svg = svgRef.current
     if (!svg) return
@@ -315,7 +355,8 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
       return
     }
 
-    const tCurrent = tMin + ((mouseX - pad.left) / drawW) * tRange
+    const axisCur = axisMin + ((mouseX - pad.left) / drawW) * axisRange
+    const tCurrent = tAt(axisCur)
     onHover?.(tCurrent)
 
     if (crosshairRef.current) {
@@ -329,7 +370,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
     const gradeVal = (showGradient && gradient) ? nearest(gradient, 'g', tCurrent) : null
     const spdVal = (showSpeed && speed) ? nearest(speed, 'v', tCurrent) : null
     const cadVal = (showCadence && cadence) ? nearest(cadence, 'c', tCurrent) : null
-    const timeStr = fmtTime(tCurrent, tRange)
+    const timeStr = useDistance ? `${fmtDist(axisCur)} · ${fmtTime(tCurrent, tRange)}` : fmtTime(tCurrent, tRange)
     const tip = tooltipRef.current
     if (tip) {
       const dot = c => `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};margin-right:5px"></span>`
@@ -364,7 +405,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
     if (selRectRef.current) selRectRef.current.style.display = 'none'
     const drag = dragRef.current
     if (!drag.isDragging || drag.startX === null) { drag.startX = null; drag.isDragging = false; return }
-    const { tMin, tRange, drawW, pad, w, onSelect } = paramsRef.current
+    const { tMin, tRange, drawW, pad, w, onSelect, axisMin, axisRange, tAt } = paramsRef.current
     const svg = svgRef.current
     if (!svg) return
     const svgRect = svg.getBoundingClientRect()
@@ -374,8 +415,8 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
     const x2 = Math.max(drag.startX, mouseX)
     drag.startX = null; drag.isDragging = false
     if (x2 - x1 < 8) return
-    const newTStart = tMin + Math.max(0, (x1 - pad.left) / drawW) * tRange
-    const newTEnd = tMin + Math.min(1, (x2 - pad.left) / drawW) * tRange
+    const newTStart = tAt(axisMin + Math.max(0, (x1 - pad.left) / drawW) * axisRange)
+    const newTEnd = tAt(axisMin + Math.min(1, (x2 - pad.left) / drawW) * axisRange)
     onSelect?.({ tStart: newTStart, tEnd: newTEnd })
   }
 
@@ -438,8 +479,8 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
         className={s.svg}
       >
         {/* Gedeelde tijd-gridlijnen over de volledige stapel */}
-        {timeTicks.map(({ t, label, x }) => (
-          <g key={t}>
+        {axisTicks.map(({ key, label, x }) => (
+          <g key={key}>
             <line x1={x} y1={PAD.top} x2={x} y2={stackBottom} stroke="var(--divider)" strokeWidth="0.5" opacity="0.6" />
             <text x={x} y={H - 6} textAnchor="middle" fontSize="8.5" fill="var(--muted)" fontFamily="var(--font-mono)">{label}</text>
           </g>
