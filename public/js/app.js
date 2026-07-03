@@ -2628,18 +2628,38 @@ async function renderPowerTrends() {
         type: 'line',
         data: {
           labels: d.ftpSeries.map(p => p.date),
-          datasets: [{
-            label: 'FTP', data: d.ftpSeries.map(p => p.ftp),
-            borderColor: '#f97316', backgroundColor: '#f9731612',
-            borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true
-          }]
+          datasets: [
+            { label: 'FTP (W)', data: d.ftpSeries.map(p => p.ftp), yAxisID: 'y',
+              borderColor: '#f97316', backgroundColor: '#f9731612',
+              borderWidth: 2, pointRadius: 0, pointHitRadius: 8, tension: 0.2, fill: true },
+            { label: 'W/kg', data: d.ftpSeries.map(p => p.wkg), yAxisID: 'yWkg',
+              borderColor: '#6b4fa0', backgroundColor: 'transparent',
+              borderWidth: 1.5, pointRadius: 0, pointHitRadius: 8, tension: 0.2,
+              borderDash: [4, 4], spanGaps: false }
+          ]
         },
         options: {
           responsive: true,
-          plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+          onClick: (evt, elements, chart) => {
+            const els = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, true);
+            if (!els.length) return;
+            const p = d.ftpSeries[els[0].index];
+            if (p?.activityId) navigateToActivity(p.activityId);
+          },
+          onHover: (evt, els, chart) => { chart.canvas.style.cursor = els.length ? 'pointer' : 'default'; },
+          plugins: {
+            legend: { labels: { color: textColor, font: { size: 11 } } },
+            tooltip: { mode: 'index', intersect: false, callbacks: {
+              afterBody: (items) => {
+                const p = items.length ? d.ftpSeries[items[0].dataIndex] : null;
+                return p?.activityName ? 'Bepalende rit: ' + p.activityName : '';
+              }
+            } }
+          },
           scales: {
             x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
-            y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'Watt', color: tickColor, font: { size: 10 } } }
+            y: { position: 'left', grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'FTP (W)', color: tickColor, font: { size: 10 } } },
+            yWkg: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'W/kg', color: tickColor, font: { size: 10 } } }
           }
         }
       });

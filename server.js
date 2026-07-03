@@ -1178,17 +1178,46 @@ app.get('/api/charts/power-trends', async (req, res) => {
       if (d && (minMs === null || d < minMs)) minMs = d;
     }
 
-    // FTP-verloop: wekelijks sampelen van de rolling FTP (60-daags venster,
-    // systeembrede default). Pure functie, geen schatting.
+    // FTP-verloop: wekelijks sampelen van de rolling FTP over een 90-daags venster
+    // (bewust breder dan de systeembrede default van 60 die de PMC/ETL voedt; hier
+    // enkel voor een gladdere trendlijn). rollingFtp levert naast de FTP ook de
+    // bepalende rit (best), zodat de grafiek naar die activiteit kan navigeren.
+    // W/kg = FTP gedeeld door het gewicht op (of dichtst bij) de sampledatum,
+    // pure lookup met 120-daagse tolerantie, identiek aan het power-profiel-endpoint.
+    const wEntries = Object.entries(await getWeightMap(user.id))
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    const WEIGHT_TOL = 120 * DAY;
+    const weightAt = (dateStr) => {
+      if (!wEntries.length || !dateStr) return null;
+      const t = new Date(dateStr).getTime();
+      let best = null, bestDiff = Infinity;
+      for (const [d, kg] of wEntries) {
+        const diff = Math.abs(new Date(d).getTime() - t);
+        if (diff < bestDiff) { bestDiff = diff; best = kg; }
+      }
+      return bestDiff <= WEIGHT_TOL ? best : null;
+    };
+
     const ftpSeries = [];
+    const pushFtp = (dateStr) => {
+      const r = engine.rollingFtp(activities, settings, dateStr, 90);
+      const w = weightAt(dateStr);
+      const ftpVal = r?.ftp || ftp;
+      ftpSeries.push({
+        date: dateStr,
+        ftp: ftpVal,
+        wkg: w ? +(ftpVal / w).toFixed(2) : null,
+        activityId: r?.best?.id || null,
+        activityName: r?.best?.name || null,
+      });
+    };
     if (minMs !== null) {
       for (let t = minMs; t <= now; t += 7 * DAY) {
-        const dateStr = new Date(t).toISOString().split('T')[0];
-        ftpSeries.push({ date: dateStr, ftp: engine.ftpForDate(activities, settings, dateStr, 60) });
+        pushFtp(new Date(t).toISOString().split('T')[0]);
       }
       const lastDate = new Date(now).toISOString().split('T')[0];
       if (!ftpSeries.length || ftpSeries[ftpSeries.length - 1].date !== lastDate) {
-        ftpSeries.push({ date: lastDate, ftp: engine.ftpForDate(activities, settings, lastDate, 60) });
+        pushFtp(lastDate);
       }
     }
 

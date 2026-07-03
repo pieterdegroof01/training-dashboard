@@ -113,6 +113,7 @@ function rollingFtp(activities, settings, asOfDate = null, windowDays = 60) {
     // unknown-source), zodat de vroege tijdlijn niet leegvalt.
     const effort = has20 ? arr[1199] : (a.weighted_average_watts || a.average_watts);
     return {
+      id: a.id,
       date: a.start_date.split('T')[0],
       np: effort,
       name: a.name,
