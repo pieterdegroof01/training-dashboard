@@ -48,14 +48,28 @@ function fmtDur(sec) {
   return m ? `${h}u${String(m).padStart(2, '0')}` : `${h}u`
 }
 
-function avg(pts, key) {
+function mean(pts, key) {
   if (!pts?.length) return null
-  return Math.round(pts.reduce((a, p) => a + p[key], 0) / pts.length)
+  return pts.reduce((a, p) => a + p[key], 0) / pts.length
 }
+
+// Lane-hoogtes en volgorde volgen de PeakForm-designspec (Strava-stijl gestapelde lanes).
+// Elke metric krijgt een eigen verticale schaal, gedeelde tijd-as en één crosshair.
+const LANE_DEFS = [
+  { key: 'power',    label: 'Vermogen', unit: 'W',    color: 'var(--accent)', vKey: 'w',   h: 92, kind: 'power' },
+  { key: 'hr',       label: 'Hartslag', unit: 'bpm',  color: 'var(--red)',    vKey: 'hr',  h: 66 },
+  { key: 'speed',    label: 'Snelheid', unit: 'km/u', color: 'var(--green)',  vKey: 'v',   h: 62, zeroBase: true },
+  { key: 'cadence',  label: 'Cadans',   unit: 'rpm',  color: 'var(--yellow)', vKey: 'c',   h: 62 },
+  { key: 'gradient', label: 'Helling',  unit: '%',    color: 'var(--purple)', vKey: 'g',   h: 58, decimals: 1 },
+  { key: 'altitude', label: 'Hoogte',   unit: 'm',    color: 'var(--subtle)', vKey: 'alt', h: 52, strongFill: true, noAvgBar: true },
+]
+
+const GAP = 24
+const PAD = { top: 20, right: 42, bottom: 24, left: 44 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp, durationMin, hoverT, selection, onHover, onSelect, w = 640, h = 200 }) {
+export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp, durationMin, hoverT, selection, onHover, onSelect, w = 640 }) {
   const svgRef = useRef(null)
   const overlayRef = useRef(null)
   const crosshairRef = useRef(null)
@@ -66,9 +80,10 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   // paramsRef holds latest render state; handlers read from it to avoid stale closures
   const paramsRef = useRef({})
 
-  // Toggles voor secundaire overlays (snelheid, cadans); hoogte is altijd zichtbaar als achtergrond
+  // Toggles voor secundaire lanes; vermogen + hartslag + hoogte zijn standaard zichtbaar.
   const [showSpeed, setShowSpeed] = useState(false)
   const [showCadence, setShowCadence] = useState(false)
+  const [showGradient, setShowGradient] = useState(false)
 
   // Kijkvenster (x-as) kan breder zijn dan het piekvenster voor leesbaarheid bij korte selecties.
   const peakStart = selection ? selection.tStart : 0
@@ -77,97 +92,89 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   const tMax = selection ? (selection.viewEnd ?? selection.tEnd) : (durationMin * 60 || 1)
   const tRange = tMax - tMin || 1
   const peakRange = (peakEnd - peakStart) || 1
-  const pad = { left: 50, top: 18, right: 54, bottom: 26 }
-  const drawW = w - pad.left - pad.right
-  const drawH = h - pad.top - pad.bottom
 
-  paramsRef.current = { tMin, tMax, tRange, drawW, drawH, pad, w, h, power, hr, ftp, onHover, onSelect, speed, cadence, gradient, showSpeed, showCadence }
+  const drawW = w - PAD.left - PAD.right
+  const xS = t => PAD.left + ((t - tMin) / tRange) * drawW
 
-  // ── Derived display data ────────────────────────────────────────────────────
+  // ── Lane-stapel opbouwen ────────────────────────────────────────────────────
+  const dataOf = { power, hr, speed, cadence, gradient, altitude }
+  const visibleOf = {
+    power: !!power, hr: !!hr,
+    speed: showSpeed && !!speed, cadence: showCadence && !!cadence,
+    gradient: showGradient && !!gradient, altitude: !!altitude,
+  }
 
-  const powerInWindow = power ? power.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
-  const hrInWindow = hr ? hr.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
-  // Gemiddelden worden over het exacte piekvenster berekend, niet over het bredere kijkvenster.
-  const powerInPeak = power ? power.filter(p => p.t >= peakStart - 1 && p.t <= peakEnd + 1) : []
-  const hrInPeak = hr ? hr.filter(p => p.t >= peakStart - 1 && p.t <= peakEnd + 1) : []
+  function buildLane(def, top) {
+    const raw = dataOf[def.key]
+    if (!raw) return null
+    const windowed = raw.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1)
+    if (windowed.length < 2) return null
 
-  const powerDisplay = powerInWindow.length ? smoothPower(downsample(powerInWindow, Math.max(drawW, 300))) : []
-  const hrDisplay = hrInWindow.length ? downsample(hrInWindow, Math.max(drawW, 300)) : []
+    let display = downsample(windowed, Math.max(drawW, 300))
+    if (def.kind === 'power') display = smoothPower(display) // huidige smoothing behouden
 
-  const maxP = powerInWindow.length ? Math.max(...powerInWindow.map(p => p.w), (ftp || 200) * 1.1) : (ftp || 400) * 1.1
-  const maxHr = hrInWindow.length ? Math.max(...hrInWindow.map(p => p.hr)) * 1.05 : 200
-  const minHr = hrInWindow.length ? Math.min(...hrInWindow.map(p => p.hr)) * 0.95 : 100
+    let vMin, vMax
+    if (def.kind === 'power') {
+      vMin = 0
+      vMax = Math.max(...windowed.map(p => p[def.vKey]), (ftp || 200) * 1.1)
+    } else if (def.zeroBase) {
+      vMin = 0
+      vMax = (Math.max(...windowed.map(p => p[def.vKey])) * 1.08) || 1
+    } else {
+      vMin = Math.min(...windowed.map(p => p[def.vKey]))
+      vMax = Math.max(...windowed.map(p => p[def.vKey]))
+      const m = (vMax - vMin) * 0.14 || 1
+      vMin -= m; vMax += m
+    }
+    const span = (vMax - vMin) || 1
+    const bottom = top + def.h
+    const yFn = v => top + (1 - (v - vMin) / span) * def.h
 
-  const xS = t => pad.left + ((t - tMin) / tRange) * drawW
-  const yP = wv => pad.top + (1 - wv / maxP) * drawH
-  const yH = hv => pad.top + (1 - (hv - minHr) / (maxHr - minHr)) * drawH
+    const line = display.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yFn(p[def.vKey])}`).join(' ')
+    const fill = `${line} L${xS(display[display.length - 1].t)},${bottom} L${xS(display[0].t)},${bottom} Z`
 
-  const powerPath = powerDisplay.length >= 2
-    ? powerDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yP(p.w)}`).join(' ') : null
-  const hrPath = hrDisplay.length >= 2
-    ? hrDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yH(p.hr)}`).join(' ') : null
-  const powerFill = powerPath
-    ? `${powerPath} L${xS(powerDisplay[powerDisplay.length - 1].t)},${pad.top + drawH} L${xS(powerDisplay[0].t)},${pad.top + drawH} Z`
-    : null
+    const mv = mean(windowed, def.vKey)
+    const gemStr = mv == null ? '' : (def.decimals ? mv.toFixed(def.decimals) : String(Math.round(mv)))
 
-  // ── Hoogte (achtergrond), snelheid en cadans (toggles) ──────────────────────
-  const altInWindow = altitude ? altitude.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
-  const speedInWindow = speed ? speed.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
-  const cadInWindow = cadence ? cadence.filter(p => p.t >= tMin - 1 && p.t <= tMax + 1) : []
+    return {
+      ...def, top, bottom, vMin, vMax, yFn, line, fill, gemStr,
+      ftpY: def.kind === 'power' && ftp ? yFn(ftp) : null,
+    }
+  }
 
-  const altDisplay = altInWindow.length ? downsample(altInWindow, Math.max(drawW, 300)) : []
-  const speedDisplay = (showSpeed && speedInWindow.length) ? downsample(speedInWindow, Math.max(drawW, 300)) : []
-  const cadDisplay = (showCadence && cadInWindow.length) ? downsample(cadInWindow, Math.max(drawW, 300)) : []
+  const lanes = []
+  let cursor = PAD.top
+  for (const def of LANE_DEFS) {
+    if (!visibleOf[def.key]) continue
+    const L = buildLane(def, cursor)
+    if (!L) continue
+    lanes.push(L)
+    cursor += def.h + GAP
+  }
+  const stackBottom = lanes.length ? cursor - GAP : PAD.top + 40
+  const stackH = stackBottom - PAD.top
+  const H = stackBottom + PAD.bottom
 
-  const minAlt = altInWindow.length ? Math.min(...altInWindow.map(p => p.alt)) : 0
-  const maxAlt = altInWindow.length ? Math.max(...altInWindow.map(p => p.alt)) : 1
-  const altSpan = (maxAlt - minAlt) || 1
-  const yAlt = av => pad.top + (1 - (av - minAlt) / altSpan) * drawH
-
-  const minSpd = speedInWindow.length ? Math.min(...speedInWindow.map(p => p.v)) : 0
-  const maxSpd = speedInWindow.length ? Math.max(...speedInWindow.map(p => p.v)) : 1
-  const spdSpan = (maxSpd - minSpd) || 1
-  const ySpd = sv => pad.top + (1 - (sv - minSpd) / spdSpan) * drawH
-
-  const minCad = cadInWindow.length ? Math.min(...cadInWindow.map(p => p.c)) : 0
-  const maxCad = cadInWindow.length ? Math.max(...cadInWindow.map(p => p.c)) : 1
-  const cadSpan = (maxCad - minCad) || 1
-  const yCad = cv => pad.top + (1 - (cv - minCad) / cadSpan) * drawH
-
-  const altPath = altDisplay.length >= 2
-    ? altDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yAlt(p.alt)}`).join(' ') : null
-  const altFill = altPath
-    ? `${altPath} L${xS(altDisplay[altDisplay.length - 1].t)},${pad.top + drawH} L${xS(altDisplay[0].t)},${pad.top + drawH} Z`
-    : null
-  const speedPath = speedDisplay.length >= 2
-    ? speedDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${ySpd(p.v)}`).join(' ') : null
-  const cadPath = cadDisplay.length >= 2
-    ? cadDisplay.map((p, i) => `${i === 0 ? 'M' : 'L'}${xS(p.t)},${yCad(p.c)}`).join(' ') : null
-
-  // Averages from raw data (not smoothed), over het exacte piekvenster
-  const avgP = avg(powerInPeak, 'w')
-  const avgHr = avg(hrInPeak, 'hr')
-
-  // FTP line
-  const ftpY = ftp ? yP(ftp) : null
-
-  // Time grid
-  const rawDur = tRange
-  const interval = rawDur > 7200 ? 1800 : rawDur > 3600 ? 900 : rawDur > 1800 ? 600 : rawDur > 600 ? 300 : rawDur > 300 ? 60 : 30
+  // ── Gedeelde tijd-as ────────────────────────────────────────────────────────
+  const interval = tRange > 7200 ? 1800 : tRange > 3600 ? 900 : tRange > 1800 ? 600 : tRange > 600 ? 300 : tRange > 300 ? 60 : 30
   const firstTick = Math.ceil(tMin / interval) * interval
   const timeTicks = []
   for (let t = firstTick; t <= tMax; t += interval) {
     timeTicks.push({ t, label: fmtTime(t, tRange), x: xS(t) })
   }
 
-  // Y-axis labels
-  const powerYLabels = powerInWindow.length
-    ? [0, maxP / 2, maxP].map(v => ({ v: Math.round(v), y: yP(v) })) : []
-  const hrYLabels = hrInWindow.length
-    ? [minHr, (minHr + maxHr) / 2, maxHr].map(v => ({ v: Math.round(v), y: yH(v) })) : []
+  // ── Gemiddelden over de selectie (alle zichtbare metric-lanes, hoogte uitgezonderd) ──
+  const peakAverages = lanes.filter(L => !L.noAvgBar).map(L => {
+    const inPeak = (dataOf[L.key] || []).filter(p => p.t >= peakStart - 1 && p.t <= peakEnd + 1)
+    const mv = mean(inPeak, L.vKey)
+    if (mv == null) return null
+    const val = L.decimals ? mv.toFixed(L.decimals) : String(Math.round(mv))
+    return { key: L.key, color: L.color, text: `${val} ${L.unit}` }
+  }).filter(Boolean)
+
+  paramsRef.current = { tMin, tMax, tRange, drawW, pad: PAD, w, power, hr, speed, cadence, gradient, showSpeed, showCadence, showGradient, onHover, onSelect }
 
   // ── Tooltip (body-level portal) ─────────────────────────────────────────────
-
   useEffect(() => {
     const tip = document.createElement('div')
     tip.style.cssText = [
@@ -182,7 +189,6 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   }, [])
 
   // ── Touch handlers (non-passive) ────────────────────────────────────────────
-
   useEffect(() => {
     const overlay = overlayRef.current
     if (!overlay) return
@@ -273,9 +279,8 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   }, []) // reads from paramsRef.current at call time
 
   // ── Mouse handlers ─────────────────────────────────────────────────────────
-
   function handleMouseMove(e) {
-    const { tMin, tRange, drawW, pad, w, power, hr, gradient, speed, cadence, showSpeed, showCadence, onHover } = paramsRef.current
+    const { tMin, tRange, drawW, pad, w, power, hr, gradient, speed, cadence, showSpeed, showCadence, showGradient, onHover } = paramsRef.current
     const drag = dragRef.current
     const svg = svgRef.current
     if (!svg) return
@@ -319,18 +324,19 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
 
     const pVal = nearest(power, 'w', tCurrent)
     const hrVal = nearest(hr, 'hr', tCurrent)
-    const gradeVal = gradient ? nearest(gradient, 'g', tCurrent) : null
+    const gradeVal = (showGradient && gradient) ? nearest(gradient, 'g', tCurrent) : null
     const spdVal = (showSpeed && speed) ? nearest(speed, 'v', tCurrent) : null
     const cadVal = (showCadence && cadence) ? nearest(cadence, 'c', tCurrent) : null
     const timeStr = fmtTime(tCurrent, tRange)
     const tip = tooltipRef.current
     if (tip) {
+      const dot = c => `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};margin-right:5px"></span>`
       let html = `<div style="font-weight:700;font-size:10px;color:#aab3d0;margin-bottom:3px">${timeStr}</div>`
-      if (pVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:5px"></span>Vermogen: <strong>${Math.round(pVal)} W</strong></div>`
-      if (hrVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--red);margin-right:5px"></span>Hartslag: <strong>${Math.round(hrVal)} bpm</strong></div>`
-      if (gradeVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:5px"></span>Stijging: <strong>${gradeVal.toFixed(1)}%</strong></div>`
-      if (spdVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10B981;margin-right:5px"></span>Snelheid: <strong>${spdVal.toFixed(1)} km/u</strong></div>`
-      if (cadVal != null) html += `<div><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#F59E0B;margin-right:5px"></span>Cadans: <strong>${Math.round(cadVal)} rpm</strong></div>`
+      if (pVal != null) html += `<div>${dot('var(--accent)')}Vermogen: <strong>${Math.round(pVal)} W</strong></div>`
+      if (hrVal != null) html += `<div>${dot('var(--red)')}Hartslag: <strong>${Math.round(hrVal)} bpm</strong></div>`
+      if (spdVal != null) html += `<div>${dot('var(--green)')}Snelheid: <strong>${spdVal.toFixed(1)} km/u</strong></div>`
+      if (cadVal != null) html += `<div>${dot('var(--yellow)')}Cadans: <strong>${Math.round(cadVal)} rpm</strong></div>`
+      if (gradeVal != null) html += `<div>${dot('var(--purple)')}Helling: <strong>${gradeVal.toFixed(1)}%</strong></div>`
       tip.innerHTML = html
       tip.style.display = 'block'
       const tipW = 160
@@ -384,13 +390,12 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
     <div className={s.wrap}>
       <div className={s.legend}>
-        {avgP != null && <LegendPill color="var(--accent)" label={`Vermogen · gem ${avgP} W`} />}
-        {avgHr != null && <LegendPill color="var(--red)" label={`Hartslag · gem ${avgHr} bpm`} dashed />}
-        {altInWindow.length > 0 && <LegendPill color="var(--muted)" label="Hoogte" />}
+        {power?.length > 1 && <LegendPill color="var(--accent)" label="Vermogen" />}
+        {hr?.length > 1 && <LegendPill color="var(--red)" label="Hartslag" />}
+        {altitude?.length > 1 && <LegendPill color="var(--subtle)" label="Hoogte" />}
         {speed?.length > 1 && (
           <button
             type="button"
@@ -398,7 +403,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
             onClick={() => setShowSpeed(v => !v)}
             aria-pressed={showSpeed}
           >
-            <span className={s.toggleLine} style={{ borderTopColor: '#10B981' }} aria-hidden="true" />
+            <span className={s.toggleLine} style={{ borderTopColor: 'var(--green)' }} aria-hidden="true" />
             Snelheid
           </button>
         )}
@@ -409,8 +414,19 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
             onClick={() => setShowCadence(v => !v)}
             aria-pressed={showCadence}
           >
-            <span className={s.toggleLine} style={{ borderTopColor: '#F59E0B' }} aria-hidden="true" />
+            <span className={s.toggleLine} style={{ borderTopColor: 'var(--yellow)' }} aria-hidden="true" />
             Cadans
+          </button>
+        )}
+        {gradient?.length > 1 && (
+          <button
+            type="button"
+            className={`${s.legendToggle} ${showGradient ? s.on : ''}`}
+            onClick={() => setShowGradient(v => !v)}
+            aria-pressed={showGradient}
+          >
+            <span className={s.toggleLine} style={{ borderTopColor: 'var(--purple)' }} aria-hidden="true" />
+            Helling
           </button>
         )}
       </div>
@@ -418,92 +434,91 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
       {selection && (
         <div className={s.selectionInfo}>
           <strong>{fmtDur(peakRange)}</strong>
-          {avgP != null && <span> · <span style={{ color: 'var(--accent)' }}>{avgP} W gem.</span></span>}
-          {avgHr != null && <span> · <span style={{ color: 'var(--red)' }}>{avgHr} bpm gem.</span></span>}
-          <span className={s.resetHint}> — dubbelklik om te resetten</span>
+          {peakAverages.map(a => (
+            <span key={a.key}> · <span style={{ color: a.color }}>{a.text} gem.</span></span>
+          ))}
+          <span className={s.resetHint}> · dubbelklik om te resetten</span>
         </div>
       )}
 
       <svg
         ref={svgRef}
         width="100%"
-        viewBox={`0 0 ${w} ${h}`}
+        viewBox={`0 0 ${w} ${H}`}
         className={s.svg}
       >
-        {/* Time grid */}
+        {/* Gedeelde tijd-gridlijnen over de volledige stapel */}
         {timeTicks.map(({ t, label, x }) => (
           <g key={t}>
-            <line x1={x} y1={pad.top} x2={x} y2={pad.top + drawH} stroke="var(--divider)" strokeWidth="0.5" opacity="0.5" />
-            <text x={x} y={h - 4} textAnchor="middle" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">{label}</text>
+            <line x1={x} y1={PAD.top} x2={x} y2={stackBottom} stroke="var(--divider)" strokeWidth="0.5" opacity="0.6" />
+            <text x={x} y={H - 6} textAnchor="middle" fontSize="8.5" fill="var(--muted)" fontFamily="var(--font-mono)">{label}</text>
           </g>
         ))}
-
-        {/* Hoogteprofiel als lichtgrijze achtergrond */}
-        {altFill && <path d={altFill} fill="var(--muted)" opacity="0.12" />}
-        {altPath && <path d={altPath} fill="none" stroke="var(--muted)" strokeWidth="1" opacity="0.26" />}
 
         {/* Piekvenster-markering binnen breder kijkvenster */}
         {selection && (selection.viewStart != null || selection.viewEnd != null) && (
           <rect
-            x={xS(peakStart)} y={pad.top}
-            width={Math.max(0, xS(peakEnd) - xS(peakStart))} height={drawH}
+            x={xS(peakStart)} y={PAD.top}
+            width={Math.max(0, xS(peakEnd) - xS(peakStart))} height={stackH}
             fill="var(--accent)" opacity="0.10"
           />
         )}
 
-        {/* Left Y-axis (power) */}
-        {powerYLabels.map(({ v, y }) => (
-          <text key={`py${v}`} x={pad.left - 5} y={y + 3} textAnchor="end" fontSize="8" fill="var(--muted)" fontFamily="var(--font-mono)">{v}</text>
-        ))}
+        {/* Lanes */}
+        {lanes.map(L => (
+          <g key={L.key}>
+            {/* Lane-label: gekleurde stip + NAAM + gemiddelde over het kijkvenster */}
+            <circle cx={PAD.left + 3} cy={L.top - 11} r="3" fill={L.color} />
+            <text
+              x={PAD.left + 12} y={L.top - 8}
+              fontSize="10" fontWeight="700" letterSpacing="0.8"
+              fontFamily="var(--font-mono)" fill="var(--muted)"
+            >
+              {L.label.toUpperCase()}
+              <tspan fontWeight="500" fill="var(--muted)">{` · gem ${L.gemStr} ${L.unit}`}</tspan>
+            </text>
 
-        {/* Right Y-axis (HR) */}
-        {hrYLabels.map(({ v, y }) => (
-          <text key={`hy${v}`} x={pad.left + drawW + 5} y={y + 3} textAnchor="start" fontSize="8" fill="var(--red)" opacity="0.7" fontFamily="var(--font-mono)">{v}</text>
-        ))}
+            {/* As-cijfers: max boven, min onder */}
+            <text x={PAD.left - 5} y={L.top + 8} textAnchor="end" fontSize="8" opacity="0.75" fontFamily="var(--font-mono)" fill="var(--muted)">{Math.round(L.vMax)}</text>
+            <text x={PAD.left - 5} y={L.bottom - 1} textAnchor="end" fontSize="8" opacity="0.75" fontFamily="var(--font-mono)" fill="var(--muted)">{Math.round(L.vMin)}</text>
 
-        {/* FTP reference line */}
-        {ftpY != null && powerInWindow.length > 0 && (
-          <g>
-            <line x1={pad.left} y1={ftpY} x2={pad.left + drawW} y2={ftpY} stroke="var(--red)" strokeWidth="1" strokeDasharray="3,3" opacity="0.55" />
-            <text x={pad.left + 4} y={ftpY - 3} fontSize="9" fill="var(--red)" opacity="0.7">FTP {ftp}W</text>
+            {/* Basislijn onder de lane */}
+            <line x1={PAD.left} y1={L.bottom} x2={PAD.left + drawW} y2={L.bottom} stroke="var(--border)" strokeWidth="1" />
+
+            {/* Vlakvulling + lijn */}
+            <path d={L.fill} fill={L.color} opacity={L.strongFill ? 0.3 : 'var(--fill-opacity)'} />
+            <path d={L.line} fill="none" stroke={L.color} strokeWidth={L.kind === 'power' ? 1.8 : 1.7} strokeLinecap="round" strokeLinejoin="round" />
+
+            {/* FTP-referentielijn in de vermogen-lane */}
+            {L.ftpY != null && (
+              <g>
+                <line x1={PAD.left} y1={L.ftpY} x2={PAD.left + drawW} y2={L.ftpY} stroke="var(--accent)" strokeWidth="1" strokeDasharray="2,3" opacity="0.5" />
+                <text x={PAD.left + drawW} y={L.ftpY - 3} textAnchor="end" fontSize="8" opacity="0.7" fontFamily="var(--font-mono)" fill="var(--accent)">{`FTP ${ftp}W`}</text>
+              </g>
+            )}
           </g>
-        )}
+        ))}
 
-        {/* Fill under power */}
-        {powerFill && <path d={powerFill} fill="var(--accent)" opacity="var(--fill-opacity)" />}
-
-        {/* HR line */}
-        {hrPath && <path d={hrPath} fill="none" stroke="var(--red)" strokeWidth="1.5" strokeDasharray="4,4" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />}
-
-        {/* Power line */}
-        {powerPath && <path d={powerPath} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
-
-        {/* Snelheid (toggle) */}
-        {speedPath && <path d={speedPath} fill="none" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />}
-
-        {/* Cadans (toggle) */}
-        {cadPath && <path d={cadPath} fill="none" stroke="#F59E0B" strokeWidth="1.5" strokeDasharray="2,3" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />}
-
-        {/* Crosshair */}
+        {/* Crosshair over de volledige stapel */}
         <line
           ref={crosshairRef}
-          y1={pad.top} y2={pad.top + drawH}
-          stroke="rgba(255,255,255,0.4)" strokeWidth="1" strokeDasharray="3,3"
+          y1={PAD.top} y2={stackBottom}
+          stroke="var(--muted)" strokeWidth="1" strokeDasharray="3,3" opacity="0.5"
           style={{ display: 'none', pointerEvents: 'none' }}
         />
 
-        {/* Drag-selection rect */}
+        {/* Drag-selectie-rechthoek */}
         <rect
           ref={selRectRef}
-          y={pad.top} height={drawH}
-          fill="rgba(255,255,255,0.10)" stroke="rgba(255,255,255,0.45)" strokeWidth="1"
+          y={PAD.top} height={stackH}
+          fill="var(--accent-soft)" stroke="var(--accent)" strokeWidth="1"
           style={{ display: 'none', pointerEvents: 'none' }}
         />
 
-        {/* Interactive overlay (mouse + double-click) */}
+        {/* Interactieve overlay over de volledige stapel (muis + dubbelklik) */}
         <rect
           ref={overlayRef}
-          x={pad.left} y={pad.top} width={drawW} height={drawH}
+          x={PAD.left} y={PAD.top} width={drawW} height={stackH}
           fill="transparent"
           style={{ cursor: 'crosshair' }}
           onMouseMove={handleMouseMove}
@@ -517,10 +532,10 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   )
 }
 
-function LegendPill({ color, label, dashed }) {
+function LegendPill({ color, label }) {
   return (
     <span className={s.legendPill}>
-      <span className={s.legendLine} style={{ borderTopStyle: dashed ? 'dashed' : 'solid', borderTopColor: color }} aria-hidden="true" />
+      <span className={s.legendLine} style={{ borderTopStyle: 'solid', borderTopColor: color }} aria-hidden="true" />
       <span style={{ color }}>{label}</span>
     </span>
   )
