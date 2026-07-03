@@ -79,6 +79,14 @@ function computeCalibrationFactor(activities, settings) {
 // ────────────────────────────────────────────────────────────────────────────
 // ROLLING FTP ESTIMATE
 // ────────────────────────────────────────────────────────────────────────────
+// FTP wordt uitsluitend afgeleid van measured/unknown vermogen (echte powermeter,
+// Pieter rijdt alleen zijn TT-fiets met meter). powerSource === 'estimated'
+// (Strava device_watts:false, snelheid-afgeleide schatting) wordt hier bewust
+// nooit meegenomen: dat model kent geen wind/drafting en is geen betrouwbare
+// FTP-bron. Aggregatie is de hoogste NP in het venster, niet een mediaan: bij
+// een sporadisch gebruikte powermeter (vaak maar 1-2 ritten per venster) gaf
+// mediaan-van-top-3 bij precies 2 ritten de LAAGSTE van de twee terug
+// (top3[Math.floor(2/2)] = index 1), wat de FTP structureel onderschatte.
 function rollingFtp(activities, settings, asOfDate = null, windowDays = 60) {
   const cutoffEnd = asOfDate ? new Date(asOfDate) : new Date();
   const cutoffStart = new Date(cutoffEnd); cutoffStart.setDate(cutoffStart.getDate() - windowDays);
@@ -104,10 +112,10 @@ function rollingFtp(activities, settings, asOfDate = null, windowDays = 60) {
   }));
   const sorted = efforts.sort((a, b) => b.np - a.np);
   const top3 = sorted.slice(0, 3);
-  const median = top3[Math.floor(top3.length / 2)].np;
+  const best = sorted[0];
   const uncertainCount = top3.filter(r => r.powerSource === 'unknown').length;
 
-  return { ftp: Math.round(median * 0.95), basedOn: top3, uncertainCount, method: 'top-20min × 0.95' };
+  return { ftp: Math.round(best.np * 0.95), basedOn: top3, best, uncertainCount, method: 'best-20min (measured) × 0.95' };
 }
 
 function ftpForDate(activities, settings, date, windowDays = 60) {

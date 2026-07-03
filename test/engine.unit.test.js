@@ -317,3 +317,43 @@ describe('classifyRiderType', () => {
     assert.ok(r.description.length > 0);
   });
 });
+
+// ── rollingFtp — hoogste measured waarde, geschat vermogen genegeerd ────────
+
+describe('rollingFtp — hoogste measured waarde ipv mediaan', () => {
+  test('kiest hoogste NP, niet de mediaan, bij drie measured ritten', () => {
+    const activities = [
+      makeRide({ date: '2026-06-01', durationSec: 1200, watts: 250, npWatts: 250 }),
+      makeRide({ date: '2026-06-05', durationSec: 1200, watts: 300, npWatts: 300 }),
+      makeRide({ date: '2026-06-10', durationSec: 1200, watts: 270, npWatts: 270 }),
+    ];
+    const r = engine.rollingFtp(activities, { ftp: 280 }, '2026-06-15');
+    assert.strictEqual(r.ftp, Math.round(300 * 0.95));
+  });
+
+  test('bij twee measured ritten wordt de hoogste gepakt, niet de laagste', () => {
+    const activities = [
+      makeRide({ date: '2026-06-01', durationSec: 1200, watts: 240, npWatts: 240 }),
+      makeRide({ date: '2026-06-10', durationSec: 1200, watts: 310, npWatts: 310 }),
+    ];
+    const r = engine.rollingFtp(activities, { ftp: 280 }, '2026-06-15');
+    assert.strictEqual(r.ftp, Math.round(310 * 0.95));
+  });
+
+  test('Strava-geschat vermogen wordt volledig genegeerd, ook als het hoger is', () => {
+    const activities = [
+      makeRide({ date: '2026-06-01', durationSec: 1200, watts: 260, npWatts: 260 }),
+      { ...makeRide({ date: '2026-06-10', durationSec: 1200, watts: 400, npWatts: 400 }), powerSource: 'estimated', device_watts: false },
+    ];
+    const r = engine.rollingFtp(activities, { ftp: 280 }, '2026-06-15');
+    assert.strictEqual(r.ftp, Math.round(260 * 0.95));
+  });
+
+  test('geen measured/unknown ritten in venster → null, bestaande fallback blijft intact', () => {
+    const activities = [
+      { ...makeRide({ date: '2026-06-10', durationSec: 1200, watts: 400, npWatts: 400 }), powerSource: 'estimated', device_watts: false },
+    ];
+    const r = engine.rollingFtp(activities, { ftp: 280 }, '2026-06-15');
+    assert.strictEqual(r, null);
+  });
+});
