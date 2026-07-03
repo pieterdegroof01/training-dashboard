@@ -81,6 +81,8 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   const paramsRef = useRef({})
 
   // Toggles voor secundaire lanes; vermogen + hartslag + hoogte zijn standaard zichtbaar.
+  const [showPower, setShowPower] = useState(true)
+  const [showHr, setShowHr] = useState(true)
   const [showSpeed, setShowSpeed] = useState(false)
   const [showCadence, setShowCadence] = useState(false)
   const [showGradient, setShowGradient] = useState(false)
@@ -99,7 +101,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   // ── Lane-stapel opbouwen ────────────────────────────────────────────────────
   const dataOf = { power, hr, speed, cadence, gradient, altitude }
   const visibleOf = {
-    power: !!power, hr: !!hr,
+    power: showPower && !!power, hr: showHr && !!hr,
     speed: showSpeed && !!speed, cadence: showCadence && !!cadence,
     gradient: showGradient && !!gradient, altitude: !!altitude,
   }
@@ -172,7 +174,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
     return { key: L.key, color: L.color, text: `${val} ${L.unit}` }
   }).filter(Boolean)
 
-  paramsRef.current = { tMin, tMax, tRange, drawW, pad: PAD, w, power, hr, speed, cadence, gradient, showSpeed, showCadence, showGradient, onHover, onSelect }
+  paramsRef.current = { tMin, tMax, tRange, drawW, pad: PAD, w, power, hr, speed, cadence, gradient, showPower, showHr, showSpeed, showCadence, showGradient, onHover, onSelect }
 
   // ── Tooltip (body-level portal) ─────────────────────────────────────────────
   useEffect(() => {
@@ -280,7 +282,7 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
 
   // ── Mouse handlers ─────────────────────────────────────────────────────────
   function handleMouseMove(e) {
-    const { tMin, tRange, drawW, pad, w, power, hr, gradient, speed, cadence, showSpeed, showCadence, showGradient, onHover } = paramsRef.current
+    const { tMin, tRange, drawW, pad, w, power, hr, gradient, speed, cadence, showPower, showHr, showSpeed, showCadence, showGradient, onHover } = paramsRef.current
     const drag = dragRef.current
     const svg = svgRef.current
     if (!svg) return
@@ -322,8 +324,8 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
       crosshairRef.current.style.display = ''
     }
 
-    const pVal = nearest(power, 'w', tCurrent)
-    const hrVal = nearest(hr, 'hr', tCurrent)
+    const pVal = (showPower && power) ? nearest(power, 'w', tCurrent) : null
+    const hrVal = (showHr && hr) ? nearest(hr, 'hr', tCurrent) : null
     const gradeVal = (showGradient && gradient) ? nearest(gradient, 'g', tCurrent) : null
     const spdVal = (showSpeed && speed) ? nearest(speed, 'v', tCurrent) : null
     const cadVal = (showCadence && cadence) ? nearest(cadence, 'c', tCurrent) : null
@@ -393,41 +395,29 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
   return (
     <div className={s.wrap}>
       <div className={s.legend}>
-        {power?.length > 1 && <LegendPill color="var(--accent)" label="Vermogen" />}
-        {hr?.length > 1 && <LegendPill color="var(--red)" label="Hartslag" />}
-        {altitude?.length > 1 && <LegendPill color="var(--subtle)" label="Hoogte" />}
-        {speed?.length > 1 && (
+        {[
+          { key: 'power',    label: 'Vermogen', color: 'var(--accent)', data: power,    show: showPower,    set: setShowPower },
+          { key: 'hr',       label: 'Hartslag', color: 'var(--red)',    data: hr,       show: showHr,       set: setShowHr },
+          { key: 'speed',    label: 'Snelheid', color: 'var(--green)',  data: speed,    show: showSpeed,    set: setShowSpeed },
+          { key: 'cadence',  label: 'Cadans',   color: 'var(--yellow)', data: cadence,  show: showCadence,  set: setShowCadence },
+          { key: 'gradient', label: 'Helling',  color: 'var(--purple)', data: gradient, show: showGradient, set: setShowGradient },
+        ].filter(m => m.data?.length > 1).map(m => (
           <button
+            key={m.key}
             type="button"
-            className={`${s.legendToggle} ${showSpeed ? s.on : ''}`}
-            onClick={() => setShowSpeed(v => !v)}
-            aria-pressed={showSpeed}
+            className={`${s.legendToggle} ${m.show ? s.on : ''}`}
+            onClick={() => m.set(v => !v)}
+            aria-pressed={m.show}
           >
-            <span className={s.toggleLine} style={{ borderTopColor: 'var(--green)' }} aria-hidden="true" />
-            Snelheid
+            <span className={s.toggleLine} style={{ borderTopColor: m.color }} aria-hidden="true" />
+            {m.label}
           </button>
-        )}
-        {cadence?.length > 1 && (
-          <button
-            type="button"
-            className={`${s.legendToggle} ${showCadence ? s.on : ''}`}
-            onClick={() => setShowCadence(v => !v)}
-            aria-pressed={showCadence}
-          >
-            <span className={s.toggleLine} style={{ borderTopColor: 'var(--yellow)' }} aria-hidden="true" />
-            Cadans
-          </button>
-        )}
-        {gradient?.length > 1 && (
-          <button
-            type="button"
-            className={`${s.legendToggle} ${showGradient ? s.on : ''}`}
-            onClick={() => setShowGradient(v => !v)}
-            aria-pressed={showGradient}
-          >
-            <span className={s.toggleLine} style={{ borderTopColor: 'var(--purple)' }} aria-hidden="true" />
-            Helling
-          </button>
+        ))}
+        {altitude?.length > 1 && (
+          <span className={s.legendPill}>
+            <span className={s.legendLine} style={{ borderTopStyle: 'solid', borderTopColor: 'var(--subtle)' }} aria-hidden="true" />
+            <span style={{ color: 'var(--subtle)' }}>Hoogte</span>
+          </span>
         )}
       </div>
 
@@ -529,14 +519,5 @@ export function AdDualChart({ power, hr, speed, cadence, altitude, gradient, ftp
         />
       </svg>
     </div>
-  )
-}
-
-function LegendPill({ color, label }) {
-  return (
-    <span className={s.legendPill}>
-      <span className={s.legendLine} style={{ borderTopStyle: 'solid', borderTopColor: color }} aria-hidden="true" />
-      <span style={{ color }}>{label}</span>
-    </span>
   )
 }
