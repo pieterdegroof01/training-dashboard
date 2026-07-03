@@ -1415,6 +1415,35 @@ async function getActivityDetail(stravaId, userId, activities, weekPlan, setting
   const cached = await getActivityStream(userId, sid);
   // Voor runs met schema < 2 ontbreken de NGP-velden; forceer een herberekening.
   if (cached && cached.schemaV != null && cached.schemaV >= 3) {
+    // Lazy W'bal-backfill: caches die vóór de W'bal-feature zijn weggeschreven bevatten
+    // wel een powerTimeline maar geen wbalModel. De schemaV >= 3 gate herberekent nooit,
+    // waardoor die null permanent blijft hangen. Herbereken hier eenmalig zonder Strava-
+    // refetch (de powerTimeline zit al in cache) en persisteer terug.
+    if (!isRun && !cached.wbalModel && Array.isArray(cached.powerTimeline) && cached.powerTimeline.length) {
+      try {
+        const inUnrel = actDate >= (settings.unreliablePowerStart || '2020-01-01') &&
+                        actDate <= (settings.unreliablePowerEnd   || '2020-12-31');
+        const actDateMs = activity?.start_date ? new Date(activity.start_date).getTime() : null;
+        if (!inUnrel && actDateMs) {
+          const mmpEntriesForFit = acts.map(a => a.mmp).filter(Boolean);
+          const cpFit = engine.computeCriticalPower(mmpEntriesForFit, FTP, { now: actDateMs, windowDays: 90 });
+          if (cpFit && Number.isFinite(cpFit.cp) && Number.isFinite(cpFit.wPrime)) {
+            const wbalFull = engine.computeWbal(cached.powerTimeline, cpFit.cp, cpFit.wPrime);
+            if (wbalFull) {
+              cached.wbalTimeline = wbalFull;
+              cached.wbalModel = {
+                cp: cpFit.cp, wPrime: cpFit.wPrime,
+                wPrimeSE: cpFit.wPrimeSE ?? null,
+                source: cpFit.source ?? null,
+                fitQuality: cpFit.fitQuality ?? null,
+                ftpAsOf: FTP, fitAsOf: activity.start_date,
+              };
+              await upsertActivityStream(userId, sid, { ...cached, wbalTimeline: cached.wbalTimeline, wbalModel: cached.wbalModel, cachedAt: new Date().toISOString() });
+            }
+          }
+        }
+      } catch (e) { console.warn('W\'bal-backfill:', e.message); }
+    }
     const { activityMmpCurve, bestMmpCurve } = buildActivityMmpCurves(cached.powerTimeline, activity?.powerSource);
     return {
       activity:          activity ? buildMeta(activity) : null,
