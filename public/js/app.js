@@ -2513,6 +2513,7 @@ async function loadCharts() {
 
     renderAerobicEfficiency();
     renderMmpCurve();
+    renderPowerTrends();
     renderPowerProfile();
 
     msg.className = 'hidden';
@@ -2608,6 +2609,75 @@ function formatDur(s) {
   if (s < 3600) { const m = Math.floor(s / 60), r = s % 60; return m + 'm' + (r ? String(r).padStart(2,'0') + 's' : ''); }
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
   return h + 'u' + (m ? m + 'm' : '');
+}
+
+async function renderPowerTrends() {
+  const ftpBox = document.getElementById('ftpTrendContainer');
+  const cpBox  = document.getElementById('cpTrendContainer');
+  if (!ftpBox || !cpBox) return;
+  try {
+    const d = await api('/api/charts/power-trends');
+    const { gridColor, tickColor, textColor } = _chartTheme();
+
+    // FTP-verloop
+    if (!d.ftpSeries || !d.ftpSeries.length) {
+      ftpBox.innerHTML = '<div style="color:var(--muted);font-size:12px">Nog geen activiteiten om FTP over te sampelen.</div>';
+    } else {
+      ftpBox.innerHTML = '<canvas id="chartFtpTrend" height="80"></canvas>';
+      makeChart('chartFtpTrend', {
+        type: 'line',
+        data: {
+          labels: d.ftpSeries.map(p => p.date),
+          datasets: [{
+            label: 'FTP', data: d.ftpSeries.map(p => p.ftp),
+            borderColor: '#f97316', backgroundColor: '#f9731612',
+            borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+          scales: {
+            x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
+            y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'Watt', color: tickColor, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    // CP/W'-evolutie
+    const cpReal = (d.cpSeries || []).filter(p => p.cp != null);
+    if (!cpReal.length) {
+      cpBox.innerHTML = '<div style="color:var(--muted);font-size:12px">Onvoldoende meetpunten voor een CP/W\'-fit. Bereken eerst de MMP-history.</div>';
+    } else {
+      cpBox.innerHTML = '<canvas id="chartCpTrend" height="80"></canvas>';
+      makeChart('chartCpTrend', {
+        type: 'line',
+        data: {
+          labels: d.cpSeries.map(p => p.date),
+          datasets: [
+            { label: 'CP (W)', data: d.cpSeries.map(p => p.cp), yAxisID: 'yCp',
+              borderColor: '#6b4fa0', backgroundColor: '#6b4fa012',
+              borderWidth: 2, pointRadius: 0, tension: 0.2, spanGaps: false },
+            { label: "W' (kJ)", data: d.cpSeries.map(p => p.wPrime != null ? +(p.wPrime / 1000).toFixed(1) : null), yAxisID: 'yW',
+              borderColor: '#22c55e', borderWidth: 1.5, pointRadius: 0,
+              tension: 0.2, borderDash: [4, 4], spanGaps: false }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+          scales: {
+            x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
+            yCp: { position: 'left', grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'CP (W)', color: tickColor, font: { size: 10 } } },
+            yW:  { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: "W' (kJ)", color: tickColor, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+  } catch (e) {
+    if (ftpBox) ftpBox.innerHTML = `<div style="color:var(--muted);font-size:12px">Vermogenstrends laden mislukt: ${e.message}</div>`;
+  }
 }
 
 async function renderMmpCurve() {

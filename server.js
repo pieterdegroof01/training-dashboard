@@ -1161,6 +1161,60 @@ app.post('/api/strava/mmp-batch', async (req, res) => {
 
 const MMP_DURATIONS = [5,10,30,60,120,300,600,1200,1800,3600];
 
+app.get('/api/charts/power-trends', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    const activities = await getActivities(user.id);
+    const settings = user.settings || {};
+    const ftp = settings.ftp || 280;
+
+    const DAY = 86400000;
+    const now = Date.now();
+
+    // Vroegste activiteitsdatum bepaalt de start van de reeks.
+    let minMs = null;
+    for (const a of activities) {
+      const d = a.start_date ? new Date(a.start_date).getTime() : null;
+      if (d && (minMs === null || d < minMs)) minMs = d;
+    }
+
+    // FTP-verloop: wekelijks sampelen van de rolling FTP (60-daags venster,
+    // systeembrede default). Pure functie, geen schatting.
+    const ftpSeries = [];
+    if (minMs !== null) {
+      for (let t = minMs; t <= now; t += 7 * DAY) {
+        const dateStr = new Date(t).toISOString().split('T')[0];
+        ftpSeries.push({ date: dateStr, ftp: engine.ftpForDate(activities, settings, dateStr, 60) });
+      }
+      const lastDate = new Date(now).toISOString().split('T')[0];
+      if (!ftpSeries.length || ftpSeries[ftpSeries.length - 1].date !== lastDate) {
+        ftpSeries.push({ date: lastDate, ftp: engine.ftpForDate(activities, settings, lastDate, 60) });
+      }
+    }
+
+    // CP/W'-evolutie: maandelijks een 90-daags venster verschuiven. Prior-only
+    // punten (geen echte fit) worden als null verstuurd zodat de lijn een gat
+    // toont in plaats van de constante 0.94*ftp / 21000J prior te suggereren.
+    const mmpEntries = activities.map(a => a.mmp).filter(Boolean);
+    const cpSeries = [];
+    if (minMs !== null && mmpEntries.length) {
+      for (let t = minMs; t <= now; t += 30 * DAY) {
+        const model = engine.computeCriticalPower(mmpEntries, ftp, { now: t, windowDays: 90 });
+        const real = model && model.source !== 'prior';
+        cpSeries.push({
+          date: new Date(t).toISOString().split('T')[0],
+          cp: real ? model.cp : null,
+          wPrime: real ? model.wPrime : null,
+          source: model ? model.source : 'none',
+          nPoints: model ? model.nPoints : 0,
+        });
+      }
+    }
+
+    res.json({ ftpSeries, cpSeries });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/state/mmp-curve', async (req, res) => {
   try {
     const user = await getDefaultUser();
