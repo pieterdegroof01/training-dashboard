@@ -2325,6 +2325,29 @@ async function handleLitUpload(file) {
 // ── Charts ────────────────────────────────────────────────────────────────────
 let chartInstances = {};
 
+// Theme-aware chart-tokens: leest de live CSS-variabelen uit theme.css zodat
+// grafieken correct renderen in light (crème) én dark mode. Vervangt de
+// hardcoded rgba(255,255,255,0.06)/#666-waarden die in light mode onzichtbaar zijn.
+function _chartTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const gridColor = cs.getPropertyValue('--border').trim() || '#d8d1bf';
+  const tickColor = cs.getPropertyValue('--muted').trim() || '#4a5375';
+  const textColor = cs.getPropertyValue('--text').trim() || tickColor;
+  return { gridColor, tickColor, textColor };
+}
+
+function _baseChartOpts() {
+  const { gridColor, tickColor, textColor } = _chartTheme();
+  return {
+    responsive: true,
+    plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } } }
+    }
+  };
+}
+
 function destroyChart(id) {
   if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
 }
@@ -2350,16 +2373,8 @@ async function loadCharts() {
     const days = parseInt(document.getElementById('chartPeriod').value);
     const d = await api('/api/charts/data?days=' + days);
 
-    const gridColor = 'rgba(255,255,255,0.06)';
-    const tickColor = '#666';
-    const baseOpts = {
-      responsive: true,
-      plugins: { legend: { labels: { color: '#aaa', font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
-      scales: {
-        x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
-        y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } } }
-      }
-    };
+    const { gridColor, tickColor } = _chartTheme();
+    const baseOpts = _baseChartOpts();
 
     // ── Gewicht ───────────────────────────────────────────────────────────────
     const wData = filterByDays(d.weightSeries.length > 60 ? d.weightMonthly.map(m => ({date: m.month, kg: m.avg})) : d.weightSeries, days);
@@ -2550,15 +2565,7 @@ function renderAerobicEfficiency() {
   }
   el.innerHTML = html;
 
-  const gridColor = 'rgba(255,255,255,0.06)', tickColor = '#666';
-  const baseOpts = {
-    responsive: true,
-    plugins: { legend: { labels: { color: '#aaa', font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
-    scales: {
-      x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 }, maxTicksLimit: 12 } },
-      y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } } }
-    }
-  };
+  const baseOpts = _baseChartOpts();
 
   if (hasPower) {
     makeChart('chartAerobicPower', {
@@ -2617,7 +2624,7 @@ async function renderMmpCurve() {
     const recentPts = d.recent;
     const prevPts   = d.previous;
     const labels    = recentPts.map(p => formatDur(p.dur));
-    const gridColor = 'rgba(255,255,255,0.06)', tickColor = '#666';
+    const { gridColor, tickColor, textColor } = _chartTheme();
 
     makeChart('chartMmp', {
       type: 'line',
@@ -2646,7 +2653,7 @@ async function renderMmpCurve() {
           if (evt.native?.target) evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
         },
         plugins: {
-          legend: { labels: { color: '#aaa', font: { size: 11 } } },
+          legend: { labels: { color: textColor, font: { size: 11 } } },
           tooltip: {
             mode: 'index', intersect: false,
             callbacks: {
