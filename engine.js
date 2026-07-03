@@ -104,18 +104,28 @@ function rollingFtp(activities, settings, asOfDate = null, windowDays = 60) {
 
   if (!candidates.length) return null;
 
-  const efforts = candidates.map(a => ({
-    date: a.start_date.split('T')[0],
-    np: a.weighted_average_watts || a.average_watts,
-    name: a.name,
-    powerSource: a.powerSource
-  }));
+  const efforts = candidates.map(a => {
+    const arr = a.mmp?.mmpArray;
+    const has20 = a.mmp?.powerSource === 'measured'
+      && Array.isArray(arr) && arr.length >= 1200 && arr[1199] > 0;
+    // Echte beste aaneengesloten 20 minuten uit de per-seconde MMP-array.
+    // Valt terug op rit-NP voor ritten zonder measured mmpArray (oude historie,
+    // unknown-source), zodat de vroege tijdlijn niet leegvalt.
+    const effort = has20 ? arr[1199] : (a.weighted_average_watts || a.average_watts);
+    return {
+      date: a.start_date.split('T')[0],
+      np: effort,
+      name: a.name,
+      powerSource: a.powerSource,
+      effortSource: has20 ? 'mmp20' : 'ride-np'
+    };
+  });
   const sorted = efforts.sort((a, b) => b.np - a.np);
   const top3 = sorted.slice(0, 3);
   const best = sorted[0];
   const uncertainCount = top3.filter(r => r.powerSource === 'unknown').length;
 
-  return { ftp: Math.round(best.np * 0.95), basedOn: top3, best, uncertainCount, method: 'best-20min (measured) × 0.95' };
+  return { ftp: Math.round(best.np * 0.95), basedOn: top3, best, uncertainCount, method: 'best measured 20min (mmp[1199]) × 0.95, ride-NP fallback' };
 }
 
 function ftpForDate(activities, settings, date, windowDays = 60) {
