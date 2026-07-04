@@ -551,13 +551,19 @@ function computeStrengthTrends(hevyWorkouts, opts = {}) {
     return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
   }
 
+  // Multi-joint bewegingen waarop een 1RM-schatting fysiologisch betekenis heeft.
+  // Alleen gebruikt om de frontend-default te sturen; de harde gate blijft repbereik.
+  const MULTIJOINT_KWS = ['squat','deadlift','rdl','bench','chest press','shoulder press','overhead','incline','row','pulldown','pull-up','pullup','chin-up','chinup','leg press','hip thrust','lunge','dip'];
+
   const e1rmSeries = Object.entries(e1rmByExercise)
     .filter(([, rec]) => _median(rec.reps) <= repCeiling)
     .map(([exercise, rec]) => {
       const sessions = [...rec.sessions.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([date, e1rm]) => ({ date, e1rm: Math.round(e1rm) }));
-      return { exercise, sessions, enough: sessions.length >= minSessions };
+      const lc = exercise.toLowerCase();
+      const compound = MULTIJOINT_KWS.some(k => lc.includes(k));
+      return { exercise, sessions, enough: sessions.length >= minSessions, compound };
     })
     .sort((a, b) => (b.sessions.length - a.sessions.length) || a.exercise.localeCompare(b.exercise));
 
