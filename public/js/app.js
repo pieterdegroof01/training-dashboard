@@ -2376,6 +2376,7 @@ async function loadCharts() {
     renderMmpCurve(); renderPowerTrends(); renderPowerProfile(); renderStrengthTrends();
     renderAllTimePRs();
     renderSleepTrend();
+    renderCompliance();
     const d = await api('/api/charts/data?days=' + days);
 
     const { gridColor, tickColor } = _chartTheme();
@@ -2913,6 +2914,42 @@ async function renderMmpCurve() {
   } catch(e) {
     if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Curve laden mislukt: ${e.message}</div>`;
   }
+}
+
+async function renderCompliance() {
+  const box = document.getElementById('complianceContainer');
+  if (!box) return;
+  try {
+    const d = await api('/api/charts/compliance?weeks=26');
+    if (!d.sufficient) {
+      box.innerHTML = `<div style="color:var(--muted);font-size:12px">Nog te weinig vastgelegde sessies (${d.totalPlanned} voorgeschreven) voor een betrouwbaar compliancebeeld. De grafiek verschijnt zodra de planner meer sessies heeft afgestemd.</div>`;
+      return;
+    }
+    box.innerHTML = '<canvas id="chartCompliance" height="80"></canvas>';
+    const s = d.series;
+    const { tickColor } = _chartTheme();
+    const baseOpts = _baseChartOpts();
+    makeChart('chartCompliance', {
+      type: 'bar',
+      data: {
+        labels: s.map(w => w.week),
+        datasets: [
+          { label: 'Voltooid',      data: s.map(w => w.completed),   backgroundColor: '#22c55ecc', stack: 'c', yAxisID: 'y' },
+          { label: 'Gemist',        data: s.map(w => w.missed),      backgroundColor: '#ef4444cc', stack: 'c', yAxisID: 'y' },
+          { label: 'Ongepland',     data: s.map(w => w.unplanned),   backgroundColor: '#94a3b8aa', stack: 'c', yAxisID: 'y' },
+          { label: 'TSS-afwijking', type: 'line', data: s.map(w => w.avgTssDelta), borderColor: '#f97316', borderWidth: 2, pointRadius: 2, tension: 0.3, spanGaps: true, yAxisID: 'y2' },
+        ]
+      },
+      options: {
+        ...baseOpts,
+        scales: {
+          x: { ...baseOpts.scales.x, stacked: true },
+          y: { ...baseOpts.scales.y, stacked: true, title: { display: true, text: 'Sessies', color: tickColor, font: { size: 10 } } },
+          y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: tickColor, font: { size: 10 } }, title: { display: true, text: 'ΔTSS', color: tickColor, font: { size: 10 } } }
+        }
+      }
+    });
+  } catch (e) { box.innerHTML = `<div style="color:var(--muted);font-size:12px">Compliance laden mislukt: ${e.message}</div>`; }
 }
 
 async function renderSleepTrend() {

@@ -2163,6 +2163,48 @@ app.post('/api/cp-model/recompute', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/charts/compliance', async (req, res) => {
+  try {
+    const weeks = parseInt(req.query.weeks) || 26;
+    const user = await getDefaultUser();
+    const rows = await getOutcomeHistory(user.id);
+    // UTC-maandag als weekanker, DST-veilig en consistent met reconcilePrescriptions.
+    const weekKey = (dateVal) => {
+      const d = new Date(dateVal);
+      const u = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      const dow = (u.getUTCDay() + 6) % 7;
+      u.setUTCDate(u.getUTCDate() - dow);
+      return u.toISOString().split('T')[0];
+    };
+    const map = {};
+    for (const r of rows) {
+      const wk = weekKey(r.outcome_date);
+      if (!map[wk]) map[wk] = { week: wk, completed: 0, missed: 0, unplanned: 0, tssDeltas: [] };
+      if (r.match_type === 'completed') {
+        map[wk].completed++;
+        const target = r.presc_target_tss != null ? Number(r.presc_target_tss) : null;
+        if (target != null && r.actual_tss != null) map[wk].tssDeltas.push(Number(r.actual_tss) - target);
+      } else if (r.match_type === 'missed') {
+        map[wk].missed++;
+      } else if (r.match_type === 'unplanned') {
+        map[wk].unplanned++;
+      }
+    }
+    const cut = new Date(); cut.setDate(cut.getDate() - weeks * 7);
+    const series = Object.values(map)
+      .filter(w => new Date(w.week) >= cut)
+      .sort((a, b) => a.week.localeCompare(b.week))
+      .map(w => {
+        const planned = w.completed + w.missed;
+        const compliancePct = planned > 0 ? Math.round((w.completed / planned) * 100) : null;
+        const avgTssDelta = w.tssDeltas.length ? Math.round((w.tssDeltas.reduce((a, b) => a + b, 0) / w.tssDeltas.length) * 10) / 10 : null;
+        return { week: w.week, completed: w.completed, missed: w.missed, unplanned: w.unplanned, compliancePct, avgTssDelta };
+      });
+    const totalPlanned = series.reduce((s, w) => s + w.completed + w.missed, 0);
+    res.json({ series, totalPlanned, sufficient: totalPlanned >= 8 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/charts/sleep-trend', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 180;
