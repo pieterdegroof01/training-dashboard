@@ -84,12 +84,32 @@ describe('computeStrengthTrends — e1RM', () => {
     assert.equal(ohp.sessions.length, 2);
   });
 
-  test('niet-hoofdlift levert geen e1RM-reeks op', () => {
+  test('hoog-rep isolatie boven het plafond levert geen e1RM-reeks op', () => {
     const workouts = [{
       start_time: isoDaysAgo(4) + 'T18:00:00Z',
-      exercises: [{ title: 'Bicep Curl', sets: [{ reps: 10, weight_kg: 15 }] }],
+      exercises: [{ title: 'Lateral Raise', sets: [{ reps: 20, weight_kg: 8 }] }],
     }];
-    const { e1rmSeries } = computeStrengthTrends(workouts, { minSessions: 1 });
-    assert.equal(e1rmSeries.find(e => e.exercise === 'Bicep Curl'), undefined);
+    const { e1rmSeries } = computeStrengthTrends(workouts, { minSessions: 1, repCeiling: 12 });
+    assert.equal(e1rmSeries.find(e => e.exercise === 'Lateral Raise'), undefined);
+  });
+
+  test('extern belaste lift in het krachtrepbereik kwalificeert ongeacht de naam', () => {
+    const workouts = [{
+      start_time: isoDaysAgo(4) + 'T18:00:00Z',
+      exercises: [{ title: 'Barbell Hip Thrust', sets: [{ reps: 6, weight_kg: 120 }] }],
+    }];
+    const { e1rmSeries } = computeStrengthTrends(workouts, { minSessions: 1, repCeiling: 12 });
+    const ht = e1rmSeries.find(e => e.exercise === 'Barbell Hip Thrust');
+    assert.ok(ht, 'Hip Thrust moet kwalificeren op repbereik, niet op een naamlijst');
+    assert.equal(ht.sessions[0].e1rm, 144); // 120×(1+6/30)=144
+  });
+
+  test('bodyweight-oefening zonder externe last levert geen e1RM-reeks op', () => {
+    const workouts = [{
+      start_time: isoDaysAgo(4) + 'T18:00:00Z',
+      exercises: [{ title: 'Pull Up', sets: [{ reps: 8, weight_kg: 0 }] }],
+    }];
+    const { e1rmSeries } = computeStrengthTrends(workouts, { minSessions: 1, repCeiling: 12 });
+    assert.equal(e1rmSeries.find(e => e.exercise === 'Pull Up'), undefined);
   });
 });

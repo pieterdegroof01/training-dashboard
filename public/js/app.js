@@ -2765,6 +2765,7 @@ async function renderStrengthTrends() {
     const dateSet = new Set();
     enoughLifts.forEach(l => l.sessions.forEach(s => dateSet.add(s.date)));
     const labels = [...dateSet].sort();
+    const DEFAULT_VISIBLE = 4; // enoughLifts is op sessie-aantal gesorteerd; toon de drukste vier
     const datasets = enoughLifts.map((l, i) => {
       const byDate = Object.fromEntries(l.sessions.map(s => [s.date, s.e1rm]));
       return {
@@ -2773,6 +2774,7 @@ async function renderStrengthTrends() {
         borderColor: PALETTE[i % PALETTE.length],
         backgroundColor: 'transparent',
         borderWidth: 2, pointRadius: 3, pointHitRadius: 8, tension: 0.2, spanGaps: true,
+        hidden: i >= DEFAULT_VISIBLE,
       };
     });
 
@@ -2793,18 +2795,16 @@ async function renderStrengthTrends() {
 
     const chipBox = document.getElementById('e1rmChips');
     chipBox.innerHTML = enoughLifts.map((l, i) =>
-      '<button type="button" class="e1rm-chip" data-idx="' + i + '" style="border:1px solid ' + PALETTE[i % PALETTE.length] + ';color:' + PALETTE[i % PALETTE.length] + ';background:transparent;border-radius:14px;padding:3px 10px;font-size:11px;cursor:pointer">' + l.exercise + '</button>'
+      '<button type="button" class="e1rm-chip" data-idx="' + i + '" style="border:1px solid ' + PALETTE[i % PALETTE.length] + ';color:' + PALETTE[i % PALETTE.length] + ';background:transparent;border-radius:14px;padding:3px 10px;font-size:11px;cursor:pointer;opacity:' + (i >= DEFAULT_VISIBLE ? '0.35' : '1') + '">' + l.exercise + '</button>'
     ).join('');
     chipBox.querySelectorAll('.e1rm-chip').forEach(btn => {
       btn.onclick = () => {
         const ch = chartInstances['chartE1rm'];
         if (!ch) return;
         const idx = +btn.dataset.idx;
-        const meta = ch.getDatasetMeta(idx);
-        const nowHidden = !meta.hidden;
-        meta.hidden = nowHidden;
-        btn.style.opacity = nowHidden ? '0.35' : '1';
-        ch.update();
+        const visible = ch.isDatasetVisible(idx);
+        if (visible) ch.hide(idx); else ch.show(idx);
+        btn.style.opacity = visible ? '0.35' : '1';
       };
     });
 

@@ -480,8 +480,11 @@ function computeStrengthTrends(hevyWorkouts, opts = {}) {
     pull:  ['row','pull-up','pullup','lat','bicep','curl','chin','face pull','shrug'],
     core:  ['plank','crunch','ab ','core','hollow','sit-up','cable crunch']
   };
-  const MAIN_KWS = ['squat','deadlift','bench','overhead press','row','pull-up','pullup'];
   const GROUP_ORDER = ['lower_body','push','pull','core','other'];
+  // e1RM-gate is datagedreven, niet naam-gebaseerd: Epley is gevalideerd tot ~10-12
+  // reps en overschat daarboven. Elke extern belaste oefening met een mediaan
+  // repbereik onder repCeiling kwalificeert; hoog-rep isolatiewerk valt eruit.
+  const repCeiling = opts.repCeiling || 12;
   const DAY = 86400000;
 
   // UTC-maandag (ms) van een YYYY-MM-DD string.
@@ -517,21 +520,22 @@ function computeStrengthTrends(hevyWorkouts, opts = {}) {
       for (const [g, kws] of Object.entries(groupKws)) {
         if (kws.some(k => name.includes(k))) { grp = g; break; }
       }
-      const isMain = MAIN_KWS.some(k => name.includes(k));
+      const inWindow = new Date(wDate + 'T00:00:00Z').getTime() >= windowStartMs;
       let bestE1rm = 0;
       for (const s of (ex.sets || [])) {
         if (!s.reps) continue;
         if (idx !== undefined) muscleSeries[idx][grp] += (s.weight_kg || 0) * s.reps;
-        if (isMain && s.weight_kg > 0) {
+        if (s.weight_kg > 0 && inWindow) {
           const e = s.weight_kg * (1 + s.reps / 30);
           if (e > bestE1rm) bestE1rm = e;
+          if (!e1rmByExercise[ex.title]) e1rmByExercise[ex.title] = { sessions: new Map(), reps: [] };
+          e1rmByExercise[ex.title].reps.push(s.reps);
         }
       }
-      if (isMain && bestE1rm > 0 && new Date(wDate + 'T00:00:00Z').getTime() >= windowStartMs) {
-        if (!e1rmByExercise[ex.title]) e1rmByExercise[ex.title] = new Map();
-        const m = e1rmByExercise[ex.title];
-        const prev = m.get(wDate);
-        if (prev === undefined || bestE1rm > prev) m.set(wDate, bestE1rm);
+      if (bestE1rm > 0 && inWindow) {
+        const rec = e1rmByExercise[ex.title];
+        const prev = rec.sessions.get(wDate);
+        if (prev === undefined || bestE1rm > prev) rec.sessions.set(wDate, bestE1rm);
       }
     }
   }
@@ -540,14 +544,24 @@ function computeStrengthTrends(hevyWorkouts, opts = {}) {
     for (const g of GROUP_ORDER) row[g] = Math.round(row[g]);
   }
 
-  const e1rmSeries = Object.entries(e1rmByExercise).map(([exercise, m]) => {
-    const sessions = [...m.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, e1rm]) => ({ date, e1rm: Math.round(e1rm) }));
-    return { exercise, sessions, enough: sessions.length >= minSessions };
-  }).sort((a, b) => a.exercise.localeCompare(b.exercise));
+  function _median(arr) {
+    if (!arr.length) return Infinity;
+    const s = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(s.length / 2);
+    return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  }
 
-  return { muscleSeries, e1rmSeries, weeks, minSessions };
+  const e1rmSeries = Object.entries(e1rmByExercise)
+    .filter(([, rec]) => _median(rec.reps) <= repCeiling)
+    .map(([exercise, rec]) => {
+      const sessions = [...rec.sessions.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, e1rm]) => ({ date, e1rm: Math.round(e1rm) }));
+      return { exercise, sessions, enough: sessions.length >= minSessions };
+    })
+    .sort((a, b) => (b.sessions.length - a.sessions.length) || a.exercise.localeCompare(b.exercise));
+
+  return { muscleSeries, e1rmSeries, weeks, minSessions, repCeiling };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
