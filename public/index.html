@@ -484,6 +484,18 @@
       </div>
 
       <div class="card">
+        <div class="card-label">Zone-verdeling per week — % tijd</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Aandeel trainingstijd per intensiteitszone per week over de laatste 26 weken. Laag = Z1 tot Z2, Midden = Z3 inclusief sweetspot tot 0,91 FTP, Hoog = Z4 en hoger. Alleen fiets- en hardloopsessies.</div>
+        <canvas id="chartZoneMix" height="80"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Trainingsmodel per week — Seiler-classificatie</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Gedetecteerd verdelingsmodel per week: polarized (blauw), pyramidal (groen), threshold-heavy (oranje), volume-only (lichtblauw), gemengd (grijs). Zelfde deterministische classificatie als de Week-tab, dus de trend is correct zolang de Week-MODEL-tegel dat op productie is.</div>
+        <canvas id="chartZoneModel" height="80"></canvas>
+      </div>
+
+      <div class="card">
         <div class="card-label">Aerobe efficiëntie<button class="pf-info-btn" data-tip="aerobic_efficiency" aria-label="Uitleg aerobe efficiëntie"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Vermogensmeter-ritten: W/bpm · Geschatte-vermogen-ritten: km·h⁻¹/bpm · Stijging = betere aerobe basis.</div>
         <div id="aeroEff"></div>

@@ -2374,6 +2374,7 @@ async function loadCharts() {
     // De vermogenspanelen zijn netwerkgebonden en lezen niets uit charts/data;
     // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
     renderMmpCurve(); renderPowerTrends(); renderPowerProfile(); renderStrengthTrends();
+    renderZoneTrend();
     renderAllTimePRs();
     renderSleepTrend();
     renderCompliance();
@@ -3014,6 +3015,68 @@ async function renderAllTimePRs() {
 }
 
 // ── Power profile radar (Coggan-categorieën, alleen gemeten vermogen) ─────────
+
+const MODEL_ORDER = ['gemengd', 'volume-only', 'threshold-heavy', 'pyramidal', 'polarized'];
+const MODEL_COLOR = { 'polarized': '#012296', 'pyramidal': '#22c55e', 'threshold-heavy': '#f97316', 'volume-only': '#38bdf8', 'gemengd': '#94a3b8' };
+const normModel = (m) => (m === 'mixed/onbekend' ? 'gemengd' : (m || 'gemengd'));
+
+async function renderZoneTrend() {
+  const mixCanvas = document.getElementById('chartZoneMix');
+  const modelCanvas = document.getElementById('chartZoneModel');
+  if (!mixCanvas || !modelCanvas) return;
+  try {
+    const d = await api('/api/state/zones');
+    const wk = (d.weekly || []).filter(w => w.totalMin > 0);
+    if (!wk.length) { destroyChart('chartZoneMix'); destroyChart('chartZoneModel'); return; }
+    const { tickColor } = _chartTheme();
+    const baseOpts = _baseChartOpts();
+    const labels = wk.map(w => w.week);
+
+    makeChart('chartZoneMix', {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Laag (Z1–Z2)',                data: wk.map(w => w.lowPct),  backgroundColor: '#38bdf8cc', stack: 'z' },
+          { label: 'Midden (Z3, incl. sweetspot)', data: wk.map(w => w.midPct),  backgroundColor: '#f97316cc', stack: 'z' },
+          { label: 'Hoog (Z4+)',                  data: wk.map(w => w.highPct), backgroundColor: '#ef4444cc', stack: 'z' },
+        ]
+      },
+      options: {
+        ...baseOpts,
+        scales: {
+          x: { ...baseOpts.scales.x, stacked: true },
+          y: { ...baseOpts.scales.y, stacked: true, min: 0, max: 100, title: { display: true, text: '% tijd', color: tickColor, font: { size: 10 } } }
+        }
+      }
+    });
+
+    makeChart('chartZoneModel', {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Trainingsmodel',
+          data: wk.map(w => normModel(w.model)),
+          stepped: true,
+          borderColor: '#94a3b855',
+          borderWidth: 1.5,
+          pointRadius: 4,
+          pointBackgroundColor: wk.map(w => MODEL_COLOR[normModel(w.model)]),
+          pointBorderColor: wk.map(w => MODEL_COLOR[normModel(w.model)]),
+        }]
+      },
+      options: {
+        ...baseOpts,
+        plugins: { ...baseOpts.plugins, legend: { display: false } },
+        scales: {
+          x: baseOpts.scales.x,
+          y: { type: 'category', labels: MODEL_ORDER, grid: { color: baseOpts.scales.y.grid.color }, ticks: { color: tickColor, font: { size: 10 } } }
+        }
+      }
+    });
+  } catch (e) { /* stil falen, kaarten blijven leeg */ }
+}
 
 const PP_AXES = [
   { key: '5s',    label: ['5 sec', 'Sprint']      },
