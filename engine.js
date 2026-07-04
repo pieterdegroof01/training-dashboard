@@ -460,6 +460,97 @@ function computeStrengthMetrics(hevyWorkouts) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// KRACHT TRENDS — wekelijkse spiergroep-tonnage + e1RM-reeks per main lift
+// Tijdreeks-variant van computeStrengthMetrics. Bewust NIET die functie herhaald
+// aanroepen: die hardcodeert new Date() op meerdere plekken. Hier alles UTC-maandag
+// geankerd zodat de weekindeling geen DST-drift kent (zelfde invariant als de
+// planner-weektelling). Tonnage = weight_kg × reps; e1RM = Epley kg×(1+reps/30),
+// beste set per sessie, alleen hoofdliften (MAIN_KWS).
+// ────────────────────────────────────────────────────────────────────────────
+function computeStrengthTrends(hevyWorkouts, opts = {}) {
+  const weeks = opts.weeks || 26;
+  const minSessions = opts.minSessions || 3;
+  if (!hevyWorkouts || !hevyWorkouts.length) {
+    return { muscleSeries: [], e1rmSeries: [], weeks, minSessions };
+  }
+
+  const groupKws = {
+    lower_body: ['squat','deadlift','leg press','lunge','rdl','leg curl','leg extension','hip thrust','calf','glute'],
+    push:  ['bench','fly','push-up','pushup','dip','tricep','chest press','incline','decline','lateral raise','shoulder press','overhead'],
+    pull:  ['row','pull-up','pullup','lat','bicep','curl','chin','face pull','shrug'],
+    core:  ['plank','crunch','ab ','core','hollow','sit-up','cable crunch']
+  };
+  const MAIN_KWS = ['squat','deadlift','bench','overhead press','row','pull-up','pullup'];
+  const GROUP_ORDER = ['lower_body','push','pull','core','other'];
+  const DAY = 86400000;
+
+  // UTC-maandag (ms) van een YYYY-MM-DD string.
+  function utcMondayMs(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    const dow = (d.getUTCDay() + 6) % 7; // 0 = maandag
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - dow * DAY;
+  }
+
+  const nowMonday = utcMondayMs(new Date().toISOString().split('T')[0]);
+  const firstMonday = nowMonday - (weeks - 1) * 7 * DAY;
+  const weekKeys = [];
+  for (let i = 0; i < weeks; i++) {
+    weekKeys.push(new Date(firstMonday + i * 7 * DAY).toISOString().split('T')[0]);
+  }
+  const weekIndex = {};
+  weekKeys.forEach((k, i) => { weekIndex[k] = i; });
+
+  const muscleSeries = weekKeys.map(week => ({ week, lower_body: 0, push: 0, pull: 0, core: 0, other: 0 }));
+
+  const e1rmByExercise = {}; // title -> Map(date -> bestE1rm)
+  const windowStartMs = firstMonday;
+
+  for (const w of hevyWorkouts) {
+    const wDate = w.start_time?.split('T')[0];
+    if (!wDate) continue;
+    const monday = new Date(utcMondayMs(wDate)).toISOString().split('T')[0];
+    const idx = weekIndex[monday];
+
+    for (const ex of (w.exercises || [])) {
+      const name = (ex.title || '').toLowerCase();
+      let grp = 'other';
+      for (const [g, kws] of Object.entries(groupKws)) {
+        if (kws.some(k => name.includes(k))) { grp = g; break; }
+      }
+      const isMain = MAIN_KWS.some(k => name.includes(k));
+      let bestE1rm = 0;
+      for (const s of (ex.sets || [])) {
+        if (!s.reps) continue;
+        if (idx !== undefined) muscleSeries[idx][grp] += (s.weight_kg || 0) * s.reps;
+        if (isMain && s.weight_kg > 0) {
+          const e = s.weight_kg * (1 + s.reps / 30);
+          if (e > bestE1rm) bestE1rm = e;
+        }
+      }
+      if (isMain && bestE1rm > 0 && new Date(wDate + 'T00:00:00Z').getTime() >= windowStartMs) {
+        if (!e1rmByExercise[ex.title]) e1rmByExercise[ex.title] = new Map();
+        const m = e1rmByExercise[ex.title];
+        const prev = m.get(wDate);
+        if (prev === undefined || bestE1rm > prev) m.set(wDate, bestE1rm);
+      }
+    }
+  }
+
+  for (const row of muscleSeries) {
+    for (const g of GROUP_ORDER) row[g] = Math.round(row[g]);
+  }
+
+  const e1rmSeries = Object.entries(e1rmByExercise).map(([exercise, m]) => {
+    const sessions = [...m.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, e1rm]) => ({ date, e1rm: Math.round(e1rm) }));
+    return { exercise, sessions, enough: sessions.length >= minSessions };
+  }).sort((a, b) => a.exercise.localeCompare(b.exercise));
+
+  return { muscleSeries, e1rmSeries, weeks, minSessions };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // SINGLE-WORKOUT STRENGTH SUMMARY
 // ────────────────────────────────────────────────────────────────────────────
 function computeWorkoutStrengthSummary(workout) {
@@ -1908,6 +1999,7 @@ module.exports = {
   computeLoadMetrics,
   projectWeekEndTSB,
   computeStrengthMetrics,
+  computeStrengthTrends,
   computeCalibrationFactor,
   rollingFtp, ftpForDate,
   activityZoneClassification,

@@ -2232,6 +2232,18 @@ app.get('/api/charts/data', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/charts/strength-trends', async (req, res) => {
+  try {
+    const user = await getDefaultUser();
+    const hevyWorkouts = await getHevyWorkouts(user.id);
+    const fp = `strength|${hevyWorkouts.length}|${hevyWorkouts.reduce((mx, w) => (w.start_time > mx ? w.start_time : mx), '')}`;
+    if (req.query.force !== '1') { const hit = memoGet(fp, 'strength-trends'); if (hit) return res.json(hit); }
+    const payload = engine.computeStrengthTrends(hevyWorkouts, { weeks: 26, minSessions: 3 });
+    memoSet(fp, 'strength-trends', payload);
+    res.json(payload);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/hevy/workouts', async (req, res) => {
   try {
     const user = await getDefaultUser();

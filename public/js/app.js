@@ -2373,7 +2373,7 @@ async function loadCharts() {
     const days = parseInt(document.getElementById('chartPeriod').value);
     // De vermogenspanelen zijn netwerkgebonden en lezen niets uit charts/data;
     // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
-    renderMmpCurve(); renderPowerTrends(); renderPowerProfile();
+    renderMmpCurve(); renderPowerTrends(); renderPowerProfile(); renderStrengthTrends();
     const d = await api('/api/charts/data?days=' + days);
 
     const { gridColor, tickColor } = _chartTheme();
@@ -2697,6 +2697,120 @@ async function renderPowerTrends() {
     }
   } catch (e) {
     if (ftpBox) ftpBox.innerHTML = `<div style="color:var(--muted);font-size:12px">Vermogenstrends laden mislukt: ${e.message}</div>`;
+  }
+}
+
+async function renderStrengthTrends() {
+  const muscleBox = document.getElementById('strengthMuscleContainer');
+  const e1rmBox   = document.getElementById('strengthE1rmContainer');
+  if (!muscleBox && !e1rmBox) return;
+  try {
+    const d = await api('/api/charts/strength-trends');
+    const { gridColor, tickColor, textColor } = _chartTheme();
+
+    // ── Spiergroep-tonnage (gestapeld, absoluut) ──
+    const hasMuscle = (d.muscleSeries || []).some(w => w.lower_body || w.push || w.pull || w.core || w.other);
+    if (muscleBox && !hasMuscle) {
+      muscleBox.innerHTML = '<div style="color:var(--muted);font-size:12px">Nog geen krachttrainingen in de laatste 26 weken.</div>';
+    } else if (muscleBox) {
+      muscleBox.innerHTML = '<canvas id="chartMuscleVolume" height="80"></canvas>';
+      const GROUPS = [
+        { key: 'lower_body', label: 'Onderlichaam', color: '#012296' },
+        { key: 'push',       label: 'Push',         color: '#f97316' },
+        { key: 'pull',       label: 'Pull',         color: '#22c55e' },
+        { key: 'core',       label: 'Core',         color: '#6b4fa0' },
+        { key: 'other',      label: 'Overig',       color: '#b8b0a0' },
+      ];
+      makeChart('chartMuscleVolume', {
+        type: 'bar',
+        data: {
+          labels: d.muscleSeries.map(w => w.week),
+          datasets: GROUPS.map(g => ({
+            label: g.label,
+            data: d.muscleSeries.map(w => w[g.key] || 0),
+            backgroundColor: g.color,
+            borderWidth: 0,
+            stack: 'vol',
+          })),
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { labels: { color: textColor, font: { size: 11 } } },
+            tooltip: { mode: 'index', intersect: false, callbacks: {
+              footer: (items) => 'Totaal: ' + items.reduce((s, i) => s + (i.raw || 0), 0).toLocaleString('nl-NL') + ' kg',
+            } },
+          },
+          scales: {
+            x: { stacked: true, grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 9 }, maxTicksLimit: 13 } },
+            y: { stacked: true, grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'Tonnage (kg)', color: tickColor, font: { size: 10 } } },
+          },
+        },
+      });
+    }
+
+    // ── e1RM-progressie (multiline, per oefening toggelbaar) ──
+    if (!e1rmBox) return;
+    const lifts = (d.e1rmSeries || []);
+    const enoughLifts = lifts.filter(l => l.enough);
+    if (!enoughLifts.length) {
+      const near = lifts.filter(l => !l.enough && l.sessions.length);
+      e1rmBox.innerHTML = '<div style="color:var(--muted);font-size:12px">Onvoldoende data voor een e1RM-trend (minimaal ' + (d.minSessions || 3) + ' sessies per oefening in 26 weken).'
+        + (near.length ? ' Bijna: ' + near.map(l => l.exercise + ' (' + l.sessions.length + ')').join(', ') + '.' : '')
+        + '</div>';
+      return;
+    }
+
+    const PALETTE = ['#012296', '#f97316', '#22c55e', '#6b4fa0', '#e11d48', '#0891b2'];
+    const dateSet = new Set();
+    enoughLifts.forEach(l => l.sessions.forEach(s => dateSet.add(s.date)));
+    const labels = [...dateSet].sort();
+    const datasets = enoughLifts.map((l, i) => {
+      const byDate = Object.fromEntries(l.sessions.map(s => [s.date, s.e1rm]));
+      return {
+        label: l.exercise,
+        data: labels.map(dt => (dt in byDate ? byDate[dt] : null)),
+        borderColor: PALETTE[i % PALETTE.length],
+        backgroundColor: 'transparent',
+        borderWidth: 2, pointRadius: 3, pointHitRadius: 8, tension: 0.2, spanGaps: true,
+      };
+    });
+
+    e1rmBox.innerHTML = '<div id="e1rmChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>'
+      + '<canvas id="chartE1rm" height="80"></canvas>';
+    makeChart('chartE1rm', {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 9 }, maxTicksLimit: 12 } },
+          y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } }, title: { display: true, text: 'e1RM (kg)', color: tickColor, font: { size: 10 } } },
+        },
+      },
+    });
+
+    const chipBox = document.getElementById('e1rmChips');
+    chipBox.innerHTML = enoughLifts.map((l, i) =>
+      '<button type="button" class="e1rm-chip" data-idx="' + i + '" style="border:1px solid ' + PALETTE[i % PALETTE.length] + ';color:' + PALETTE[i % PALETTE.length] + ';background:transparent;border-radius:14px;padding:3px 10px;font-size:11px;cursor:pointer">' + l.exercise + '</button>'
+    ).join('');
+    chipBox.querySelectorAll('.e1rm-chip').forEach(btn => {
+      btn.onclick = () => {
+        const ch = chartInstances['chartE1rm'];
+        if (!ch) return;
+        const idx = +btn.dataset.idx;
+        const meta = ch.getDatasetMeta(idx);
+        const nowHidden = !meta.hidden;
+        meta.hidden = nowHidden;
+        btn.style.opacity = nowHidden ? '0.35' : '1';
+        ch.update();
+      };
+    });
+
+  } catch (e) {
+    const box = document.getElementById('strengthMuscleContainer');
+    if (box) box.innerHTML = `<div style="color:var(--muted);font-size:12px">Krachttrends laden mislukt: ${e.message}</div>`;
   }
 }
 
