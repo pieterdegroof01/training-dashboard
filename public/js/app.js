@@ -2472,6 +2472,28 @@ async function loadCharts() {
       });
     }
 
+    if (vData.length) {
+      makeChart('chartDiscipline', {
+        type: 'bar',
+        data: {
+          labels: vData.map(v => v.week),
+          datasets: [
+            { label: 'Fiets',     data: vData.map(v => v.cycling),  backgroundColor: '#012296cc', stack: 'd' },
+            { label: 'Hardlopen', data: vData.map(v => v.running),  backgroundColor: '#f97316cc', stack: 'd' },
+            { label: 'Kracht',    data: vData.map(v => v.strength), backgroundColor: '#22c55ecc', stack: 'd' },
+            { label: 'Overig',    data: vData.map(v => v.other),    backgroundColor: '#94a3b8aa', stack: 'd' },
+          ]
+        },
+        options: {
+          ...baseOpts,
+          scales: {
+            x: { ...baseOpts.scales.x, stacked: true },
+            y: { ...baseOpts.scales.y, stacked: true, title: { display: true, text: 'Uren', color: tickColor, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
     // ── Voeding ───────────────────────────────────────────────────────────────
     const nData = filterByDays(d.nutritionSeries, Math.min(days, 60));
     if (nData.length) {
@@ -2765,7 +2787,13 @@ async function renderStrengthTrends() {
     const dateSet = new Set();
     enoughLifts.forEach(l => l.sessions.forEach(s => dateSet.add(s.date)));
     const labels = [...dateSet].sort();
-    const DEFAULT_VISIBLE = 4; // enoughLifts is op sessie-aantal gesorteerd; toon de drukste vier
+    // Standaard zichtbaar: de compound/multi-joint liften (waar 1RM-tracking betekenis
+    // heeft), gecapt op zes en gesorteerd op sessie-aantal (enoughLifts is al zo gesorteerd).
+    // Terugval: geen enkele compound => toon de vier drukste liften.
+    const compoundIdx = enoughLifts.map((l, i) => (l.compound ? i : -1)).filter(i => i >= 0);
+    const visibleIdx = new Set(
+      compoundIdx.length ? compoundIdx.slice(0, 6) : enoughLifts.map((_, i) => i).slice(0, 4)
+    );
     const datasets = enoughLifts.map((l, i) => {
       const byDate = Object.fromEntries(l.sessions.map(s => [s.date, s.e1rm]));
       return {
@@ -2774,7 +2802,7 @@ async function renderStrengthTrends() {
         borderColor: PALETTE[i % PALETTE.length],
         backgroundColor: 'transparent',
         borderWidth: 2, pointRadius: 3, pointHitRadius: 8, tension: 0.2, spanGaps: true,
-        hidden: i >= DEFAULT_VISIBLE,
+        hidden: !visibleIdx.has(i),
       };
     });
 
@@ -2795,7 +2823,7 @@ async function renderStrengthTrends() {
 
     const chipBox = document.getElementById('e1rmChips');
     chipBox.innerHTML = enoughLifts.map((l, i) =>
-      '<button type="button" class="e1rm-chip" data-idx="' + i + '" style="border:1px solid ' + PALETTE[i % PALETTE.length] + ';color:' + PALETTE[i % PALETTE.length] + ';background:transparent;border-radius:14px;padding:3px 10px;font-size:11px;cursor:pointer;opacity:' + (i >= DEFAULT_VISIBLE ? '0.35' : '1') + '">' + l.exercise + '</button>'
+      '<button type="button" class="e1rm-chip" data-idx="' + i + '" style="border:1px solid ' + PALETTE[i % PALETTE.length] + ';color:' + PALETTE[i % PALETTE.length] + ';background:transparent;border-radius:14px;padding:3px 10px;font-size:11px;cursor:pointer;opacity:' + (visibleIdx.has(i) ? '1' : '0.35') + '">' + l.exercise + '</button>'
     ).join('');
     chipBox.querySelectorAll('.e1rm-chip').forEach(btn => {
       btn.onclick = () => {

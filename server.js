@@ -2172,23 +2172,30 @@ app.get('/api/charts/data', async (req, res) => {
       res.locals.loadSeries = loadSeries;
     }
 
+    const DISCIPLINE_OF = (t) =>
+      (t === 'Ride' || t === 'VirtualRide')          ? 'cycling'
+      : (t === 'Run' || t === 'TrailRun')            ? 'running'
+      : (t === 'WeightTraining' || t === 'Workout')  ? 'strength'
+      : 'other';
     const weeklyMap = {};
     activities.forEach(a => {
       const d = new Date(a.start_date);
       const dow = (d.getDay() + 6) % 7;
       const mon = new Date(d); mon.setDate(d.getDate() - dow);
       const wk = mon.toISOString().split('T')[0];
-      if (!weeklyMap[wk]) weeklyMap[wk] = { sessions: 0, hours: 0, km: 0, gym: 0 };
+      if (!weeklyMap[wk]) weeklyMap[wk] = { sessions: 0, hours: 0, km: 0, gym: 0, cycling: 0, running: 0, strength: 0, other: 0 };
       weeklyMap[wk].sessions++;
       weeklyMap[wk].hours += (a.moving_time || 0) / 3600;
       weeklyMap[wk].km += (a.distance || 0) / 1000;
       if (a.type === 'WeightTraining') weeklyMap[wk].gym++;
+      weeklyMap[wk][DISCIPLINE_OF(a.type)] += (a.moving_time || 0) / 3600;
     });
     const weekCutoff = new Date(); weekCutoff.setDate(weekCutoff.getDate() - 52 * 7);
     const weeklyVolume = Object.entries(weeklyMap)
       .filter(([wk]) => new Date(wk) >= weekCutoff)
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([wk, v]) => ({ week: wk, sessions: v.sessions, hours: Math.round(v.hours * 10) / 10, km: Math.round(v.km), gym: v.gym }));
+      .map(([wk, v]) => ({ week: wk, sessions: v.sessions, hours: Math.round(v.hours * 10) / 10, km: Math.round(v.km), gym: v.gym,
+        cycling: Math.round(v.cycling * 10) / 10, running: Math.round(v.running * 10) / 10, strength: Math.round(v.strength * 10) / 10, other: Math.round(v.other * 10) / 10 }));
 
     const nutrCutoff = new Date(); nutrCutoff.setDate(nutrCutoff.getDate() - 60);
     const nutritionSeries = Object.entries(nutrition || {})
