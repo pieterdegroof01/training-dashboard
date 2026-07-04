@@ -2375,6 +2375,7 @@ async function loadCharts() {
     // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
     renderMmpCurve(); renderPowerTrends(); renderPowerProfile(); renderStrengthTrends();
     renderAllTimePRs();
+    renderSleepTrend();
     const d = await api('/api/charts/data?days=' + days);
 
     const { gridColor, tickColor } = _chartTheme();
@@ -2912,6 +2913,40 @@ async function renderMmpCurve() {
   } catch(e) {
     if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Curve laden mislukt: ${e.message}</div>`;
   }
+}
+
+async function renderSleepTrend() {
+  const canvas = document.getElementById('chartSleep');
+  if (!canvas) return;
+  try {
+    const days = parseInt(document.getElementById('chartPeriod').value) || 180;
+    const d = await api('/api/charts/sleep-trend?days=' + Math.min(days, 365));
+    const s = d.series || [];
+    if (!s.length) { destroyChart('chartSleep'); return; }
+    const roll = s.map((_, i) => {
+      const win = s.slice(Math.max(0, i - 6), i + 1).map(p => p.hours).filter(h => h != null);
+      return win.length ? +(win.reduce((a, b) => a + b, 0) / win.length).toFixed(2) : null;
+    });
+    const { tickColor } = _chartTheme();
+    const baseOpts = _baseChartOpts();
+    makeChart('chartSleep', {
+      type: 'bar',
+      data: {
+        labels: s.map(p => p.date),
+        datasets: [
+          { label: 'Uren', data: s.map(p => p.hours), backgroundColor: '#01229633', borderColor: '#01229655', borderWidth: 1, order: 2 },
+          { label: '7-daags gem.', type: 'line', data: roll, borderColor: '#f97316', borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true, order: 1 },
+        ]
+      },
+      options: {
+        ...baseOpts,
+        scales: {
+          x: baseOpts.scales.x,
+          y: { ...baseOpts.scales.y, suggestedMin: 4, suggestedMax: 10, title: { display: true, text: 'Uren', color: tickColor, font: { size: 10 } } }
+        }
+      }
+    });
+  } catch (e) { /* stil falen, kaart blijft leeg */ }
 }
 
 const PR_LABEL = { '5s':'5 sec','15s':'15 sec','30s':'30 sec','1min':'1 min','5min':'5 min','20min':'20 min','60min':'60 min' };

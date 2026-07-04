@@ -2163,6 +2163,20 @@ app.post('/api/cp-model/recompute', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/charts/sleep-trend', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 180;
+    const user = await getDefaultUser();
+    const sleep = await getSleep(user.id);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const series = Object.entries(sleep || {})
+      .filter(([d]) => new Date(d) >= cutoff)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, v]) => ({ date, hours: v.hours != null ? +Number(v.hours).toFixed(2) : null, quality: v.quality ?? null }));
+    res.json({ series, count: series.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/charts/data', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 365;
