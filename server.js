@@ -13,7 +13,7 @@ const engine = require('./engine');
 const { buildPlan } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
-const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
+const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -243,6 +243,40 @@ async function fetchActivitiesFromStrava(token, afterTimestamp = null) {
 // ── ATL / CTL / TSB (duurtraining only — voor history-summary en charts) ─────
 
 const ENDURANCE_TYPES = engine.ENDURANCE_TYPES;
+
+// ── In-memory analytics-memo (ephemeral, per container) ──────────────────────
+// De trends-endpoints herberekenen zware reeksen: rollingFtp wekelijks over de
+// hele historie en CP-fits maandelijks. Die uitkomst verandert alleen als
+// activiteiten, gewicht of instellingen wijzigen. We cachen de JSON-respons per
+// data-fingerprint in het geheugen: eerste opening na een sync of redeploy rekent
+// koud, elke volgende opening is instant. Bewust géén Postgres-cache; dit is
+// afgeleide, herbouwbare data en verlies bij redeploy is prima (Volume-Mount-
+// blocker speelt hier niet). Met ?force=1 omzeil je de memo, voor het enige geval
+// dat de fingerprint niet detecteert: een historische mmp-herberekening zonder
+// nieuwe activiteit.
+const _analyticsMemo = new Map(); // key: `${fp}::${endpoint}` → value
+const _ANALYTICS_MEMO_MAX = 16;
+function _settingsHash(s) {
+  const str = JSON.stringify(s || {});
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return h >>> 0;
+}
+function analyticsFingerprint(activities, weightMap, settings) {
+  const n = activities.length;
+  const last = n ? (activities[n - 1].start_date || '') : '';
+  const wCount = weightMap ? Object.keys(weightMap).length : 0;
+  return `${n}|${last}|${wCount}|${_settingsHash(settings)}`;
+}
+function memoGet(fp, endpoint) {
+  return _analyticsMemo.get(`${fp}::${endpoint}`);
+}
+function memoSet(fp, endpoint, value) {
+  _analyticsMemo.set(`${fp}::${endpoint}`, value);
+  if (_analyticsMemo.size > _ANALYTICS_MEMO_MAX) {
+    _analyticsMemo.delete(_analyticsMemo.keys().next().value);
+  }
+}
 
 function calcMetrics(activities, settings) {
   const dailyLoad = {};
@@ -1164,9 +1198,12 @@ const MMP_DURATIONS = [5,10,30,60,120,300,600,1200,1800,3600];
 app.get('/api/charts/power-trends', async (req, res) => {
   try {
     const user = await getDefaultUser();
-    const activities = await getActivities(user.id);
     const settings = user.settings || {};
     const ftp = settings.ftp || 280;
+    const activities = await getActivitiesLite(user.id);
+    const weightMap = await getWeightMap(user.id);
+    const _fp = analyticsFingerprint(activities, weightMap, settings);
+    if (req.query.force !== '1') { const hit = memoGet(_fp, 'power-trends'); if (hit) return res.json(hit); }
 
     const DAY = 86400000;
     const now = Date.now();
@@ -1184,7 +1221,7 @@ app.get('/api/charts/power-trends', async (req, res) => {
     // bepalende rit (best), zodat de grafiek naar die activiteit kan navigeren.
     // W/kg = FTP gedeeld door het gewicht op (of dichtst bij) de sampledatum,
     // pure lookup met 120-daagse tolerantie, identiek aan het power-profiel-endpoint.
-    const wEntries = Object.entries(await getWeightMap(user.id))
+    const wEntries = Object.entries(weightMap)
       .sort((a, b) => a[0].localeCompare(b[0]));
     const WEIGHT_TOL = 120 * DAY;
     const weightAt = (dateStr) => {
@@ -1240,14 +1277,20 @@ app.get('/api/charts/power-trends', async (req, res) => {
       }
     }
 
-    res.json({ ftpSeries, cpSeries });
+    const _payload = { ftpSeries, cpSeries };
+    memoSet(_fp, 'power-trends', _payload);
+    res.json(_payload);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/state/mmp-curve', async (req, res) => {
   try {
     const user = await getDefaultUser();
-    const activities = await getActivities(user.id);
+    const settings = user.settings || {};
+    const activities = await getActivitiesLite(user.id);
+    const weightMap = await getWeightMap(user.id);
+    const _fp = analyticsFingerprint(activities, weightMap, settings);
+    if (req.query.force !== '1') { const hit = memoGet(_fp, 'mmp-curve'); if (hit) return res.json(hit); }
     const cache = {};
     for (const a of activities) {
       if (a.mmp) cache[String(a.id)] = a.mmp;
@@ -1304,20 +1347,25 @@ app.get('/api/state/mmp-curve', async (req, res) => {
       });
     }
 
-    res.json({
+    const _payload = {
       recent:   buildSampled(rCurve, rAttr, rDur),
       previous: buildSampled(pCurve, pAttr, pDur),
       recentCount, previousCount,
       totalActivities: Object.keys(cache).length
-    });
+    };
+    memoSet(_fp, 'mmp-curve', _payload);
+    res.json(_payload);
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/state/power-profile', async (req, res) => {
   try {
     const user = await getDefaultUser();
-    const acts = await getActivities(user.id);
+    const settings = user.settings || {};
+    const acts = await getActivitiesLite(user.id);
     const weightMap = await getWeightMap(user.id);
+    const _fp = analyticsFingerprint(acts, weightMap, settings);
+    if (req.query.force !== '1') { const hit = memoGet(_fp, 'power-profile'); if (hit) return res.json(hit); }
 
     // Gewichtsinvoer gesorteerd op datum; nodig voor gewicht-op-datum lookup.
     const wEntries = Object.entries(weightMap)
@@ -1404,12 +1452,14 @@ app.get('/api/state/power-profile', async (req, res) => {
     }
     const riderType = engine.classifyRiderType(envelopeLevels);
 
-    res.json({
+    const _payload = {
       durations,
       riderType,
       weightDataFrom,
       measuredCount: measured.length,
-    });
+    };
+    memoSet(_fp, 'power-profile', _payload);
+    res.json(_payload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2082,7 +2132,7 @@ app.get('/api/charts/data', async (req, res) => {
     const user = await getDefaultUser();
     const userId = user.id;
     const [activities, weightMap, nutrition] = await Promise.all([
-      getActivities(userId),
+      getActivitiesLite(userId),
       getWeightMap(userId),
       getNutrition(userId),
     ]);

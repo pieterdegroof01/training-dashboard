@@ -217,6 +217,29 @@ async function getActivities(userId) {
   });
 }
 
+// Zelfde vorm als getActivities maar zonder de streams-kolom. streams bevat de
+// per-seconde reeksen en is veruit de grootste kolom; analytics-endpoints
+// (trends, power-profile, mmp-curve, charts/data) gebruiken die nooit. Door de
+// kolom niet te selecteren vervalt het transporteren en deserialiseren van de
+// zware JSONB per request. Nooit gebruiken voor activity-detail; dat heeft
+// streams wel nodig.
+async function getActivitiesLite(userId) {
+  const { rows } = await query(
+    `SELECT user_id, strava_id, start_date, type, moving_time,
+            average_watts, weighted_average_watts, suffer_score,
+            device_watts, power_source, tss, tss_source, raw, mmp
+       FROM activities WHERE user_id = $1 ORDER BY start_date ASC`,
+    [userId]
+  );
+  return rows.map(row => {
+    const base = { ...(row.raw || {}), id: Number(row.strava_id) };
+    if (row.tss !== null) base.tss = row.tss;
+    if (row.tss_source !== null) base.tss_source = row.tss_source;
+    if (row.mmp !== null) base.mmp = row.mmp;
+    return base;
+  });
+}
+
 async function upsertActivity(userId, activity) {
   await query(
     `INSERT INTO activities (
@@ -596,7 +619,7 @@ async function getExerciseTemplates(userId) {
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
-  getActivities, upsertActivity, upsertActivityMMP,
+  getActivities, getActivitiesLite, upsertActivity, upsertActivityMMP,
   getWeights, upsertWeight, deleteWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
   upsertNutrition, deleteNutrition, upsertSleep, upsertHevyWorkout,

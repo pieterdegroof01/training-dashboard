@@ -2371,6 +2371,9 @@ async function loadCharts() {
 
   try {
     const days = parseInt(document.getElementById('chartPeriod').value);
+    // De vermogenspanelen zijn netwerkgebonden en lezen niets uit charts/data;
+    // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
+    renderMmpCurve(); renderPowerTrends(); renderPowerProfile();
     const d = await api('/api/charts/data?days=' + days);
 
     const { gridColor, tickColor } = _chartTheme();
@@ -2512,9 +2515,6 @@ async function loadCharts() {
     }
 
     renderAerobicEfficiency();
-    renderMmpCurve();
-    renderPowerTrends();
-    renderPowerProfile();
 
     msg.className = 'hidden';
   } catch(e) {
