@@ -2374,6 +2374,7 @@ async function loadCharts() {
     // De vermogenspanelen zijn netwerkgebonden en lezen niets uit charts/data;
     // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
     renderMmpCurve(); renderPowerTrends(); renderPowerProfile(); renderStrengthTrends();
+    renderAllTimePRs();
     const d = await api('/api/charts/data?days=' + days);
 
     const { gridColor, tickColor } = _chartTheme();
@@ -2910,6 +2911,33 @@ async function renderMmpCurve() {
     document.getElementById('mmpMeta').textContent = `${d.recentCount} ritten (recent) · ${d.previousCount} ritten (vorige periode)`;
   } catch(e) {
     if (container) container.innerHTML = `<div style="color:var(--muted);font-size:12px">Curve laden mislukt: ${e.message}</div>`;
+  }
+}
+
+const PR_LABEL = { '5s':'5 sec','15s':'15 sec','30s':'30 sec','1min':'1 min','5min':'5 min','20min':'20 min','60min':'60 min' };
+
+async function renderAllTimePRs() {
+  const box = document.getElementById('allTimePrContainer');
+  if (!box) return;
+  try {
+    const d = await api('/api/state/mmp-curve');
+    const prs = (d.allTimePRs || []).filter(p => p.best);
+    if (!prs.length) {
+      box.innerHTML = '<div style="color:var(--muted);font-size:12px">Nog geen gemeten-vermogen-records. Bereken eerst de MMP-history.</div>';
+      return;
+    }
+    box.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">' + prs.map(p => {
+      const b = p.best;
+      const wkg = b.wkg != null ? b.wkg.toFixed(2) + ' W/kg' : '—';
+      return `<div onclick="navigateToActivity('${b.activityId}')" style="cursor:pointer;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--surface)">
+        <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">${PR_LABEL[p.key] || p.key}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:20px;color:var(--text)">${b.watts}<span style="font-size:12px;color:var(--muted)"> W</span></div>
+        <div style="font-size:12px;color:var(--accent);font-weight:700">${wkg}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.name || ''}${b.date ? ' · ' + b.date : ''}</div>
+      </div>`;
+    }).join('') + '</div>';
+  } catch (e) {
+    box.innerHTML = `<div style="color:var(--muted);font-size:12px">Records laden mislukt: ${e.message}</div>`;
   }
 }
 

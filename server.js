@@ -13,7 +13,7 @@ const engine = require('./engine');
 const { buildPlan } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
-const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
+const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -1347,10 +1347,47 @@ app.get('/api/state/mmp-curve', async (req, res) => {
       });
     }
 
+    // All-time PR-lijst: beste gemeten vermogen per standaardduur over de volledige historie.
+    const _DAY = 86400000, _WTOL = 120 * _DAY;
+    const _wEntries = Object.entries(weightMap).sort((a, b) => a[0].localeCompare(b[0]));
+    const weightAt = (dateStr) => {
+      if (!_wEntries.length || !dateStr) return null;
+      const t = new Date(dateStr).getTime();
+      let best = null, bestDiff = Infinity;
+      for (const [d, kg] of _wEntries) {
+        const diff = Math.abs(new Date(d).getTime() - t);
+        if (diff < bestDiff) { bestDiff = diff; best = kg; }
+      }
+      return bestDiff <= _WTOL ? best : null;
+    };
+    const PR_DURATIONS = [
+      { key: '5s', idx: 4 }, { key: '15s', idx: 14 }, { key: '30s', idx: 29 },
+      { key: '1min', idx: 59 }, { key: '5min', idx: 299 }, { key: '20min', idx: 1199 },
+      { key: '60min', idx: 3599 },
+    ];
+    const allTimePRs = PR_DURATIONS.map(({ key, idx }) => {
+      let best = null;
+      for (const [id, entry] of Object.entries(cache)) {
+        if (entry.v !== 2 || entry.powerSource !== 'measured' || !Array.isArray(entry.mmpArray)) continue;
+        if (entry.mmpArray.length <= idx) continue;
+        const w = entry.mmpArray[idx];
+        if (!(w > 0)) continue;
+        if (best === null || w > best.watts) {
+          best = { watts: Math.round(w), activityId: id, name: entry.name || null, date: entry.date || null };
+        }
+      }
+      if (best) {
+        const kg = weightAt(best.date);
+        best.wkg = kg ? +(best.watts / kg).toFixed(2) : null;
+      }
+      return { key, best };
+    });
+
     const _payload = {
       recent:   buildSampled(rCurve, rAttr, rDur),
       previous: buildSampled(pCurve, pAttr, pDur),
       recentCount, previousCount,
+      allTimePRs,
       totalActivities: Object.keys(cache).length
     };
     memoSet(_fp, 'mmp-curve', _payload);
