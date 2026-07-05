@@ -755,6 +755,6 @@ details.ap-accordion-section > summary { display:none; }
 .pf-trend-pill{flex:0 0 auto;padding:7px 15px;border-radius:20px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.4px;cursor:pointer;transition:all .15s ease;white-space:nowrap;}
 .pf-trend-pill:hover{color:var(--text);border-color:var(--subtle);}
 .pf-trend-pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
-.pf-seg{display:flex;flex-direction:column;gap:12px;}
-.pf-seg-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-@media(max-width:760px){.pf-seg-2col{grid-template-columns:1fr;}}
+.pf-trendseg{display:flex;flex-direction:column;gap:12px;}
+.pf-trendseg-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+@media(max-width:760px){.pf-trendseg-2col{grid-template-columns:1fr;}}

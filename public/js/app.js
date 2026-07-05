@@ -2367,9 +2367,9 @@ function filterByDays(series, days, dateKey = 'date') {
 function switchTrendSeg(seg){
   S._trendSeg=seg;
   document.querySelectorAll('#trendNav .pf-trend-pill').forEach(b=>b.classList.toggle('active',b.dataset.seg===seg));
-  document.querySelectorAll('#chartsContainer .pf-seg').forEach(p=>{p.style.display=(p.dataset.seg===seg)?'':'none';});
+  document.querySelectorAll('#chartsContainer .pf-trendseg').forEach(p=>{p.style.display=(p.dataset.seg===seg)?'':'none';});
 }
-function _showAllTrendSegs(){document.querySelectorAll('#chartsContainer .pf-seg').forEach(p=>{p.style.display='';});}
+function _showAllTrendSegs(){document.querySelectorAll('#chartsContainer .pf-trendseg').forEach(p=>{p.style.display='';});}
 function _applyTrendSeg(){switchTrendSeg(S._trendSeg||'vermogen');}
 
 async function loadCharts() {

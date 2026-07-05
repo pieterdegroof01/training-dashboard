@@ -453,14 +453,14 @@
         <button class="pf-trend-pill" data-seg="lichaam" onclick="switchTrendSeg('lichaam')">Lichaam</button>
       </div>
 
-      <div class="pf-seg" data-seg="vermogen">
+      <div class="pf-trendseg" data-seg="vermogen">
 
       <div class="card">
         <div class="card-label">Gemiddeld vermogen per maand (W) — onbetrouwbare periode uitgesloten<button class="pf-info-btn" data-tip="monthly_avg_power" aria-label="Uitleg gem. maandvermogen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></div>
         <canvas id="chartPower" height="80"></canvas>
       </div>
 
-        <div class="pf-seg-2col">
+        <div class="pf-trendseg-2col">
       <div class="card">
         <div class="card-label">FTP-verloop over tijd (W)</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Rolling FTP (60-daags venster, top-20min × 0,95) wekelijks gesampled over de volledige geschiedenis.</div>
@@ -481,7 +481,7 @@
         <div id="mmpCurveContainer" style="margin-top:14px"></div>
       </div>
 
-        <div class="pf-seg-2col">
+        <div class="pf-trendseg-2col">
       <div class="card" id="powerProfileCard">
         <div class="card-label">Vermogensprofiel — Coggan-categorieën</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Alleen ritten met vermogensmeter · Beste all-time per duur · Niveau 0–8 (Cat 5 → Wereldklasse)</div>
@@ -502,7 +502,7 @@
 
       </div>
 
-      <div class="pf-seg" data-seg="belasting" style="display:none">
+      <div class="pf-trendseg" data-seg="belasting" style="display:none">
 
       <div class="card">
         <div class="card-label">Trainingsbelasting — ATL / CTL / TSB (120 dagen)</div>
@@ -522,7 +522,7 @@
         <canvas id="chartZoneMix" height="80"></canvas>
       </div>
 
-        <div class="pf-seg-2col">
+        <div class="pf-trendseg-2col">
       <div class="card">
         <div class="card-label">Wekelijks trainingsvolume (uren)</div>
         <canvas id="chartVolume" height="80"></canvas>
@@ -536,7 +536,7 @@
 
       </div>
 
-      <div class="pf-seg" data-seg="kracht" style="display:none">
+      <div class="pf-trendseg" data-seg="kracht" style="display:none">
 
       <div class="card">
         <div class="card-label">Krachtvolume per spiergroep — wekelijkse tonnage (26 weken)</div>
@@ -552,7 +552,7 @@
 
       </div>
 
-      <div class="pf-seg" data-seg="herstel" style="display:none">
+      <div class="pf-trendseg" data-seg="herstel" style="display:none">
 
       <div class="card">
         <div class="card-label">Slaap over tijd (uren)</div>
@@ -568,7 +568,7 @@
 
       </div>
 
-      <div class="pf-seg" data-seg="lichaam" style="display:none">
+      <div class="pf-trendseg" data-seg="lichaam" style="display:none">
 
       <div class="card">
         <div class="card-label">Gewicht over tijd (kg)</div>
