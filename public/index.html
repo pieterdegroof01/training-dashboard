@@ -445,61 +445,33 @@
 
     <div id="chartsContainer" class="hidden" style="display:flex;flex-direction:column;gap:12px">
 
-      <div class="card">
-        <div class="card-label">Gewicht over tijd (kg)</div>
-        <canvas id="chartWeight" height="80"></canvas>
+      <div id="trendNav" class="pf-trend-nav">
+        <button class="pf-trend-pill active" data-seg="vermogen" onclick="switchTrendSeg('vermogen')">Vermogen</button>
+        <button class="pf-trend-pill" data-seg="belasting" onclick="switchTrendSeg('belasting')">Belasting</button>
+        <button class="pf-trend-pill" data-seg="kracht" onclick="switchTrendSeg('kracht')">Kracht</button>
+        <button class="pf-trend-pill" data-seg="herstel" onclick="switchTrendSeg('herstel')">Herstel</button>
+        <button class="pf-trend-pill" data-seg="lichaam" onclick="switchTrendSeg('lichaam')">Lichaam</button>
       </div>
 
-      <div class="card">
-        <div class="card-label">Trainingsbelasting — ATL / CTL / TSB (120 dagen)</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">ATL = acuut (7d gem.) · CTL = chronisch (42d gem.) · TSB = form (CTL−ATL)</div>
-        <canvas id="chartLoad" height="90"></canvas>
-      </div>
-
-      <div class="card">
-        <div class="card-label">Slaap over tijd (uren)</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6">Slaapduur per nacht met 7-daags voortschrijdend gemiddelde. Aanbevolen bandbreedte 7 tot 9 uur voor herstel bij concurrent training.</div>
-        <canvas id="chartSleep" height="80"></canvas>
-      </div>
-
-      <div class="card">
-        <div class="card-label">Wekelijks trainingsvolume (uren)</div>
-        <canvas id="chartVolume" height="80"></canvas>
-      </div>
-
-      <div class="card">
-        <div class="card-label">Volume per discipline — uren per week</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6">Gestapelde uren per week: fiets, hardlopen, kracht en overig. Krachtvolume telt alleen Strava-gelogde krachtsessies, dus Hevy-only-sessies zonder gekoppelde activiteit ontbreken hier.</div>
-        <canvas id="chartDiscipline" height="80"></canvas>
-      </div>
-
-      <div class="card">
-        <div class="card-label">Voeding — calorieën & eiwit per dag</div>
-        <canvas id="chartNutr" height="80"></canvas>
-      </div>
+      <div class="pf-seg" data-seg="vermogen">
 
       <div class="card">
         <div class="card-label">Gemiddeld vermogen per maand (W) — onbetrouwbare periode uitgesloten<button class="pf-info-btn" data-tip="monthly_avg_power" aria-label="Uitleg gem. maandvermogen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></div>
         <canvas id="chartPower" height="80"></canvas>
       </div>
 
+        <div class="pf-seg-2col">
       <div class="card">
-        <div class="card-label">Zone-verdeling per week — % tijd</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Aandeel trainingstijd per intensiteitszone per week over de laatste 26 weken. Laag = Z1 tot Z2, Midden = Z3 inclusief sweetspot tot 0,91 FTP, Hoog = Z4 en hoger. Alleen fiets- en hardloopsessies.</div>
-        <canvas id="chartZoneMix" height="80"></canvas>
+        <div class="card-label">FTP-verloop over tijd (W)</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Rolling FTP (60-daags venster, top-20min × 0,95) wekelijks gesampled over de volledige geschiedenis.</div>
+        <div id="ftpTrendContainer"></div>
       </div>
-
       <div class="card">
-        <div class="card-label">Trainingsmodel per week — Seiler-classificatie</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Gedetecteerd verdelingsmodel per week: polarized (blauw), pyramidal (groen), threshold-heavy (oranje), volume-only (lichtblauw), gemengd (grijs). Zelfde deterministische classificatie als de Week-tab, dus de trend is correct zolang de Week-MODEL-tegel dat op productie is.</div>
-        <canvas id="chartZoneModel" height="80"></canvas>
+        <div class="card-label">Kritiek vermogen &amp; W'-evolutie</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">CP (linkeras, W) en W' (rechteras, kJ) per maand, elk uit een 90-daags venster · Gaten = onvoldoende meetpunten voor een fit.</div>
+        <div id="cpTrendContainer"></div>
       </div>
-
-      <div class="card">
-        <div class="card-label">Aerobe efficiëntie<button class="pf-info-btn" data-tip="aerobic_efficiency" aria-label="Uitleg aerobe efficiëntie"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Vermogensmeter-ritten: W/bpm · Geschatte-vermogen-ritten: km·h⁻¹/bpm · Stijging = betere aerobe basis.</div>
-        <div id="aeroEff"></div>
-      </div>
+        </div>
 
       <div class="card">
         <div class="card-label">Vermogensduurcurve (MMP)</div>
@@ -509,29 +481,62 @@
         <div id="mmpCurveContainer" style="margin-top:14px"></div>
       </div>
 
-      <div class="card">
-        <div class="card-label">All-time persoonlijke records — beste gemeten vermogen per duur</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Hoogste ooit gemeten gemiddeld vermogen per tijdvenster over de volledige historie. Alleen vermogensmeter-ritten. W/kg met gewicht-op-datum. Klik een record om naar de rit te gaan.</div>
-        <div id="allTimePrContainer"></div>
-      </div>
-
+        <div class="pf-seg-2col">
       <div class="card" id="powerProfileCard">
         <div class="card-label">Vermogensprofiel — Coggan-categorieën</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Alleen ritten met vermogensmeter · Beste all-time per duur · Niveau 0–8 (Cat 5 → Wereldklasse)</div>
         <div id="powerProfileContainer"></div>
       </div>
+      <div class="card">
+        <div class="card-label">All-time persoonlijke records — beste gemeten vermogen per duur</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Hoogste ooit gemeten gemiddeld vermogen per tijdvenster over de volledige historie. Alleen vermogensmeter-ritten. W/kg met gewicht-op-datum. Klik een record om naar de rit te gaan.</div>
+        <div id="allTimePrContainer"></div>
+      </div>
+        </div>
 
       <div class="card">
-        <div class="card-label">FTP-verloop over tijd (W)</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Rolling FTP (60-daags venster, top-20min × 0,95) wekelijks gesampled over de volledige geschiedenis.</div>
-        <div id="ftpTrendContainer"></div>
+        <div class="card-label">Aerobe efficiëntie<button class="pf-info-btn" data-tip="aerobic_efficiency" aria-label="Uitleg aerobe efficiëntie"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Vermogensmeter-ritten: W/bpm · Geschatte-vermogen-ritten: km·h⁻¹/bpm · Stijging = betere aerobe basis.</div>
+        <div id="aeroEff"></div>
+      </div>
+
+      </div>
+
+      <div class="pf-seg" data-seg="belasting" style="display:none">
+
+      <div class="card">
+        <div class="card-label">Trainingsbelasting — ATL / CTL / TSB (120 dagen)</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">ATL = acuut (7d gem.) · CTL = chronisch (42d gem.) · TSB = form (CTL−ATL)</div>
+        <canvas id="chartLoad" height="90"></canvas>
       </div>
 
       <div class="card">
-        <div class="card-label">Kritiek vermogen &amp; W'-evolutie</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">CP (linkeras, W) en W' (rechteras, kJ) per maand, elk uit een 90-daags venster · Gaten = onvoldoende meetpunten voor een fit.</div>
-        <div id="cpTrendContainer"></div>
+        <div class="card-label">Trainingsmodel per week — Seiler-classificatie</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Gedetecteerd verdelingsmodel per week: polarized (blauw), pyramidal (groen), threshold-heavy (oranje), volume-only (lichtblauw), gemengd (grijs). Zelfde deterministische classificatie als de Week-tab, dus de trend is correct zolang de Week-MODEL-tegel dat op productie is.</div>
+        <canvas id="chartZoneModel" height="80"></canvas>
       </div>
+
+      <div class="card">
+        <div class="card-label">Zone-verdeling per week — % tijd</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Aandeel trainingstijd per intensiteitszone per week over de laatste 26 weken. Laag = Z1 tot Z2, Midden = Z3 inclusief sweetspot tot 0,91 FTP, Hoog = Z4 en hoger. Alleen fiets- en hardloopsessies.</div>
+        <canvas id="chartZoneMix" height="80"></canvas>
+      </div>
+
+        <div class="pf-seg-2col">
+      <div class="card">
+        <div class="card-label">Wekelijks trainingsvolume (uren)</div>
+        <canvas id="chartVolume" height="80"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-label">Volume per discipline — uren per week</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6">Gestapelde uren per week: fiets, hardlopen, kracht en overig. Krachtvolume telt alleen Strava-gelogde krachtsessies, dus Hevy-only-sessies zonder gekoppelde activiteit ontbreken hier.</div>
+        <canvas id="chartDiscipline" height="80"></canvas>
+      </div>
+        </div>
+
+      </div>
+
+      <div class="pf-seg" data-seg="kracht" style="display:none">
 
       <div class="card">
         <div class="card-label">Krachtvolume per spiergroep — wekelijkse tonnage (26 weken)</div>
@@ -545,10 +550,36 @@
         <div id="strengthE1rmContainer"></div>
       </div>
 
+      </div>
+
+      <div class="pf-seg" data-seg="herstel" style="display:none">
+
+      <div class="card">
+        <div class="card-label">Slaap over tijd (uren)</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6">Slaapduur per nacht met 7-daags voortschrijdend gemiddelde. Aanbevolen bandbreedte 7 tot 9 uur voor herstel bij concurrent training.</div>
+        <canvas id="chartSleep" height="80"></canvas>
+      </div>
+
       <div class="card">
         <div class="card-label">Plan versus uitkomst — wekelijkse compliance</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6">Voltooide, gemiste en ongeplande sessies per week, plus de gemiddelde TSS-afwijking van voorgeschreven sessies. Voedt de personalisatie van de plannerparameters zodra genoeg sessies zijn vastgelegd.</div>
         <div id="complianceContainer"></div>
+      </div>
+
+      </div>
+
+      <div class="pf-seg" data-seg="lichaam" style="display:none">
+
+      <div class="card">
+        <div class="card-label">Gewicht over tijd (kg)</div>
+        <canvas id="chartWeight" height="80"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Voeding — calorieën & eiwit per dag</div>
+        <canvas id="chartNutr" height="80"></canvas>
+      </div>
+
       </div>
 
     </div>

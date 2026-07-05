@@ -2364,10 +2364,19 @@ function filterByDays(series, days, dateKey = 'date') {
   return series.filter(d => new Date(d[dateKey] + (d[dateKey].length === 7 ? '-01' : '')) >= cutoff);
 }
 
+function switchTrendSeg(seg){
+  S._trendSeg=seg;
+  document.querySelectorAll('#trendNav .pf-trend-pill').forEach(b=>b.classList.toggle('active',b.dataset.seg===seg));
+  document.querySelectorAll('#chartsContainer .pf-seg').forEach(p=>{p.style.display=(p.dataset.seg===seg)?'':'none';});
+}
+function _showAllTrendSegs(){document.querySelectorAll('#chartsContainer .pf-seg').forEach(p=>{p.style.display='';});}
+function _applyTrendSeg(){switchTrendSeg(S._trendSeg||'vermogen');}
+
 async function loadCharts() {
   const msg = document.getElementById('chartsMsg');
   msg.className = 'alert alert-info'; msg.textContent = 'Grafieken laden...';
   document.getElementById('chartsContainer').classList.remove('hidden');
+  _showAllTrendSegs();
 
   try {
     const days = parseInt(document.getElementById('chartPeriod').value);
@@ -2547,6 +2556,7 @@ async function loadCharts() {
     msg.className = 'alert alert-error';
     msg.textContent = 'Laden mislukt: ' + e.message;
   }
+  _applyTrendSeg();
 }
 
 function renderAerobicEfficiency() {
