@@ -3035,12 +3035,11 @@ app.get('/api/data', async (req, res) => {
   try {
     const user = await getDefaultUser();
     const userId = user.id;
-    const [nutrition, weight, sleep, hevyWorkouts, activities] = await Promise.all([
+    const [nutrition, weight, sleep, hevyWorkouts] = await Promise.all([
       getNutrition(userId),
       getWeightMap(userId),
       getSleep(userId),
       getHevyWorkouts(userId),
-      getActivitiesLite(userId),
     ]);
     res.json({
       goals:            user.goals            || {},
@@ -3055,7 +3054,6 @@ app.get('/api/data', async (req, res) => {
       weight,
       sleep,
       hevyWorkouts,
-      activityCache: { lastSync: null, activities },
     });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
