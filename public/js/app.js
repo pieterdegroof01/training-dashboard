@@ -3079,11 +3079,14 @@ async function renderAllTimePRs() {
     box.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">' + prs.map(p => {
       const b = p.best;
       const wkg = b.wkg != null ? b.wkg.toFixed(2) + ' W/kg' : '—';
-      return `<div onclick="navigateToActivity('${b.activityId}')" style="cursor:pointer;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--surface)">
-        <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em">${PR_LABEL[p.key] || p.key}</div>
-        <div style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:20px;color:var(--text)">${b.watts}<span style="font-size:12px;color:var(--muted)"> W</span></div>
-        <div style="font-size:12px;color:var(--accent);font-weight:700">${wkg}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.name || ''}${b.date ? ' · ' + b.date : ''}</div>
+      return `<div onclick="navigateToActivity('${b.activityId}')" title="${b.name || ''}" style="cursor:pointer;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--surface)">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">${PR_LABEL[p.key] || p.key}</div>
+        <div style="font-family:'Inter Tight',sans-serif;font-weight:800;font-size:22px;color:var(--text);margin-top:3px">${b.watts}<span style="font-size:12px;font-weight:600;color:var(--muted)"> W</span></div>
+        <div style="font-size:12px;font-weight:700;color:var(--accent);margin-top:1px">${wkg}</div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:6px">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="var(--muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          <span style="font-size:10px;color:var(--muted)">${b.date || ''}</span>
+        </div>
       </div>`;
     }).join('') + '</div>';
   } catch (e) {
@@ -3093,9 +3096,14 @@ async function renderAllTimePRs() {
 
 // ── Power profile radar (Coggan-categorieën, alleen gemeten vermogen) ─────────
 
-const MODEL_ORDER = ['gemengd', 'volume-only', 'threshold-heavy', 'pyramidal', 'polarized'];
-const MODEL_COLOR = { 'polarized': '#012296', 'pyramidal': '#2633bd', 'threshold-heavy': '#8f9ad0', 'volume-only': '#5560bd', 'gemengd': '#bdb6a3' };
-const normModel = (m) => (m === 'mixed/onbekend' ? 'gemengd' : (m || 'gemengd'));
+const MODEL_META = {
+  'polarized':       { c: '#012296', label: 'Polarized',  desc: 'veel Z1–Z2, weinig Z3, pittige Z4–Z5' },
+  'pyramidal':       { c: '#2633bd', label: 'Pyramidaal', desc: 'aflopend Z1>Z2>Z3>Z4>Z5' },
+  'threshold-heavy': { c: '#8f9ad0', label: 'Threshold',  desc: 'nadruk op Z3–Z4 drempelwerk' },
+  'volume-only':     { c: '#5560bd', label: 'Volume',     desc: 'vooral laagintensief volume' },
+  'gemengd':         { c: '#bdb6a3', label: 'Gemengd',    desc: 'geen uitgesproken model' },
+};
+const normModel = (m) => (MODEL_META[m] ? m : 'gemengd');
 
 async function renderZoneTrend() {
   const mixCanvas = document.getElementById('chartZoneMix');
@@ -3134,31 +3142,48 @@ async function renderZoneTrend() {
       { color: '#5560bd', label: 'Hoog (Z4+)' },
     ]);
 
-    makeChart('chartZoneModel', {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Trainingsmodel',
-          data: wk.map(w => normModel(w.model)),
-          stepped: true,
-          borderColor: '#bdb6a355',
-          borderWidth: 1.5,
-          pointRadius: 4,
-          pointBackgroundColor: wk.map(w => MODEL_COLOR[normModel(w.model)]),
-          pointBorderColor: wk.map(w => MODEL_COLOR[normModel(w.model)]),
-        }]
-      },
-      options: {
-        ...baseOpts,
-        plugins: { ...baseOpts.plugins, legend: { display: false } },
-        scales: {
-          x: baseOpts.scales.x,
-          y: { type: 'category', labels: MODEL_ORDER, grid: { color: baseOpts.scales.y.grid.color }, ticks: { color: tickColor, font: { size: 10 } } }
-        }
-      }
-    });
+    _renderSeilerBand(document.getElementById('chartZoneModel'), wk);
   } catch (e) { /* stil falen, kaarten blijven leeg */ }
+}
+
+function _renderSeilerBand(el, wk) {
+  if (!el) return;
+  const SW = 1180, SH = 30, PL = 34, PR = 10;
+  const plotW = SW - PL - PR;
+  const n = wk.length;
+  const bw = plotW / n;
+  const cells = wk.map((w, i) => {
+    const meta = MODEL_META[normModel(w.model)];
+    const x = PL + i * bw + 1;
+    return `<rect data-i="${i}" x="${x.toFixed(2)}" y="4" width="${Math.max(0, bw - 2).toFixed(2)}" height="${SH - 8}" rx="3" fill="${meta.c}" style="cursor:pointer;transition:opacity .15s"></rect>`;
+  }).join('');
+  el.outerHTML = `<svg id="chartZoneModel" viewBox="0 0 ${SW} ${SH}" width="100%" height="30" style="display:block;overflow:visible">${cells}</svg>`;
+
+  const svg = document.getElementById('chartZoneModel');
+  let tip = document.getElementById('seilerBandTip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'seilerBandTip';
+    tip.className = 'pf-info-tip';
+    document.body.appendChild(tip);
+  }
+  const rects = svg.querySelectorAll('rect');
+  rects.forEach(rect => {
+    rect.addEventListener('mouseenter', () => {
+      rects.forEach(r => { r.style.opacity = (r === rect) ? '1' : '0.55'; });
+      const w = wk[+rect.dataset.i];
+      const meta = MODEL_META[normModel(w.model)];
+      tip.innerHTML = `<strong>WEEK ${w.week}</strong><div>${meta.label}</div><div style="color:var(--muted);margin-top:2px">${meta.desc}</div>`;
+      const r2 = rect.getBoundingClientRect();
+      tip.style.top = (r2.bottom + 8) + 'px';
+      tip.style.left = Math.max(8, Math.min(r2.left, window.innerWidth - 266)) + 'px';
+      tip.classList.add('is-open');
+    });
+    rect.addEventListener('mouseleave', () => {
+      rects.forEach(r => { r.style.opacity = '1'; });
+      tip.classList.remove('is-open');
+    });
+  });
 }
 
 const PP_AXES = [
@@ -3166,13 +3191,6 @@ const PP_AXES = [
   { key: '1min',  label: ['1 min', 'Anaeroob']    },
   { key: '5min',  label: ['5 min', 'VO₂max']      },
   { key: '20min', label: ['FTP', 'Drempelkracht'] },
-];
-
-const PP_RINGS = [
-  { name: 'Elite',           level: 5, color: '#f59e0b', dash: [5, 4], width: 1.5 },
-  { name: 'Wedstrijdklasse', level: 4, color: '#22c55e', dash: [5, 4], width: 1.5 },
-  { name: 'Gevorderd',       level: 3, color: '#94a3b8', dash: [3, 4], width: 1   },
-  { name: 'Amateur',         level: 2, color: '#475569', dash: [3, 4], width: 1   },
 ];
 
 const PP_CAT_NL = {
@@ -3217,106 +3235,72 @@ async function renderPowerProfile() {
          </div>`
       : `<div style="text-align:center;margin-bottom:16px;font-size:12px;color:var(--muted)">${rt.description || ''}</div>`;
 
+    const MAXLVL = 8;
+    const W = 360, H = 300;
+    const cx = W / 2, cy = H / 2 + 6, R = Math.min(W, H) / 2 - 46;
+    const n = PP_AXES.length;
+    const axisAngle = i => -Math.PI / 2 + (i / n) * 2 * Math.PI;
+    const axisPt = (i, r) => [cx + r * Math.cos(axisAngle(i)), cy + r * Math.sin(axisAngle(i))];
+
+    const gridPolys = [0.25, 0.5, 0.75, 1.0].map(g => {
+      const pts = PP_AXES.map((_, i) => axisPt(i, g * R).join(',')).join(' ');
+      return `<polygon points="${pts}" fill="none" stroke="var(--divider)" stroke-width="1"/>`;
+    }).join('');
+
+    const axisLines = PP_AXES.map((_, i) => {
+      const [x, y] = axisPt(i, R);
+      return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--divider)" stroke-width="1"/>`;
+    }).join('');
+
+    const polyPoints = levels => levels
+      .map((lvl, i) => (lvl == null ? null : axisPt(i, (lvl / MAXLVL) * R)))
+      .filter(Boolean)
+      .map(([x, y]) => `${x},${y}`)
+      .join(' ');
+
+    const prevPts = polyPoints(prevLevels);
+    const recentPts = polyPoints(recentLevels);
+
+    const prevPoly = prevPts
+      ? `<polygon points="${prevPts}" fill="#8f9ad030" stroke="#8f9ad0" stroke-width="2" stroke-dasharray="4 3"/>`
+      : '';
+    const recentPoly = recentPts
+      ? `<polygon points="${recentPts}" fill="#01229622" stroke="#012296" stroke-width="2.4"/>`
+      : '';
+
+    const recentDots = recentLevels.map((lvl, i) => {
+      if (lvl == null) return '';
+      const [x, y] = axisPt(i, (lvl / MAXLVL) * R);
+      return `<circle cx="${x}" cy="${y}" r="3.4" fill="#012296"/>`;
+    }).join('');
+
+    const axisLabels = PP_AXES.map((a, i) => {
+      const [x, y] = axisPt(i, R + 22);
+      const c = Math.cos(axisAngle(i));
+      const anchor = Math.abs(c) < 0.3 ? 'middle' : (c > 0 ? 'start' : 'end');
+      const name = Array.isArray(a.label) ? a.label[0] : a.label;
+      const wkg = byKey[a.key]?.recent?.wkg;
+      return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="var(--text)">${name}</text>` +
+             `<text x="${x}" y="${y + 9}" text-anchor="${anchor}" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="var(--muted)">${wkg != null ? wkg + ' W/kg' : '—'}</text>`;
+    }).join('');
+
     container.innerHTML = `
       ${typeBlock}
       <div style="max-width:480px;margin:0 auto">
-        <canvas id="chartPowerProfile"></canvas>
+        <svg id="chartPowerProfile" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">
+          ${gridPolys}
+          ${axisLines}
+          ${prevPoly}
+          ${recentPoly}
+          ${recentDots}
+          ${axisLabels}
+        </svg>
+        <div style="display:flex;justify-content:center;gap:16px;margin-top:10px">
+          <span style="display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted)"><span style="width:14px;border-top:2px solid #012296;display:inline-block"></span>Laatste 90d</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted)"><span style="width:14px;border-top:2px dashed #8f9ad0;display:inline-block"></span>Vorige 9 mnd</span>
+        </div>
       </div>
       <div id="powerProfileMeta" style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.8;text-align:center"></div>`;
-
-    const gridColor = 'rgba(128,128,128,0.15)';
-    const ringDatasets = PP_RINGS.map(r => ({
-      label: r.name,
-      data: PP_AXES.map(() => r.level),
-      borderColor: r.color,
-      backgroundColor: 'transparent',
-      borderWidth: r.width,
-      borderDash: r.dash,
-      pointRadius: 0,
-      fill: false,
-    }));
-
-    makeChart('chartPowerProfile', {
-      type: 'radar',
-      data: {
-        labels: PP_AXES.map(a => a.label),
-        datasets: [
-          {
-            label: 'Laatste 90 dagen',
-            data: recentLevels,
-            borderColor: '#012296',
-            backgroundColor: '#01229618',
-            borderWidth: 2.5,
-            pointRadius: 5,
-            pointBackgroundColor: '#012296',
-            pointBorderColor: '#fdfbf5',
-            pointBorderWidth: 1.5,
-            fill: true,
-            spanGaps: true,
-          },
-          {
-            label: 'Vorige 9 maanden',
-            data: prevLevels,
-            borderColor: '#9ca3af',
-            backgroundColor: 'transparent',
-            borderWidth: 2,
-            borderDash: [6, 4],
-            pointRadius: 3,
-            pointBackgroundColor: '#9ca3af',
-            fill: false,
-            spanGaps: true,
-          },
-          ...ringDatasets,
-        ],
-      },
-      options: {
-        responsive: true,
-        aspectRatio: 1.15,
-        scales: {
-          r: {
-            min: 0,
-            max: 8,
-            ticks: {
-              display: true,
-              color: '#888',
-              backdropColor: 'transparent',
-              font: { size: 10 },
-              stepSize: 1,
-              callback: v => {
-                const labels = { 2: 'Amateur', 3: 'Gevorderd', 4: 'Wedstrijd', 5: 'Elite', 7: 'Top amateur' };
-                return labels[v] || '';
-              },
-            },
-            grid: { color: gridColor },
-            angleLines: { color: gridColor },
-            pointLabels: { color: '#666', font: { size: 12, weight: '600' } },
-          },
-        },
-        plugins: {
-          legend: { labels: { color: '#888', font: { size: 11 }, boxWidth: 18, padding: 12 } },
-          tooltip: {
-            callbacks: {
-              title: ctx => PP_AXES[ctx[0]?.dataIndex]?.label?.join(' · ') || '',
-              label: ctx => {
-                if (ctx.datasetIndex > 1) return null; // alleen de twee polygonen
-                const dur = byKey[PP_AXES[ctx.dataIndex].key];
-                const slot = ctx.datasetIndex === 0 ? dur?.recent : dur?.previous;
-                if (!slot || slot.level == null) return `${ctx.dataset.label}: geen data`;
-                const catNl = PP_CAT_NL[slot.category] || slot.category;
-                const w = slot.ftpWatts ?? slot.watts;
-                const lines = [
-                  `${ctx.dataset.label}`,
-                  `${catNl} — niveau ${slot.level.toFixed(1)}/8`,
-                  `${slot.wkg} W/kg${w ? ` (${w}W @ ${slot.weight}kg)` : ''}`,
-                ];
-                if (slot.name) lines.push(slot.name + (slot.date ? ` (${slot.date})` : ''));
-                return lines;
-              },
-            },
-          },
-        },
-      },
-    });
 
     const parts = PP_AXES.map(a => {
       const slot = byKey[a.key]?.recent;
