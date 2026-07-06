@@ -2358,6 +2358,37 @@ function makeChart(id, config) {
   chartInstances[id] = new Chart(ctx, config);
 }
 
+// ── Mockup-chrome: rechts-uitgelijnde trend-chip + legenda-rijtje ──────────────
+function _trendChip(text) {
+  return '<span class="pf-trend-chip">' + text + '</span>';
+}
+
+function _setHeaderChip(canvasId, text) {
+  const canvas = document.getElementById(canvasId);
+  const label = canvas?.closest('.card')?.querySelector('.card-label');
+  if (!label) return;
+  label.style.display = 'flex';
+  label.style.justifyContent = 'space-between';
+  label.style.alignItems = 'center';
+  const existing = label.querySelector('.pf-trend-chip');
+  if (existing) existing.outerHTML = _trendChip(text);
+  else label.insertAdjacentHTML('beforeend', _trendChip(text));
+}
+
+function _legendRow(canvasId, items) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const existing = canvas.parentElement.querySelector('.pf-legend-row[data-for="' + canvasId + '"]');
+  if (existing) existing.remove();
+  const row = document.createElement('div');
+  row.className = 'pf-legend-row';
+  row.dataset.for = canvasId;
+  row.innerHTML = items.map(it =>
+    '<span class="pf-legend-item"><span class="pf-legend-swatch" style="background:' + it.color + '"></span>' + it.label + '</span>'
+  ).join('');
+  canvas.insertAdjacentElement('afterend', row);
+}
+
 function filterByDays(series, days, dateKey = 'date') {
   if (days >= 9999) return series;
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
@@ -2401,7 +2432,7 @@ async function loadCharts() {
         data: {
           datasets: [{
             label: 'Gewicht (kg)', data: weightXY,
-            borderColor: '#4ade80', backgroundColor: '#4ade8018',
+            borderColor: '#012296', backgroundColor: '#01229618',
             borderWidth: 2, pointRadius: wData.length > 60 ? 3 : 4, fill: true, tension: 0.3
           }]
         },
@@ -2440,6 +2471,9 @@ async function loadCharts() {
           }
         }
       });
+      const wFirst = wData[0].kg, wLast = wData[wData.length - 1].kg;
+      const wDelta = +(wLast - wFirst).toFixed(1);
+      _setHeaderChip('chartWeight', (wDelta > 0 ? '+' : '') + wDelta + ' kg');
     }
 
     // ── ATL/CTL/TSB ───────────────────────────────────────────────────────────
@@ -2450,16 +2484,24 @@ async function loadCharts() {
         data: {
           labels: lData.map(v => v.date),
           datasets: [
-            { label: 'CTL (fitness)', data: lData.map(v => v.ctl), borderColor: '#38bdf8', borderWidth: 2, pointRadius: 0, tension: 0.4 },
-            { label: 'ATL (vermoeidheid)', data: lData.map(v => v.atl), borderColor: '#f87171', borderWidth: 2, pointRadius: 0, tension: 0.4 },
-            { label: 'TSB (form)', data: lData.map(v => v.tsb), borderColor: '#a78bfa', borderWidth: 1.5, pointRadius: 0, tension: 0.4, borderDash: [4, 3] },
+            { label: 'CTL (fitness)', data: lData.map(v => v.ctl), borderColor: '#012296', borderWidth: 2, pointRadius: 0, tension: 0.4 },
+            { label: 'ATL (vermoeidheid)', data: lData.map(v => v.atl), borderColor: '#2633bd', borderWidth: 2, pointRadius: 0, tension: 0.4 },
+            { label: 'TSB (form)', data: lData.map(v => v.tsb), borderColor: '#175a3b', borderWidth: 1.5, pointRadius: 0, tension: 0.4, borderDash: [4, 3] },
           ]
         },
         options: {
           ...baseOpts,
+          plugins: { ...baseOpts.plugins, legend: { display: false } },
           scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, grid: { color: (ctx) => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : gridColor } } }
         }
       });
+      const lLast = lData[lData.length - 1];
+      _setHeaderChip('chartLoad', 'CTL ' + Math.round(lLast.ctl) + ' · ATL ' + Math.round(lLast.atl) + ' · TSB ' + (lLast.tsb > 0 ? '+' : '') + Math.round(lLast.tsb));
+      _legendRow('chartLoad', [
+        { color: '#012296', label: 'CTL' },
+        { color: '#2633bd', label: 'ATL' },
+        { color: '#175a3b', label: 'TSB' },
+      ]);
     }
 
     // ── Wekelijks volume ──────────────────────────────────────────────────────
@@ -2470,8 +2512,8 @@ async function loadCharts() {
         data: {
           labels: vData.map(v => v.week),
           datasets: [
-            { label: 'Uren', data: vData.map(v => v.hours), backgroundColor: '#f9731666', borderColor: '#f97316', borderWidth: 1, yAxisID: 'y' },
-            { label: 'Sessies', data: vData.map(v => v.sessions), type: 'line', borderColor: '#38bdf8', borderWidth: 2, pointRadius: 2, tension: 0.3, yAxisID: 'y2' },
+            { label: 'Uren', data: vData.map(v => v.hours), backgroundColor: '#01229666', borderColor: '#012296', borderWidth: 1, yAxisID: 'y' },
+            { label: 'Sessies', data: vData.map(v => v.sessions), type: 'line', borderColor: '#2633bd', borderWidth: 2, pointRadius: 2, tension: 0.3, yAxisID: 'y2' },
           ]
         },
         options: {
@@ -2491,20 +2533,27 @@ async function loadCharts() {
         data: {
           labels: vData.map(v => v.week),
           datasets: [
-            { label: 'Fiets',     data: vData.map(v => v.cycling),  backgroundColor: '#012296cc', stack: 'd' },
-            { label: 'Hardlopen', data: vData.map(v => v.running),  backgroundColor: '#f97316cc', stack: 'd' },
-            { label: 'Kracht',    data: vData.map(v => v.strength), backgroundColor: '#22c55ecc', stack: 'd' },
-            { label: 'Overig',    data: vData.map(v => v.other),    backgroundColor: '#94a3b8aa', stack: 'd' },
+            { label: 'Fiets',     data: vData.map(v => v.cycling),  backgroundColor: '#c3c8e4', stack: 'd' },
+            { label: 'Hardlopen', data: vData.map(v => v.running),  backgroundColor: '#8f9ad0', stack: 'd' },
+            { label: 'Kracht',    data: vData.map(v => v.strength), backgroundColor: '#5560bd', stack: 'd' },
+            { label: 'Overig',    data: vData.map(v => v.other),    backgroundColor: '#2633bd', stack: 'd' },
           ]
         },
         options: {
           ...baseOpts,
+          plugins: { ...baseOpts.plugins, legend: { display: false } },
           scales: {
             x: { ...baseOpts.scales.x, stacked: true },
             y: { ...baseOpts.scales.y, stacked: true, title: { display: true, text: 'Uren', color: tickColor, font: { size: 10 } } }
           }
         }
       });
+      _legendRow('chartDiscipline', [
+        { color: '#c3c8e4', label: 'Fiets' },
+        { color: '#8f9ad0', label: 'Hardlopen' },
+        { color: '#5560bd', label: 'Kracht' },
+        { color: '#2633bd', label: 'Overig' },
+      ]);
     }
 
     // ── Voeding ───────────────────────────────────────────────────────────────
@@ -2515,8 +2564,8 @@ async function loadCharts() {
         data: {
           labels: nData.map(v => v.date),
           datasets: [
-            { label: 'Calorieën (kcal)', data: nData.map(v => v.kcal), backgroundColor: '#f9731644', borderColor: '#f97316', borderWidth: 1, yAxisID: 'y' },
-            { label: 'Eiwit (g)', data: nData.map(v => v.protein), type: 'line', borderColor: '#4ade80', borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: 'y2' },
+            { label: 'Calorieën (kcal)', data: nData.map(v => v.kcal), backgroundColor: '#01229644', borderColor: '#012296', borderWidth: 1, yAxisID: 'y' },
+            { label: 'Eiwit (g)', data: nData.map(v => v.protein), type: 'line', borderColor: '#2633bd', borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: 'y2' },
           ]
         },
         options: {
@@ -2539,12 +2588,15 @@ async function loadCharts() {
           labels: pData.map(v => v.month),
           datasets: [{
             label: 'Gem. vermogen (W)', data: pData.map(v => v.avgWatt),
-            borderColor: '#f97316', backgroundColor: '#f9731618',
+            borderColor: '#012296', backgroundColor: '#01229618',
             borderWidth: 2, pointRadius: 4, fill: true, tension: 0.3
           }]
         },
         options: baseOpts
       });
+      const pFirst = pData[0].avgWatt, pLast = pData[pData.length - 1].avgWatt;
+      const pDelta = Math.round(pLast - pFirst);
+      _setHeaderChip('chartPower', (pDelta > 0 ? '+' : '') + pDelta + ' W');
     } else if (!d.powerTrend?.length) {
       document.getElementById('chartPower').parentElement.innerHTML += '<div class="alert alert-info mt-2" style="font-size:11px">Geen vermogensdata beschikbaar. Sync eerst je volledige history.</div>';
     }
@@ -2575,9 +2627,9 @@ function renderAerobicEfficiency() {
     if (!trend || trend.trendDirection === 'insufficient_data')
       return '<span style="background:var(--card2);color:var(--muted);padding:2px 9px;border-radius:99px;font-size:11px">Onvoldoende data</span>';
     if (trend.trendDirection === 'improving')
-      return '<span style="background:#16a34a22;color:#4ade80;padding:2px 9px;border-radius:99px;font-size:11px">↑ Verbeterend</span>';
+      return '<span style="background:#175a3b22;color:#175a3b;padding:2px 9px;border-radius:99px;font-size:11px">↑ Verbeterend</span>';
     if (trend.trendDirection === 'declining')
-      return '<span style="background:#dc262622;color:#f87171;padding:2px 9px;border-radius:99px;font-size:11px">↓ Dalend</span>';
+      return '<span style="background:#8a261522;color:#8a2615;padding:2px 9px;border-radius:99px;font-size:11px">↓ Dalend</span>';
     return '<span style="background:var(--card2);color:var(--muted);padding:2px 9px;border-radius:99px;font-size:11px">→ Stabiel</span>';
   }
 
@@ -2611,9 +2663,9 @@ function renderAerobicEfficiency() {
         labels: aet.powerSeries.map(p => p.date),
         datasets: [
           { label: 'EI (W/bpm)', data: aet.powerSeries.map(p => p.ei),
-            borderWidth: 0, pointRadius: 3, pointBackgroundColor: '#f97316', showLine: false },
+            borderWidth: 0, pointRadius: 3, pointBackgroundColor: '#012296', showLine: false },
           { label: '28d gem.', data: aet.powerSeries.map(p => p.rollingEI),
-            borderColor: '#f97316', backgroundColor: '#f9731618',
+            borderColor: '#2633bd', backgroundColor: '#2633bd18',
             borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }
         ]
       },
@@ -2627,9 +2679,9 @@ function renderAerobicEfficiency() {
         labels: aet.speedSeries.map(p => p.date),
         datasets: [
           { label: 'EI (km/h/bpm)', data: aet.speedSeries.map(p => p.ei),
-            borderWidth: 0, pointRadius: 3, pointBackgroundColor: '#38bdf8', showLine: false },
+            borderWidth: 0, pointRadius: 3, pointBackgroundColor: '#012296', showLine: false },
           { label: '28d gem.', data: aet.speedSeries.map(p => p.rollingEI),
-            borderColor: '#38bdf8', backgroundColor: '#38bdf818',
+            borderColor: '#2633bd', backgroundColor: '#2633bd18',
             borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }
         ]
       },
@@ -2666,10 +2718,10 @@ async function renderPowerTrends() {
           labels: d.ftpSeries.map(p => p.date),
           datasets: [
             { label: 'FTP (W)', data: d.ftpSeries.map(p => p.ftp), yAxisID: 'y',
-              borderColor: '#f97316', backgroundColor: '#f9731612',
+              borderColor: '#012296', backgroundColor: '#01229612',
               borderWidth: 2, pointRadius: 0, pointHitRadius: 8, tension: 0.2, fill: true },
             { label: 'W/kg', data: d.ftpSeries.map(p => p.wkg), yAxisID: 'yWkg',
-              borderColor: '#6b4fa0', backgroundColor: 'transparent',
+              borderColor: '#2633bd', backgroundColor: 'transparent',
               borderWidth: 1.5, pointRadius: 0, pointHitRadius: 8, tension: 0.2,
               borderDash: [4, 4], spanGaps: false }
           ]
@@ -2713,10 +2765,10 @@ async function renderPowerTrends() {
           labels: d.cpSeries.map(p => p.date),
           datasets: [
             { label: 'CP (W)', data: d.cpSeries.map(p => p.cp), yAxisID: 'yCp',
-              borderColor: '#6b4fa0', backgroundColor: '#6b4fa012',
+              borderColor: '#012296', backgroundColor: '#01229612',
               borderWidth: 2, pointRadius: 0, tension: 0.2, spanGaps: false },
             { label: "W' (kJ)", data: d.cpSeries.map(p => p.wPrime != null ? +(p.wPrime / 1000).toFixed(1) : null), yAxisID: 'yW',
-              borderColor: '#22c55e', borderWidth: 1.5, pointRadius: 0,
+              borderColor: '#2633bd', borderWidth: 1.5, pointRadius: 0,
               tension: 0.2, borderDash: [4, 4], spanGaps: false }
           ]
         },
@@ -2742,7 +2794,7 @@ async function renderStrengthTrends() {
   if (!muscleBox && !e1rmBox) return;
   try {
     const d = await api('/api/charts/strength-trends');
-    const { gridColor, tickColor, textColor } = _chartTheme();
+    const { gridColor, tickColor } = _chartTheme();
 
     // ── Spiergroep-tonnage (gestapeld, absoluut) ──
     const hasMuscle = (d.muscleSeries || []).some(w => w.lower_body || w.push || w.pull || w.core || w.other);
@@ -2751,11 +2803,11 @@ async function renderStrengthTrends() {
     } else if (muscleBox) {
       muscleBox.innerHTML = '<canvas id="chartMuscleVolume" height="80"></canvas>';
       const GROUPS = [
-        { key: 'lower_body', label: 'Onderlichaam', color: '#012296' },
-        { key: 'push',       label: 'Push',         color: '#f97316' },
-        { key: 'pull',       label: 'Pull',         color: '#22c55e' },
-        { key: 'core',       label: 'Core',         color: '#6b4fa0' },
-        { key: 'other',      label: 'Overig',       color: '#b8b0a0' },
+        { key: 'lower_body', label: 'Onderlichaam', color: '#c3c8e4' },
+        { key: 'push',       label: 'Push',         color: '#8f9ad0' },
+        { key: 'pull',       label: 'Pull',         color: '#5560bd' },
+        { key: 'core',       label: 'Core',         color: '#2633bd' },
+        { key: 'other',      label: 'Overig',       color: '#012296' },
       ];
       makeChart('chartMuscleVolume', {
         type: 'bar',
@@ -2772,7 +2824,7 @@ async function renderStrengthTrends() {
         options: {
           responsive: true,
           plugins: {
-            legend: { labels: { color: textColor, font: { size: 11 } } },
+            legend: { display: false },
             tooltip: { mode: 'index', intersect: false, callbacks: {
               footer: (items) => 'Totaal: ' + items.reduce((s, i) => s + (i.raw || 0), 0).toLocaleString('nl-NL') + ' kg',
             } },
@@ -2783,6 +2835,7 @@ async function renderStrengthTrends() {
           },
         },
       });
+      _legendRow('chartMuscleVolume', GROUPS.map(g => ({ color: g.color, label: g.label })));
     }
 
     // ── e1RM-progressie (multiline, per oefening toggelbaar) ──
@@ -2797,7 +2850,7 @@ async function renderStrengthTrends() {
       return;
     }
 
-    const PALETTE = ['#012296', '#f97316', '#22c55e', '#6b4fa0', '#e11d48', '#0891b2'];
+    const PALETTE = ['#c3c8e4', '#8f9ad0', '#5560bd', '#2633bd', '#012296', '#1a1d92'];
     const dateSet = new Set();
     enoughLifts.forEach(l => l.sessions.forEach(s => dateSet.add(s.date)));
     const labels = [...dateSet].sort();
@@ -2878,7 +2931,7 @@ async function renderMmpCurve() {
         labels,
         datasets: [
           { label: 'Laatste 30 dagen', data: recentPts.map(p => p.watts),
-            borderColor: '#f97316', backgroundColor: '#f9731612',
+            borderColor: '#012296', backgroundColor: '#01229612',
             borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true, spanGaps: true },
           { label: '31–90 dagen', data: prevPts.map(p => p.watts),
             borderColor: '#555', borderWidth: 1.5, pointRadius: 0,
@@ -2945,14 +2998,15 @@ async function renderCompliance() {
       data: {
         labels: s.map(w => w.week),
         datasets: [
-          { label: 'Voltooid',      data: s.map(w => w.completed),   backgroundColor: '#22c55ecc', stack: 'c', yAxisID: 'y' },
-          { label: 'Gemist',        data: s.map(w => w.missed),      backgroundColor: '#ef4444cc', stack: 'c', yAxisID: 'y' },
-          { label: 'Ongepland',     data: s.map(w => w.unplanned),   backgroundColor: '#94a3b8aa', stack: 'c', yAxisID: 'y' },
-          { label: 'TSS-afwijking', type: 'line', data: s.map(w => w.avgTssDelta), borderColor: '#f97316', borderWidth: 2, pointRadius: 2, tension: 0.3, spanGaps: true, yAxisID: 'y2' },
+          { label: 'Voltooid',      data: s.map(w => w.completed),   backgroundColor: '#c3c8e4', stack: 'c', yAxisID: 'y' },
+          { label: 'Gemist',        data: s.map(w => w.missed),      backgroundColor: '#8f9ad0', stack: 'c', yAxisID: 'y' },
+          { label: 'Ongepland',     data: s.map(w => w.unplanned),   backgroundColor: '#5560bd', stack: 'c', yAxisID: 'y' },
+          { label: 'TSS-afwijking', type: 'line', data: s.map(w => w.avgTssDelta), borderColor: '#2633bd', borderWidth: 2, pointRadius: 2, tension: 0.3, spanGaps: true, yAxisID: 'y2' },
         ]
       },
       options: {
         ...baseOpts,
+        plugins: { ...baseOpts.plugins, legend: { display: false } },
         scales: {
           x: { ...baseOpts.scales.x, stacked: true },
           y: { ...baseOpts.scales.y, stacked: true, title: { display: true, text: 'Sessies', color: tickColor, font: { size: 10 } } },
@@ -2960,6 +3014,12 @@ async function renderCompliance() {
         }
       }
     });
+    _legendRow('chartCompliance', [
+      { color: '#c3c8e4', label: 'Voltooid' },
+      { color: '#8f9ad0', label: 'Gemist' },
+      { color: '#5560bd', label: 'Ongepland' },
+      { color: '#2633bd', label: 'TSS-afwijking' },
+    ]);
   } catch (e) { box.innerHTML = `<div style="color:var(--muted);font-size:12px">Compliance laden mislukt: ${e.message}</div>`; }
 }
 
@@ -2983,7 +3043,7 @@ async function renderSleepTrend() {
         labels: s.map(p => p.date),
         datasets: [
           { label: 'Uren', data: s.map(p => p.hours), backgroundColor: '#01229633', borderColor: '#01229655', borderWidth: 1, order: 2 },
-          { label: '7-daags gem.', type: 'line', data: roll, borderColor: '#f97316', borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true, order: 1 },
+          { label: '7-daags gem.', type: 'line', data: roll, borderColor: '#012296', borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true, order: 1 },
         ]
       },
       options: {
@@ -3027,7 +3087,7 @@ async function renderAllTimePRs() {
 // ── Power profile radar (Coggan-categorieën, alleen gemeten vermogen) ─────────
 
 const MODEL_ORDER = ['gemengd', 'volume-only', 'threshold-heavy', 'pyramidal', 'polarized'];
-const MODEL_COLOR = { 'polarized': '#012296', 'pyramidal': '#22c55e', 'threshold-heavy': '#f97316', 'volume-only': '#38bdf8', 'gemengd': '#94a3b8' };
+const MODEL_COLOR = { 'polarized': '#012296', 'pyramidal': '#2633bd', 'threshold-heavy': '#8f9ad0', 'volume-only': '#5560bd', 'gemengd': '#bdb6a3' };
 const normModel = (m) => (m === 'mixed/onbekend' ? 'gemengd' : (m || 'gemengd'));
 
 async function renderZoneTrend() {
@@ -3047,19 +3107,25 @@ async function renderZoneTrend() {
       data: {
         labels,
         datasets: [
-          { label: 'Laag (Z1–Z2)',                data: wk.map(w => w.lowPct),  backgroundColor: '#38bdf8cc', stack: 'z' },
-          { label: 'Midden (Z3, incl. sweetspot)', data: wk.map(w => w.midPct),  backgroundColor: '#f97316cc', stack: 'z' },
-          { label: 'Hoog (Z4+)',                  data: wk.map(w => w.highPct), backgroundColor: '#ef4444cc', stack: 'z' },
+          { label: 'Laag (Z1–Z2)',                data: wk.map(w => w.lowPct),  backgroundColor: '#c3c8e4', stack: 'z' },
+          { label: 'Midden (Z3, incl. sweetspot)', data: wk.map(w => w.midPct),  backgroundColor: '#8f9ad0', stack: 'z' },
+          { label: 'Hoog (Z4+)',                  data: wk.map(w => w.highPct), backgroundColor: '#5560bd', stack: 'z' },
         ]
       },
       options: {
         ...baseOpts,
+        plugins: { ...baseOpts.plugins, legend: { display: false } },
         scales: {
           x: { ...baseOpts.scales.x, stacked: true },
           y: { ...baseOpts.scales.y, stacked: true, min: 0, max: 100, title: { display: true, text: '% tijd', color: tickColor, font: { size: 10 } } }
         }
       }
     });
+    _legendRow('chartZoneMix', [
+      { color: '#c3c8e4', label: 'Laag (Z1–Z2)' },
+      { color: '#8f9ad0', label: 'Midden (Z3)' },
+      { color: '#5560bd', label: 'Hoog (Z4+)' },
+    ]);
 
     makeChart('chartZoneModel', {
       type: 'line',
@@ -3069,7 +3135,7 @@ async function renderZoneTrend() {
           label: 'Trainingsmodel',
           data: wk.map(w => normModel(w.model)),
           stepped: true,
-          borderColor: '#94a3b855',
+          borderColor: '#bdb6a355',
           borderWidth: 1.5,
           pointRadius: 4,
           pointBackgroundColor: wk.map(w => MODEL_COLOR[normModel(w.model)]),

@@ -758,3 +758,7 @@ details.ap-accordion-section > summary { display:none; }
 .pf-trendseg{display:flex;flex-direction:column;gap:12px;}
 .pf-trendseg-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 @media(max-width:760px){.pf-trendseg-2col{grid-template-columns:1fr;}}
+.pf-trend-chip{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;letter-spacing:.3px;color:var(--accent);background:var(--card2);border-radius:99px;padding:3px 10px;white-space:nowrap;}
+.pf-legend-row{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);}
+.pf-legend-item{display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);}
+.pf-legend-swatch{width:9px;height:9px;border-radius:2px;flex:0 0 auto;}
