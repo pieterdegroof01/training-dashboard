@@ -2409,15 +2409,21 @@ async function loadCharts() {
   document.getElementById('chartsContainer').classList.remove('hidden');
   _showAllTrendSegs();
 
+  // De vermogenspanelen zijn netwerkgebonden en lezen niets uit charts/data;
+  // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
+  // Hun promises worden hieronder afgewacht vóór _applyTrendSeg(), anders kan
+  // een panel zijn canvas pas aanmaken nadat het eigen segment alweer verborgen
+  // is (zero-width-canvas: Chart.js tekent dan in een 0×0-container).
+  const panelPromises = [
+    renderMmpCurve(), renderPowerTrends(), renderPowerProfile(), renderStrengthTrends(),
+    renderZoneTrend(),
+    renderAllTimePRs(),
+    renderSleepTrend(),
+    renderCompliance(),
+  ];
+
   try {
     const days = parseInt(document.getElementById('chartPeriod').value);
-    // De vermogenspanelen zijn netwerkgebonden en lezen niets uit charts/data;
-    // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
-    renderMmpCurve(); renderPowerTrends(); renderPowerProfile(); renderStrengthTrends();
-    renderZoneTrend();
-    renderAllTimePRs();
-    renderSleepTrend();
-    renderCompliance();
     const d = await api('/api/charts/data?days=' + days);
 
     const { gridColor, tickColor } = _chartTheme();
@@ -2608,6 +2614,7 @@ async function loadCharts() {
     msg.className = 'alert alert-error';
     msg.textContent = 'Laden mislukt: ' + e.message;
   }
+  await Promise.allSettled(panelPromises);
   _applyTrendSeg();
 }
 
