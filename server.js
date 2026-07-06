@@ -2940,7 +2940,7 @@ app.get('/api/state/full', async (req, res) => {
     const user = await getDefaultUser();
     const userId = user.id;
     const [activities, hevyWorkouts, weight, nutrition, sleep] = await Promise.all([
-      getActivities(userId),
+      getActivitiesLite(userId),
       getHevyWorkouts(userId),
       getWeightMap(userId),
       getNutrition(userId),
@@ -3040,7 +3040,7 @@ app.get('/api/data', async (req, res) => {
       getWeightMap(userId),
       getSleep(userId),
       getHevyWorkouts(userId),
-      getActivities(userId),
+      getActivitiesLite(userId),
     ]);
     res.json({
       goals:            user.goals            || {},
