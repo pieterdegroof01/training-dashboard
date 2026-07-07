@@ -1091,9 +1091,8 @@ app.get('/api/strava/history-summary', async (req, res) => {
     const user = await getDefaultUser();
     const activities = await getActivitiesLite(user.id);
     const settings = user.settings || {};
-    const metrics = calcMetrics(activities, settings);
     const summary = buildHistorySummary(activities, settings);
-    res.json({ total: activities.length, lastSync: user.settings?.lastSync || null, metrics, summary });
+    res.json({ total: activities.length, lastSync: user.settings?.lastSync || null, summary });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

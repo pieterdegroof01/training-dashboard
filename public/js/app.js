@@ -149,7 +149,6 @@ async function loadHistSummary() {
     const h = await api('/api/strava/history-summary');
     S.histSummary = h;
     updateSyncBanner(h);
-    updateMetrics(h.metrics);
     renderHistSummary(h);
   } catch {}
 }
