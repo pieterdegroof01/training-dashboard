@@ -1089,7 +1089,7 @@ app.post('/api/strava/sync-all', async (req, res) => {
 app.get('/api/strava/history-summary', async (req, res) => {
   try {
     const user = await getDefaultUser();
-    const activities = await getActivities(user.id);
+    const activities = await getActivitiesLite(user.id);
     const settings = user.settings || {};
     const metrics = calcMetrics(activities, settings);
     const summary = buildHistorySummary(activities, settings);
