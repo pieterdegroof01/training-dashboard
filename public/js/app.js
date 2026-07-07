@@ -2394,40 +2394,45 @@ function filterByDays(series, days, dateKey = 'date') {
   return series.filter(d => new Date(d[dateKey] + (d[dateKey].length === 7 ? '-01' : '')) >= cutoff);
 }
 
-function switchTrendSeg(seg){
-  S._trendSeg=seg;
-  document.querySelectorAll('#trendNav .pf-trend-pill').forEach(b=>b.classList.toggle('active',b.dataset.seg===seg));
+async function switchTrendSeg(seg){
+  S._trendSeg = seg;
+  document.querySelectorAll('#trendNav .pf-trend-pill').forEach(b=>b.classList.toggle('active', b.dataset.seg===seg));
   document.querySelectorAll('#chartsContainer .pf-trendseg').forEach(p=>{p.style.display=(p.dataset.seg===seg)?'':'none';});
+  if (S._chartsData) await _renderTrendSeg(seg);
 }
-function _showAllTrendSegs(){document.querySelectorAll('#chartsContainer .pf-trendseg').forEach(p=>{p.style.display='';});}
-function _applyTrendSeg(){switchTrendSeg(S._trendSeg||'vermogen');}
+function _applyTrendSeg(){ return switchTrendSeg(S._trendSeg||'vermogen'); }
 
-async function loadCharts() {
-  const msg = document.getElementById('chartsMsg');
-  msg.className = 'alert alert-info'; msg.textContent = 'Grafieken laden...';
-  document.getElementById('chartsContainer').classList.remove('hidden');
-  _showAllTrendSegs();
-
-  // De vermogenspanelen zijn netwerkgebonden en lezen niets uit charts/data;
-  // vuur ze parallel af zodat ze niet achter de charts/data-fetch aan hoeven.
-  // Hun promises worden hieronder afgewacht vóór _applyTrendSeg(), anders kan
-  // een panel zijn canvas pas aanmaken nadat het eigen segment alweer verborgen
-  // is (zero-width-canvas: Chart.js tekent dan in een 0×0-container).
-  const panelPromises = [
-    renderMmpCurve(), renderPowerTrends(), renderPowerProfile(), renderStrengthTrends(),
-    renderZoneTrend(),
-    renderAllTimePRs(),
-    renderSleepTrend(),
-    renderCompliance(),
-  ];
-
+async function _renderTrendSeg(seg){
+  if (S._trendRendered && S._trendRendered[seg]) return;
+  const segEl = document.querySelector('#chartsContainer .pf-trendseg[data-seg="'+seg+'"]');
+  if (segEl) segEl.classList.add('pf-seg-loading');
   try {
-    const days = parseInt(document.getElementById('chartPeriod').value);
-    const d = await api('/api/charts/data?days=' + days);
+    _buildTrendCanvases(seg);
+    if (seg === 'vermogen') {
+      await Promise.allSettled([renderPowerTrends(), renderMmpCurve(), renderPowerProfile(), renderAllTimePRs()]);
+      renderAerobicEfficiency();
+    } else if (seg === 'belasting') {
+      await renderZoneTrend();
+    } else if (seg === 'kracht') {
+      await renderStrengthTrends();
+    } else if (seg === 'herstel') {
+      await Promise.allSettled([renderSleepTrend(), renderCompliance()]);
+    }
+    // 'lichaam' heeft alleen canvas-charts, geen aparte panelrenders.
+    (S._trendRendered = S._trendRendered || {})[seg] = true;
+  } finally {
+    if (segEl) segEl.classList.remove('pf-seg-loading');
+  }
+}
 
-    const { gridColor, tickColor } = _chartTheme();
-    const baseOpts = _baseChartOpts();
+function _buildTrendCanvases(seg){
+  const d = S._chartsData;
+  if (!d) return;
+  const days = parseInt(document.getElementById('chartPeriod').value);
+  const { gridColor, tickColor } = _chartTheme();
+  const baseOpts = _baseChartOpts();
 
+  if (seg === 'lichaam') {
     // ── Gewicht ───────────────────────────────────────────────────────────────
     const wData = filterByDays(d.weightSeries.length > 60 ? d.weightMonthly.map(m => ({date: m.month, kg: m.avg})) : d.weightSeries, days);
     if (wData.length) {
@@ -2481,6 +2486,30 @@ async function loadCharts() {
       _setHeaderChip('chartWeight', (wDelta > 0 ? '+' : '') + wDelta + ' kg');
     }
 
+    // ── Voeding ───────────────────────────────────────────────────────────────
+    const nData = filterByDays(d.nutritionSeries, Math.min(days, 60));
+    if (nData.length) {
+      makeChart('chartNutr', {
+        type: 'bar',
+        data: {
+          labels: nData.map(v => v.date),
+          datasets: [
+            { label: 'Calorieën (kcal)', data: nData.map(v => v.kcal), backgroundColor: '#01229644', borderColor: '#012296', borderWidth: 1, yAxisID: 'y' },
+            { label: 'Eiwit (g)', data: nData.map(v => v.protein), type: 'line', borderColor: '#2633bd', borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: 'y2' },
+          ]
+        },
+        options: {
+          ...baseOpts,
+          scales: {
+            x: baseOpts.scales.x,
+            y: { ...baseOpts.scales.y, title: { display: true, text: 'kcal', color: tickColor, font: { size: 10 } } },
+            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: tickColor, font: { size: 10 } }, title: { display: true, text: 'eiwit (g)', color: tickColor, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+  }
+  if (seg === 'belasting') {
     // ── ATL/CTL/TSB ───────────────────────────────────────────────────────────
     const lData = filterByDays(d.loadSeries, days);
     if (lData.length) {
@@ -2560,30 +2589,8 @@ async function loadCharts() {
         { color: '#2633bd', label: 'Overig' },
       ]);
     }
-
-    // ── Voeding ───────────────────────────────────────────────────────────────
-    const nData = filterByDays(d.nutritionSeries, Math.min(days, 60));
-    if (nData.length) {
-      makeChart('chartNutr', {
-        type: 'bar',
-        data: {
-          labels: nData.map(v => v.date),
-          datasets: [
-            { label: 'Calorieën (kcal)', data: nData.map(v => v.kcal), backgroundColor: '#01229644', borderColor: '#012296', borderWidth: 1, yAxisID: 'y' },
-            { label: 'Eiwit (g)', data: nData.map(v => v.protein), type: 'line', borderColor: '#2633bd', borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: 'y2' },
-          ]
-        },
-        options: {
-          ...baseOpts,
-          scales: {
-            x: baseOpts.scales.x,
-            y: { ...baseOpts.scales.y, title: { display: true, text: 'kcal', color: tickColor, font: { size: 10 } } },
-            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: tickColor, font: { size: 10 } }, title: { display: true, text: 'eiwit (g)', color: tickColor, font: { size: 10 } } }
-          }
-        }
-      });
-    }
-
+  }
+  if (seg === 'vermogen') {
     // ── Vermogen ──────────────────────────────────────────────────────────────
     const pData = filterByDays(d.powerTrend, days, 'month');
     if (pData.length) {
@@ -2605,16 +2612,24 @@ async function loadCharts() {
     } else if (!d.powerTrend?.length) {
       document.getElementById('chartPower').parentElement.innerHTML += '<div class="alert alert-info mt-2" style="font-size:11px">Geen vermogensdata beschikbaar. Sync eerst je volledige history.</div>';
     }
+  }
+}
 
-    renderAerobicEfficiency();
-
+async function loadCharts() {
+  const msg = document.getElementById('chartsMsg');
+  msg.className = 'alert alert-info'; msg.textContent = 'Grafieken laden...';
+  document.getElementById('chartsContainer').classList.remove('hidden');
+  S._trendRendered = {};
+  try {
+    const days = parseInt(document.getElementById('chartPeriod').value);
+    S._chartsData = await api('/api/charts/data?days=' + days);
     msg.className = 'hidden';
   } catch(e) {
     msg.className = 'alert alert-error';
     msg.textContent = 'Laden mislukt: ' + e.message;
+    return;
   }
-  await Promise.allSettled(panelPromises);
-  _applyTrendSeg();
+  await switchTrendSeg(S._trendSeg || 'vermogen');
 }
 
 function renderAerobicEfficiency() {

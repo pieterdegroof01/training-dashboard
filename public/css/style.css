@@ -755,9 +755,25 @@ details.ap-accordion-section > summary { display:none; }
 .pf-trend-pill{flex:0 0 auto;padding:7px 15px;border-radius:20px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.4px;cursor:pointer;transition:all .15s ease;white-space:nowrap;}
 .pf-trend-pill:hover{color:var(--text);border-color:var(--subtle);}
 .pf-trend-pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
-.pf-trendseg{display:flex;flex-direction:column;gap:12px;}
+.pf-trendseg{display:flex;flex-direction:column;gap:12px;position:relative;}
 .pf-trendseg-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 @media(max-width:760px){.pf-trendseg-2col{grid-template-columns:1fr;}}
+.pf-seg-loading { min-height: 220px; }
+.pf-seg-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: 12px;
+  background: var(--surface);
+  background-image: linear-gradient(90deg, transparent 0%, var(--surface2) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: pf-seg-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes pf-seg-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 .pf-trend-chip{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;letter-spacing:.3px;color:var(--accent);background:var(--card2);border-radius:99px;padding:3px 10px;white-space:nowrap;}
 .pf-legend-row{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);}
 .pf-legend-item{display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);}
