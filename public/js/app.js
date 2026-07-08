@@ -1749,8 +1749,18 @@ async function loadInsight(page, force = false) {
   const textEl = document.getElementById('insight-text-' + page);
   const metaEl = document.getElementById('insight-meta-' + page);
   if (!textEl) return;
-  textEl.innerHTML = '<div class="insight-loading">AI-inzicht laden...</div>';
-  if (metaEl) metaEl.textContent = '';
+  const cached = !force && S.data && S.data.aiInsights && S.data.aiInsights[page];
+  if (cached && cached.text) {
+    if (page === 'vandaag' && cached.briefing) {
+      renderHeroBriefing(textEl, cached.briefing);
+    } else {
+      textEl.innerHTML = renderMarkdown(cached.text);
+    }
+    if (metaEl) metaEl.textContent = 'Gecached · vernieuwen...';
+  } else {
+    textEl.innerHTML = '<div class="insight-loading">AI-inzicht laden...</div>';
+    if (metaEl) metaEl.textContent = '';
+  }
   try {
     const result = await api('/api/insights/' + page, {
       method: 'POST',

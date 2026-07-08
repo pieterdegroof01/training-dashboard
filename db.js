@@ -217,6 +217,14 @@ async function getActivities(userId) {
   });
 }
 
+async function getLatestActivityStartDate(userId) {
+  const { rows } = await query(
+    'SELECT start_date FROM activities WHERE user_id = $1 ORDER BY start_date DESC LIMIT 1',
+    [userId]
+  );
+  return rows.length ? rows[0].start_date : null;
+}
+
 // Zelfde vorm als getActivities maar zonder de streams-kolom. streams bevat de
 // per-seconde reeksen en is veruit de grootste kolom; analytics-endpoints
 // (trends, power-profile, mmp-curve, charts/data) gebruiken die nooit. Door de
@@ -619,7 +627,7 @@ async function getExerciseTemplates(userId) {
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
-  getActivities, getActivitiesLite, upsertActivity, upsertActivityMMP,
+  getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP,
   getWeights, upsertWeight, deleteWeight,
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
   upsertNutrition, deleteNutrition, upsertSleep, upsertHevyWorkout,

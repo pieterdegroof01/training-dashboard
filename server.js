@@ -13,7 +13,7 @@ const engine = require('./engine');
 const { buildPlan } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
-const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
+const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -986,7 +986,7 @@ app.get('/api/strava/activities', async (req, res) => {
     const user = await getDefaultUser();
     const userId = user.id;
 
-    const existing = await getActivities(userId);
+    const latestStart = await getLatestActivityStartDate(userId);
 
     // Lichte incrementele sync vanaf de laatste bekende activiteit, identiek aan het Hevy-patroon.
     // De DB is de bron van waarheid (gevuld door sync-all en webhooks). De live listing-endpoint
@@ -994,9 +994,7 @@ app.get('/api/strava/activities', async (req, res) => {
     // Faalt de Strava-call, dan vallen we terug op wat al in de DB staat.
     try {
       const token = await getStravaToken();
-      const lastTs = existing.length > 0
-        ? Math.floor(new Date(existing[existing.length - 1].start_date).getTime() / 1000)
-        : null;
+      const lastTs = latestStart ? Math.floor(new Date(latestStart).getTime() / 1000) : null;
       const fresh = await fetchActivitiesFromStrava(token, lastTs);
       for (const a of fresh) {
         if (a.powerSource === undefined) assignPowerSource(a);
@@ -1009,8 +1007,7 @@ app.get('/api/strava/activities', async (req, res) => {
     // Volledige set uit de DB; het tijdvenster (21d/90d/alles) wordt client-side gekozen en
     // symmetrisch over Strava en Hevy toegepast. Streams gaan niet mee: de feed gebruikt ze niet
     // en het houdt de payload klein. De detailpagina laadt streams apart via /api/activity/:id/detail.
-    const all = await getActivities(userId);
-    const light = all.map(({ streams, ...rest }) => rest);
+    const light = await getActivitiesLite(userId);
     res.json(light);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3254,7 +3251,7 @@ app.post('/api/insights/:page', async (req, res) => {
       getNutrition(user.id),
       getWeightMap(user.id),
       getHevyWorkouts(user.id),
-      getActivities(user.id),
+      getActivitiesLite(user.id),
     ]);
     const data = {
       goals:            user.goals            || {},
