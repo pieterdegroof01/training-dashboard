@@ -1709,6 +1709,8 @@ const TAB_INSIGHTS = {
   voortgang:   ['trends', 'voorspelling'],
 };
 
+let _suppressHashPush = false;
+
 function showTab(name, btn) {
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
   document.querySelectorAll('.nav-item, .nav-item-small, .nav-sm, .bn-item').forEach(el=>el.classList.remove('active'));
@@ -1716,6 +1718,7 @@ function showTab(name, btn) {
   // Sync actief-status op tabnaam zodat sidebar EN bottom-nav correct oplichten
   document.querySelectorAll('[data-tab="'+name+'"]').forEach(el=>el.classList.add('active'));
   currentTab = name;
+  if (!_suppressHashPush && location.hash !== '#' + name) history.pushState(null, '', '#' + name);
   if (name === 'activiteiten') renderActivitiesTab();
   if (name === 'instellingen') renderSourcesStatus();
   if (name === 'week') renderWeekGrid();
@@ -1743,6 +1746,11 @@ function showTab(name, btn) {
   // Load AI insights for this tab (once per session unless forced)
   const pages = TAB_INSIGHTS[name] || [];
   pages.forEach(p => { if (!S.insightLoaded[p]) loadInsight(p); });
+}
+
+function showTabFromHash(name) {
+  _suppressHashPush = true;
+  try { showTab(name); } finally { _suppressHashPush = false; }
 }
 
 async function loadInsight(page, force = false) {
@@ -3943,6 +3951,8 @@ window.addEventListener('popstate', () => {
     const header = document.querySelector('.header');
     if (appLayout) appLayout.style.display = '';
     if (header) header.style.display = '';
+    const name = (location.hash || '#overview').slice(1);
+    if (document.getElementById('tab-' + name) && name !== currentTab) showTabFromHash(name);
   }
 });
 
@@ -5248,6 +5258,7 @@ if (_activityPageMatch) {
   renderWorkoutPage(_workoutPageMatch[1]);
 } else {
   syncAll();
-  (TAB_INSIGHTS['overview'] || []).forEach(p => loadInsight(p));
+  const _initTab = (location.hash || '#overview').slice(1);
+  showTabFromHash(document.getElementById('tab-' + _initTab) ? _initTab : 'overview');
 }
 initInfoTooltips();
