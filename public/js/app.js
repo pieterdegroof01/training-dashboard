@@ -1709,7 +1709,19 @@ const TAB_INSIGHTS = {
   voortgang:   ['trends', 'voorspelling'],
 };
 
-let _suppressHashPush = false;
+const TAB_SLUGS = {
+  overview: '', week: 'week', activiteiten: 'activiteiten', nutrition: 'voeding',
+  analyse: 'coach', planning: 'doelen', voortgang: 'trends', instellingen: 'instellingen'
+};
+const SLUG_TABS = Object.fromEntries(Object.entries(TAB_SLUGS).map(([k, v]) => [v, k]));
+function tabPath(name) { return '/' + (TAB_SLUGS[name] || ''); }
+function tabFromPath(pathname) {
+  const slug = (pathname || '/').replace(/^\/+|\/+$/g, '');
+  const name = SLUG_TABS[slug];
+  return (name && document.getElementById('tab-' + name)) ? name : null;
+}
+
+let _suppressUrlPush = false;
 
 function showTab(name, btn) {
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
@@ -1718,7 +1730,8 @@ function showTab(name, btn) {
   // Sync actief-status op tabnaam zodat sidebar EN bottom-nav correct oplichten
   document.querySelectorAll('[data-tab="'+name+'"]').forEach(el=>el.classList.add('active'));
   currentTab = name;
-  if (!_suppressHashPush && location.hash !== '#' + name) history.pushState(null, '', '#' + name);
+  const _p = tabPath(name);
+  if (!_suppressUrlPush && location.pathname !== _p) history.pushState(null, '', _p);
   if (name === 'activiteiten') renderActivitiesTab();
   if (name === 'instellingen') renderSourcesStatus();
   if (name === 'week') renderWeekGrid();
@@ -1748,9 +1761,9 @@ function showTab(name, btn) {
   pages.forEach(p => { if (!S.insightLoaded[p]) loadInsight(p); });
 }
 
-function showTabFromHash(name) {
-  _suppressHashPush = true;
-  try { showTab(name); } finally { _suppressHashPush = false; }
+function showTabFromUrl(name) {
+  _suppressUrlPush = true;
+  try { showTab(name); } finally { _suppressUrlPush = false; }
 }
 
 async function loadInsight(page, force = false) {
@@ -3932,7 +3945,6 @@ function renderActivityBack() {
     const header = document.querySelector('.header');
     if (appLayout) appLayout.style.display = '';
     if (header) header.style.display = '';
-    history.pushState({}, '', '/');
     showTab('activiteiten', document.querySelector('.nav-item[onclick*="activiteiten"]'));
   }
 }
@@ -3951,8 +3963,8 @@ window.addEventListener('popstate', () => {
     const header = document.querySelector('.header');
     if (appLayout) appLayout.style.display = '';
     if (header) header.style.display = '';
-    const name = (location.hash || '#overview').slice(1);
-    if (document.getElementById('tab-' + name) && name !== currentTab) showTabFromHash(name);
+    const name = tabFromPath(location.pathname) || 'overview';
+    if (name !== currentTab) showTabFromUrl(name);
   }
 });
 
@@ -5258,7 +5270,6 @@ if (_activityPageMatch) {
   renderWorkoutPage(_workoutPageMatch[1]);
 } else {
   syncAll();
-  const _initTab = (location.hash || '#overview').slice(1);
-  showTabFromHash(document.getElementById('tab-' + _initTab) ? _initTab : 'overview');
+  showTabFromUrl(tabFromPath(location.pathname) || 'overview');
 }
 initInfoTooltips();

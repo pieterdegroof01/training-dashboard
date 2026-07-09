@@ -112,6 +112,10 @@ app.post('/api/logout', (req, res) => {
 app.get('/', (req, res) => {
   res.type('html').send(INDEX_HTML);
 });
+const TAB_ROUTES = ['week', 'activiteiten', 'voeding', 'coach', 'doelen', 'trends', 'instellingen'];
+TAB_ROUTES.forEach(slug => {
+  app.get('/' + slug, (req, res) => res.type('html').send(INDEX_HTML));
+});
 app.use(express.static('public'));
 app.use('/activity-ui', express.static(path.join(__dirname, 'activity-detail', 'dist')));
 
