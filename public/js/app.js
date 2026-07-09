@@ -30,12 +30,16 @@ async function api(path, opts={}) {
 
 // ── Load ──────────────────────────────────────────────────────────────────────
 async function syncAll() {
-  document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Laden...');
-  await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability(), loadFullState()]);
-  renderGreeting();
-  renderWeekGrid(); // re-render now that weekAvailability is guaranteed loaded
-  renderActivitiesTab();
-  document.querySelectorAll('[onclick="syncAll()"]').forEach(b => b.textContent = '↻ Sync');
+  const btns = document.querySelectorAll('[onclick="syncAll()"]');
+  btns.forEach(b => { b.dataset.orig ??= b.innerHTML; b.textContent = '↻ Laden...'; b.disabled = true; });
+  try {
+    await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability(), loadFullState()]);
+    renderGreeting();
+    renderWeekGrid(); // re-render now that weekAvailability is guaranteed loaded
+    renderActivitiesTab();
+  } finally {
+    btns.forEach(b => { b.innerHTML = b.dataset.orig; b.disabled = false; });
+  }
 }
 
 async function loadAthlete() {
@@ -1689,7 +1693,7 @@ async function runAnalysis() {
         settings: S.data.settings,
       })
     });
-    document.getElementById('analysisText').textContent = r.analysis;
+    document.getElementById('analysisText').innerHTML = renderMarkdown(r.analysis);
     document.getElementById('analysisResult').classList.remove('hidden');
     document.getElementById('analyseEmpty').classList.add('hidden');
   } catch(e) {
@@ -1819,6 +1823,7 @@ async function loadInsight(page, force = false) {
     } else {
       textEl.innerHTML = renderMarkdown(result.text);
       textEl.style.color = '';
+      textEl.parentElement.querySelectorAll('.ap-coach-link').forEach(el => el.remove());
       const coachBtn = document.createElement('button');
       coachBtn.className = 'ap-coach-link';
       coachBtn.textContent = 'Verdiep in Coach →';
@@ -2309,29 +2314,41 @@ function toggleLitExpand(id, content) {
   }
 }
 
+function _flagFieldError(el) {
+  el.classList.add('field-error');
+  el.focus();
+  el.addEventListener('input', () => el.classList.remove('field-error'), { once: true });
+}
+
 async function deleteLit(id) {
   try {
     await api('/api/literature/' + id, { method: 'DELETE' });
     await loadLiterature();
-  } catch(e) { alert('Verwijderen mislukt: ' + e.message); }
+  } catch(e) {
+    document.getElementById('litList').insertAdjacentHTML('afterbegin', `<div class="alert alert-error">${e.message}</div>`);
+  }
 }
 
 async function saveLitPaste() {
-  const title = document.getElementById('litPasteTitle').value.trim();
-  const content = document.getElementById('litPasteContent').value.trim();
-  if (!title || !content) { alert('Vul een titel en inhoud in'); return; }
+  const titleEl = document.getElementById('litPasteTitle');
+  const contentEl = document.getElementById('litPasteContent');
+  const title = titleEl.value.trim();
+  const content = contentEl.value.trim();
+  if (!title || !content) { _flagFieldError(!title ? titleEl : contentEl); return; }
   const btn = document.getElementById('btnLitPaste');
   btn.textContent = 'Opslaan...'; btn.disabled = true;
   try {
     await api('/api/literature', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, content }) });
-    document.getElementById('litPasteTitle').value = '';
-    document.getElementById('litPasteContent').value = '';
+    titleEl.value = '';
+    contentEl.value = '';
     await loadLiterature();
     btn.textContent = '✓ Toegevoegd'; btn.className = 'btn btn-success btn-sm';
     setTimeout(() => { btn.textContent = 'Toevoegen'; btn.className = 'btn btn-primary btn-sm'; btn.disabled = false; }, 2000);
   } catch(e) {
     btn.textContent = 'Toevoegen'; btn.disabled = false;
-    alert('Mislukt: ' + e.message);
+    const msg = document.getElementById('litPasteMsg');
+    msg.classList.remove('hidden');
+    msg.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
   }
 }
 
@@ -2342,8 +2359,9 @@ luz.addEventListener('drop', e => { e.preventDefault(); luz.classList.remove('ov
 
 async function handleLitUpload(file) {
   if (!file) return;
-  const title = document.getElementById('litUploadTitle').value.trim();
-  if (!title) { alert('Vul eerst een titel in'); return; }
+  const titleEl = document.getElementById('litUploadTitle');
+  const title = titleEl.value.trim();
+  if (!title) { _flagFieldError(titleEl); return; }
   const msg = document.getElementById('litUploadMsg');
   msg.className = 'alert alert-info mt-2';
   msg.textContent = file.type === 'application/pdf' ? '📄 PDF verwerken via AI...' : '📄 Bestand inlezen...';

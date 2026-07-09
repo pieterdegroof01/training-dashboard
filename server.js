@@ -936,7 +936,6 @@ Retourneer JSON array. Per sessie exact dit formaat:
       data.weekPlan[s.date] = [...kept, { ...s, adjustedAt }];
     });
 
-    console.log(`adjustCurrentWeek: ${sessions.length} sessie(s) bijgestuurd`);
     return data.weekPlan;
   } catch(e) {
     console.error('adjustCurrentWeek API error:', e.message);

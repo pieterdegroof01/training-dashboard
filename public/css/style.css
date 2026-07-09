@@ -124,6 +124,7 @@ input, select, textarea {
   width: 100%; outline: none; transition: border-color 0.15s;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+input.field-error, select.field-error, textarea.field-error { border-color: var(--red); }
 textarea { resize: vertical; min-height: 65px; }
 select option { background: var(--surface); color: var(--text); }
 
