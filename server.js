@@ -3715,7 +3715,7 @@ app.get('/activity/:id', (req, res) => {
 });
 
 app.get('/workout/:id', (req, res) => {
-  res.sendFile('index.html', { root: path.join(__dirname, 'public') });
+  res.type('html').send(INDEX_HTML);
 });
 
 // ── Eenmalige migratie: data.json → Postgres ──────────────────────────────────
