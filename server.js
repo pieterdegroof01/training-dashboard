@@ -22,6 +22,8 @@ const _appHash   = crypto.createHash('sha1').update(_fss.readFileSync(path.join(
 const INDEX_HTML = _fss.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
   .replace(/\/css\/style\.css(\?[^"]*)?/g, `/css/style.css?v=${_styleHash}`)
   .replace(/\/js\/app\.js(\?[^"]*)?/g,     `/js/app.js?v=${_appHash}`);
+const NOT_FOUND_HTML = _fss.readFileSync(path.join(__dirname, 'public', '404.html'), 'utf8')
+  .replace(/\/css\/style\.css(\?[^"]*)?/g, `/css/style.css?v=${_styleHash}`);
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -3877,6 +3879,11 @@ app.post('/api/admin/migrate-to-postgres', async (req, res) => {
     if (data.schemaVersion !== versionBefore || backfilled > 0) await saveData(data);
   } catch(e) { console.error('Startup migratie mislukt:', e.message); }
 })();
+
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Endpoint niet gevonden' });
+  res.status(404).type('html').send(NOT_FOUND_HTML);
+});
 
 app.listen(PORT, () => {
   console.log(`\n⚡ Training Dashboard draait op http://localhost:${PORT}\n`);

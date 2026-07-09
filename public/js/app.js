@@ -1713,6 +1713,10 @@ const TAB_SLUGS = {
   overview: '', week: 'week', activiteiten: 'activiteiten', nutrition: 'voeding',
   analyse: 'coach', planning: 'doelen', voortgang: 'trends', instellingen: 'instellingen'
 };
+const TAB_TITLES = {
+  overview: 'Vandaag', week: 'Week', activiteiten: 'Activiteiten', nutrition: 'Voeding',
+  analyse: 'Coach', planning: 'Doelen', voortgang: 'Trends', instellingen: 'Instellingen'
+};
 const SLUG_TABS = Object.fromEntries(Object.entries(TAB_SLUGS).map(([k, v]) => [v, k]));
 function tabPath(name) { return '/' + (TAB_SLUGS[name] || ''); }
 function tabFromPath(pathname) {
@@ -1732,6 +1736,7 @@ function showTab(name, btn) {
   currentTab = name;
   const _p = tabPath(name);
   if (!_suppressUrlPush && location.pathname !== _p) history.pushState(null, '', _p);
+  document.title = TAB_TITLES[name] ? TAB_TITLES[name] + ' — PeakForm' : 'PeakForm';
   if (name === 'activiteiten') renderActivitiesTab();
   if (name === 'instellingen') renderSourcesStatus();
   if (name === 'week') renderWeekGrid();
