@@ -143,8 +143,33 @@ async function initSchema() {
       status              TEXT NOT NULL DEFAULT 'active',
       superseded_by       BIGINT
     );
+    ALTER TABLE training_prescriptions
+      ADD COLUMN IF NOT EXISTS modality TEXT NOT NULL DEFAULT 'cycling';
+
     CREATE INDEX IF NOT EXISTS idx_presc_user_date   ON training_prescriptions (user_id, prescribed_date);
     CREATE INDEX IF NOT EXISTS idx_presc_user_status ON training_prescriptions (user_id, status);
+
+    -- Eenmalige dedupe van historische dubbele actieve voorschriften.
+    -- Idempotent: no-op zodra er per (user, datum, modaliteit) nog maar een actief
+    -- voorschrift is. Houdt het nieuwste, superseded de rest. superseded_by blijft
+    -- NULL voor deze historische rijen, want de opvolger is niet betrouwbaar te
+    -- reconstrueren; alleen nieuwe runs vullen superseded_by wel.
+    WITH ranked AS (
+      SELECT id, row_number() OVER (
+               PARTITION BY user_id, prescribed_date, modality
+               ORDER BY created_at DESC, id DESC
+             ) AS rn
+      FROM training_prescriptions
+      WHERE status = 'active'
+    )
+    UPDATE training_prescriptions t
+    SET status = 'superseded'
+    FROM ranked r
+    WHERE t.id = r.id AND r.rn > 1;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_presc_active
+      ON training_prescriptions (user_id, prescribed_date, modality)
+      WHERE status = 'active';
 
     CREATE TABLE IF NOT EXISTS session_outcomes (
       id                  BIGSERIAL PRIMARY KEY,
@@ -483,6 +508,81 @@ async function insertPrescription(userId, p) {
   return rows[0].id;
 }
 
+/**
+ * Vervangt alle actieve voorschriften in [windowStart, windowEnd] door de nieuwe set,
+ * atomisch. Volgorde is bewust: eerst superseden, dan invoegen, want uniq_presc_active
+ * verbiedt twee actieve rijen per (user, datum, modaliteit).
+ * Retourneert het aantal ingevoegde en gesupersedede rijen.
+ */
+async function replaceActivePrescriptions(userId, prescriptions, windowStart, windowEnd, common) {
+  if (!pool) throw new Error('replaceActivePrescriptions: geen pool');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // FOR UPDATE voorkomt dat een gelijktijdige generate dezelfde rijen pakt.
+    const { rows: oldRows } = await client.query(
+      `SELECT id, prescribed_date, modality
+         FROM training_prescriptions
+        WHERE user_id = $1 AND status = 'active'
+          AND prescribed_date BETWEEN $2 AND $3
+        FOR UPDATE`,
+      [userId, windowStart, windowEnd]
+    );
+
+    if (oldRows.length) {
+      await client.query(
+        `UPDATE training_prescriptions SET status = 'superseded'
+          WHERE id = ANY($1::bigint[])`,
+        [oldRows.map(r => r.id)]
+      );
+    }
+
+    const newByKey = new Map();
+    for (const p of prescriptions) {
+      const modality = p.modality || 'cycling';
+      const { rows } = await client.query(
+        `INSERT INTO training_prescriptions
+           (user_id, prescribed_date, plan_run_id, modality, session_type,
+            target_duration_min, target_tss, target_if, blocks, mesocycle,
+            distribution_model, planner_params, rationale)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING id`,
+        [userId, p.prescribed_date, common.plan_run_id, modality, p.session_type || null,
+         p.target_duration_min ?? null, p.target_tss ?? null, p.target_if ?? null,
+         p.blocks != null ? JSON.stringify(p.blocks) : null,
+         p.mesocycle != null ? JSON.stringify(p.mesocycle) : null,
+         p.distribution_model || null,
+         common.planner_params != null ? JSON.stringify(common.planner_params) : null,
+         p.rationale || null]
+      );
+      newByKey.set(`${p.prescribed_date}|${modality}`, rows[0].id);
+    }
+
+    // superseded_by koppelen aan de opvolger op dezelfde datum en modaliteit.
+    for (const old of oldRows) {
+      const d   = old.prescribed_date instanceof Date
+                    ? old.prescribed_date.toISOString().split('T')[0]
+                    : String(old.prescribed_date);
+      const nid = newByKey.get(`${d}|${old.modality}`);
+      if (nid != null) {
+        await client.query(
+          `UPDATE training_prescriptions SET superseded_by = $2 WHERE id = $1`,
+          [old.id, nid]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return { inserted: prescriptions.length, superseded: oldRows.length };
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 async function supersedePrescription(oldId, newId) {
   await query(
     `UPDATE training_prescriptions SET status = 'superseded', superseded_by = $2 WHERE id = $1`,
@@ -632,7 +732,7 @@ module.exports = {
   getDefaultUser, getSleep, getNutrition, getHevyWorkouts, getWeightMap,
   upsertNutrition, deleteNutrition, upsertSleep, upsertHevyWorkout,
   getActivityStream, upsertActivityStream,
-  insertPrescription, supersedePrescription, getActivePrescriptions,
+  insertPrescription, replaceActivePrescriptions, supersedePrescription, getActivePrescriptions,
   upsertSessionOutcome, getLearnedParams, getOutcomeHistory,
   setPrescriptionStatus,
   upsertExerciseTemplate, getExerciseTemplates,
