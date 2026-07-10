@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
-const { buildPlan, getMondayOf } = require('./planner');
+const { buildPlan, computePlanWindow } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
 const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates } = require('./db');
@@ -3604,21 +3604,26 @@ app.post('/api/goals', async (req, res) => {
       skeleton: plan.skeleton,
     };
     if (plan.prescriptions.length) {
-      // Venster = de volledige week waarin het plan valt, zodat ook dagen die uit de
-      // beschikbaarheid zijn verdwenen hun oude voorschrift verliezen.
-      const dates       = plan.prescriptions.map(p => p.prescribed_date).sort();
-      const windowStart = getMondayOf(dates[0]);
-      const windowEnd   = new Date(new Date(windowStart + 'T00:00:00Z').getTime() + 6 * 864e5)
-                            .toISOString().split('T')[0];
-      try {
-        const r = await replaceActivePrescriptions(
-          freshUser.id, plan.prescriptions, windowStart, windowEnd,
-          { plan_run_id: runId, planner_params: plannerParams }
-        );
-        console.log(`prescriptions: ${r.inserted} nieuw, ${r.superseded} superseded (${windowStart}..${windowEnd})`);
-      } catch (e) {
-        console.error('replaceActivePrescriptions mislukt:', e.message);
-        throw e;   // niet stilzwijgend doorlopen: het plan is dan inconsistent
+      // Venster begint bij VANDAAG, niet bij de maandag van de week: buildAvailDays
+      // schrijft alleen vanaf vandaag voor, en verstreken voorschriften moeten actief
+      // blijven zodat reconcilePrescriptions ze nog kan matchen of als missed markeren.
+      // Het einde is wel de zondag van de planweek, zodat toekomstige dagen die uit de
+      // beschikbaarheid zijn verdwenen alsnog hun voorschrift verliezen.
+      const dates = plan.prescriptions.map(p => p.prescribed_date);
+      const { windowStart, windowEnd } = computePlanWindow(dates, Date.now());
+      if (windowStart > windowEnd) {
+        console.warn(`replaceActivePrescriptions overgeslagen: leeg venster (${windowStart}..${windowEnd})`);
+      } else {
+        try {
+          const r = await replaceActivePrescriptions(
+            freshUser.id, plan.prescriptions, windowStart, windowEnd,
+            { plan_run_id: runId, planner_params: plannerParams }
+          );
+          console.log(`prescriptions: ${r.inserted} nieuw, ${r.superseded} superseded (${windowStart}..${windowEnd})`);
+        } catch (e) {
+          console.error('replaceActivePrescriptions mislukt:', e.message);
+          throw e;   // niet stilzwijgend doorlopen: het plan is dan inconsistent
+        }
       }
     }
 

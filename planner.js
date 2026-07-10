@@ -57,6 +57,24 @@ function getMondayOf(dateStr) {
   return dt.toISOString().split('T')[0];
 }
 
+/**
+ * Berekent het supersede-venster voor een planrun. Begint bij nowMs (vandaag), niet
+ * bij de maandag van de week: buildAvailDays schrijft alleen vanaf vandaag voor, dus
+ * verstreken voorschriften in dezelfde week moeten actief blijven zodat
+ * reconcilePrescriptions ze nog kan matchen of als missed markeren. Eindigt op de
+ * zondag van de week waarin de eerste prescription valt, zodat toekomstige dagen die
+ * uit de beschikbaarheid zijn verdwenen alsnog hun voorschrift verliezen.
+ * Puur: nowMs wordt ingegeven, geen systeemklok-aanroepen hier.
+ */
+function computePlanWindow(prescriptionDates, nowMs) {
+  const dates       = [...prescriptionDates].sort();
+  const windowStart = new Date(nowMs).toISOString().split('T')[0];
+  const weekMonday  = getMondayOf(dates[0]);
+  const windowEnd   = new Date(new Date(weekMonday + 'T00:00:00Z').getTime() + 6 * 864e5)
+                        .toISOString().split('T')[0];
+  return { windowStart, windowEnd };
+}
+
 function daysBetween(a, b) {
   return daysBetweenUTC(a, b);
 }
@@ -511,7 +529,7 @@ module.exports = {
   buildPlan, zoneWatts, blockTSS, deriveMode,
   calcSessionTSS, calcSessionDuration, calcBlockTSS, calcBlockDuration,
   DIST_BASE, ZONE_IF, GOAL_PROFILES,
-  dateToUTCms, daysBetweenUTC, getMondayOf,
+  dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
 };
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ Statusoverzicht van alle handoff-clusters. Regel: elke commit die een item (deel
 ## Handoff 12: Planner redesign (actief traject)
 - [x] C0 Backupverificatie pg_dump + restore-diff (2026-07-10, log in CLAUDE.md)
 - [ ] C1 Determinisme: nowMs-injectie deriveMode + event-branch buildPlan (= H11 cluster 16, H10 punt C)
-- [x] C2a Supersede-bug: nieuwe atomische replaceActivePrescriptions (db.js) vervangt de losse insertPrescription-lus in server.js; uniq_presc_active + modality-dedupe voorkomen dubbele actieve voorschriften (2026-07-10)
+- [x] C2a Supersede-bug: nieuwe atomische replaceActivePrescriptions (db.js) vervangt de losse insertPrescription-lus in server.js; uniq_presc_active + modality-dedupe voorkomen dubbele actieve voorschriften. Vervolgfix (2026-07-10): het supersede-venster begon foutief op de maandag van de planweek i.p.v. vandaag, waardoor verstreken voorschriften zonder opvolger stilzwijgend gesupersedeerd raakten en nooit werden gereconcilieerd; venstberekening geëxtraheerd naar pure computePlanWindow(prescriptionDates, nowMs) in planner.js (2026-07-10)
 - [ ] C2b Datamodel
 - [ ] C3 Backward planner
 - [ ] C4 Tweetraps beschikbaarheid

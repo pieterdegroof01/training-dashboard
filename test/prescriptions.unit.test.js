@@ -149,4 +149,54 @@ describe('replaceActivePrescriptions', () => {
     const insertCall = calls.find(c => c.kind === 'INSERT');
     assert.equal(insertCall.params[3], 'cycling');
   });
+
+  test('SELECT ... FOR UPDATE krijgt exact windowStart en windowEnd als $2 en $3', async () => {
+    const { client, calls } = makeMockClient({ oldRows: [] });
+
+    await withMockPool(client, () => db.replaceActivePrescriptions(
+      42,
+      [{ prescribed_date: '2026-01-07', modality: 'cycling' }],
+      '2026-01-07', '2026-01-11',
+      { plan_run_id: 'run-1', planner_params: null }
+    ));
+
+    const selectCall = calls.find(c => c.kind === 'SELECT_FOR_UPDATE');
+    assert.equal(selectCall.params[1], '2026-01-07');
+    assert.equal(selectCall.params[2], '2026-01-11');
+  });
+
+  test('voorschrift binnen venster zonder opvolger krijgt status superseded en superseded_by blijft NULL', async () => {
+    const oldRows = [{ id: 5, prescribed_date: '2026-01-08', modality: 'cycling' }];
+    const { client, calls } = makeMockClient({ oldRows });
+
+    // Nieuwe set heeft geen prescription op 2026-01-08/cycling: geen opvolger.
+    await withMockPool(client, () => db.replaceActivePrescriptions(
+      42,
+      [{ prescribed_date: '2026-01-09', modality: 'cycling' }],
+      '2026-01-07', '2026-01-11',
+      { plan_run_id: 'run-1', planner_params: null }
+    ));
+
+    const supersedeCall = calls.find(c => c.kind === 'UPDATE_SUPERSEDE');
+    assert.ok(supersedeCall.params[0].includes(5));
+
+    const link = calls.find(c => c.kind === 'UPDATE_SUPERSEDED_BY' && c.params[0] === 5);
+    assert.equal(link, undefined, 'superseded_by mag niet gezet worden zonder opvolger');
+  });
+
+  test('voorschrift binnen venster met opvolger op dezelfde datum+modaliteit krijgt superseded_by = id van de opvolger', async () => {
+    const oldRows = [{ id: 7, prescribed_date: '2026-01-08', modality: 'cycling' }];
+    const { client, calls } = makeMockClient({ oldRows });
+
+    await withMockPool(client, () => db.replaceActivePrescriptions(
+      42,
+      [{ prescribed_date: '2026-01-08', modality: 'cycling' }],  // wordt id 100
+      '2026-01-07', '2026-01-11',
+      { plan_run_id: 'run-1', planner_params: null }
+    ));
+
+    const link = calls.find(c => c.kind === 'UPDATE_SUPERSEDED_BY' && c.params[0] === 7);
+    assert.ok(link, 'superseded_by-update voor id 7 verwacht');
+    assert.equal(link.params[1], 100);
+  });
 });

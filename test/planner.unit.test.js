@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const {
   buildPlan, zoneWatts, blockTSS,
   DIST_BASE, ZONE_IF,
-  dateToUTCms, daysBetweenUTC, getMondayOf,
+  dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
 } = require('../planner');
 const { availDay, planParams } = require('./helpers');
 
@@ -213,6 +213,29 @@ describe('getMondayOf', () => {
 
   test('2026-06-15 (maandag) blijft 2026-06-15', () => {
     assert.strictEqual(getMondayOf('2026-06-15'), '2026-06-15');
+  });
+});
+
+// ── computePlanWindow — regressie op de venstergrens (commit 0a27f21 bug) ───────
+// windowStart moet VANDAAG zijn, niet de maandag van de week: buildAvailDays
+// schrijft alleen vanaf vandaag voor. windowEnd blijft wel de zondag van de week
+// waarin de eerste prescription valt.
+describe('computePlanWindow', () => {
+  test('vandaag = woensdag, prescriptions op woensdag+zaterdag → windowStart = woensdag, windowEnd = zondag', () => {
+    const nowMs = Date.parse('2026-01-07T09:00:00Z');   // woensdag
+    const { windowStart, windowEnd } = computePlanWindow(
+      ['2026-01-07', '2026-01-10'],   // woensdag, zaterdag
+      nowMs
+    );
+    assert.strictEqual(windowStart, '2026-01-07');
+    assert.strictEqual(windowEnd, '2026-01-11');          // zondag van diezelfde week
+  });
+
+  test('ongesorteerde input geeft hetzelfde windowEnd als gesorteerde input', () => {
+    const nowMs = Date.parse('2026-01-07T09:00:00Z');
+    const a = computePlanWindow(['2026-01-10', '2026-01-07'], nowMs);
+    const b = computePlanWindow(['2026-01-07', '2026-01-10'], nowMs);
+    assert.strictEqual(a.windowEnd, b.windowEnd);
   });
 });
 
