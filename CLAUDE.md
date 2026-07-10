@@ -4,4 +4,4 @@
 
 ## Voortgangsregel
 
-PROGRESS.md in de repo-root is het statusoverzicht van alle handoff-clusters. Elke commit die een item (deels) uitvoert MOET in dezelfde commit de bijbehorende regel in PROGRESS.md bijwerken: status en datum. Nieuwe clusters uit toekomstige handoffs worden bij hun eerste uitvoering toegevoegd.
+PROGRESS.md in de repo-root is het statusoverzicht van alle handoff-clusters. Elke commit die een item (deels) uitvoert MOET in dezelfde commit de bijbehorende regel in PROGRESS.md bijwerken: status en datum. Een statusregel blijft één regel. Bevindingen, vervolgfixes en gewijzigde aannames gaan naar de Besluitlog onderaan PROGRESS.md, niet achter de statusregel. Afhankelijkheden staan als `(na: X)` achter het item; blijkt tijdens uitvoering dat een afhankelijkheid niet klopt of dat een nieuw item nodig is, schrijf dan een besluitlogregel, pas de annotatie aan en STOP met verdere uitvoering. De sectie "Nu" bovenaan PROGRESS.md wordt nooit door Claude Code gewijzigd; die prioritering bepaalt Pieter. Nieuwe clusters uit toekomstige handoffs worden bij hun eerste uitvoering toegevoegd, mét `(na: ...)`-annotatie.

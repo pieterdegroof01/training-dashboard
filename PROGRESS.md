@@ -1,46 +1,76 @@
 # PeakForm voortgang
 
-Statusoverzicht van alle handoff-clusters. Regel: elke commit die een item (deels) uitvoert werkt dit bestand bij in dezelfde commit. Statussen: [ ] open, [~] deels, [x] klaar, [!] wacht op beslissing of verificatie door Pieter. Datum achter elke statuswijziging.
+Statusoverzicht van alle handoff-clusters.
+
+## Nu
+
+Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
+zijn statusinventaris en zeggen niets over volgorde.
+
+1. C1 Determinisme (nowMs-injectie). Puur, test-gedekt, geen schema, geen write-path.
+2. Staging-omgeving. Eerste stap van C2b, niet standalone.
+3. C2b Datamodel. Ontgrendelt C3 t/m C9; zolang C2b open staat is elk ander
+   H12-cluster geblokkeerd.
+
+## Legenda
+
+Statussen: `[ ]` open, `[~]` deels, `[x]` klaar, `[!]` wacht op beslissing of
+verificatie door Pieter. Datum achter elke statuswijziging.
+
+`(na: X)` betekent dat X afgerond moet zijn voordat dit item start. De omgekeerde
+richting wordt bewust niet geannoteerd: gebruik `grep "na:.*C2b" PROGRESS.md` om te
+zien wat een item vrijspeelt. Twee richtingen onderhouden loopt uit de pas.
+
+Regels voor wie dit bestand bijwerkt:
+- Elke commit die een item (deels) uitvoert werkt de bijbehorende regel bij in
+  dezelfde commit: status en datum.
+- Een statusregel blijft een regel. Bevindingen, vervolgfixes en afwegingen gaan
+  naar de Besluitlog, niet achter de statusregel.
+- Blijkt tijdens uitvoering dat een `(na: ...)` niet klopt of dat een nieuw item
+  nodig is: schrijf een besluitlogregel, pas de annotatie aan, en STOP. De sectie
+  "Nu" wordt nooit door een agent herschreven; die volgorde bepaalt Pieter.
+- Nieuwe clusters uit toekomstige handoffs worden bij hun eerste uitvoering
+  toegevoegd, mét `(na: ...)`.
 
 ## Handoff 12: Planner redesign (actief traject)
 - [x] C0 Backupverificatie pg_dump + restore-diff (2026-07-10, log in CLAUDE.md)
 - [ ] C1 Determinisme: nowMs-injectie deriveMode + event-branch buildPlan (= H11 cluster 16, H10 punt C)
-- [x] C2a Supersede-bug: nieuwe atomische replaceActivePrescriptions (db.js) vervangt de losse insertPrescription-lus in server.js; uniq_presc_active + modality-dedupe voorkomen dubbele actieve voorschriften. Vervolgfix (2026-07-10): het supersede-venster begon foutief op de maandag van de planweek i.p.v. vandaag, waardoor verstreken voorschriften zonder opvolger stilzwijgend gesupersedeerd raakten en nooit werden gereconcilieerd; venstberekening geëxtraheerd naar pure computePlanWindow(prescriptionDates, nowMs) in planner.js (2026-07-10)
-- [ ] C2b Datamodel
-- [ ] C3 Backward planner
-- [ ] C4 Tweetraps beschikbaarheid
-- [ ] C5 Multimodale weeksolver
-- [ ] C6 Prognose
-- [ ] C7 Reviewcadans
-- [ ] C8 Onboarding
-- [ ] C9 Leerlaag (Laag 4, wacht op session_outcomes data)
+- [x] C2a Supersede-bug: atomische replaceActivePrescriptions + computePlanWindow (2026-07-10, zie besluitlog)
+- [ ] C2b Datamodel (na: C0, C2a; staging als eerste stap)
+- [ ] C3 Backward planner (na: C1, C2b)
+- [ ] C4 Tweetraps beschikbaarheid (na: C2b)
+- [ ] C5 Multimodale weeksolver (na: C3, C4)
+- [ ] C6 Prognose (na: C5)
+- [ ] C7 Reviewcadans (na: C2b)
+- [ ] C8 Onboarding (na: C4; loopt samen met frontend-overhaul Doelen-tab)
+- [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
 
 ## Handoff 11: Bugs, UX, features
-- [x] Cluster 1 Read-path performance: analytics-memo met ?force=1 bypass live in server.js (geverifieerd 2026-07-10)
-- [ ] Cluster 2 Hash-router en tab-state (voorwaarde voor cluster 11)
+- [x] Cluster 1 Read-path performance: analytics-memo met ?force=1 bypass (geverifieerd 2026-07-10)
+- [ ] Cluster 2 Hash-router en tab-state
 - [x] Cluster 3 Kleine frontend-fixes: alert() weg, coach-markdown via renderMarkdown, buildcomment weg (geverifieerd 2026-07-10)
 - [ ] Cluster 4 Server hardening: AI-timeouts, login-throttle, multer 2.x (nu nog 1.4.5-lts)
 - [ ] Cluster 5 XSS-escaping user-controlled strings, incl. AI-tekst in adm-ai-text (app.js ~5110)
 - [ ] Cluster 6 Toegankelijkheid (keyboard, aria)
 - [ ] Cluster 7a Activiteiten-KPI's volgen filter en venster + lege-week CTA
 - [ ] Cluster 7b Plateau-kaarten klikbaar/dismissbaar + skeletons Vandaag/Week
-- [ ] Cluster 8 PWA-basis (manifest + service worker, na 1 en 2)
+- [ ] Cluster 8 PWA-basis, manifest + service worker (na: cluster 2)
 - [ ] Cluster 9 Zoekfunctie activiteiten
 - [ ] Cluster 10 Interval-overlay ritdetail
-- [ ] Cluster 11 Activiteiten vergelijken (na cluster 2)
-- [ ] Cluster 12 Seizoens- en jaarweergave Trends (na 9)
+- [ ] Cluster 11 Activiteiten vergelijken (na: cluster 2)
+- [ ] Cluster 12 Seizoens- en jaarweergave Trends (na: cluster 9)
 - [ ] Cluster 13 Data-export CSV/JSON
-- [ ] Cluster 14 SSE-streaming Coach (/api/analyse/stream)
+- [ ] Cluster 14 SSE-streaming Coach, /api/analyse/stream
 - [ ] Cluster 15 Consistentie-tile race + sync-timestamp fmtRelD
-- [ ] Cluster 16 now-injectie deriveMode (= H12 C1, daar uitvoeren)
+- [ ] Cluster 16 now-injectie deriveMode (= H12 C1, daar uitvoeren, niet dubbel)
 - [!] Verificatie: MODEL-tegel classificeert pyramidale week correct na z3=0,91-fix (browser, bij eerstvolgende smoketest)
 - [x] Verificatie: Railway-backupverificatie (afgedekt door H12 C0, 2026-07-10)
-- [ ] Verificatie: latency-nameting na cluster 1 vastleggen tegen nulmeting 8 juli (18,1s / 6,5s / 6,2s / 4,3s / 4,2s)
+- [ ] Verificatie: latency-nameting na cluster 1 tegen nulmeting 8 juli (18,1s / 6,5s / 6,2s / 4,3s / 4,2s)
 
 ## Handoff Historische consistentie (FTP/gewicht/zones/CP)
 - [x] Cluster 1 CP-toekomstlek: bovengrens <= now in computeCriticalPower + regressietest (geverifieerd 2026-07-10, engine.js ~1342)
 - [!] Cluster 2 Kalibratiefactor: beslissing vervallen of repareren (computeCalibrationFactor ijkt nog tegen geschat vermogen + globale FTP)
-- [ ] Cluster 3 Gewicht-historisering: weightAt promoveren naar gedeelde weightForDate() in engine.js
+- [ ] Cluster 3 Gewicht-historisering: weightAt promoveren naar gedeelde weightForDate() in engine.js (nuttig voor: C6)
 - [!] Cluster 4 LTHR-historisering: beslissing rollend geschat vs handmatige tijdlijn (grootste PMC-impact, belasting loopt via hrTSS)
 - [ ] Cluster 5 Opruimen: ftpInfo/settings-FTP harmoniseren, dode hrZones-config (app.js), calcMetrics (server.js) vs computeLoadMetrics (engine.js) consolideren
 
@@ -60,7 +90,7 @@ Statusoverzicht van alle handoff-clusters. Regel: elke commit die een item (deel
 - [x] Sweetspot-zoning z3-plafond 0,91 systeembreed
 - [ ] Punt A Strength-overlay op fietsbelasting-grafiek
 - [x] Punt B Activiteiten-tab herbouwd en gepusht (renderActivitiesTab live, geverifieerd 2026-07-10)
-- [ ] Punt F Opruimen: /api/admin/migrate-to-postgres + loadData/saveData verwijderen (ONTGRENDELD door C0)
+- [ ] Punt F Opruimen: /api/admin/migrate-to-postgres + loadData/saveData verwijderen (ontgrendeld door C0)
 - [x] Punt F Dode w^4 NP-proxy som verwijderd (geverifieerd afwezig 2026-07-10)
 
 ## Handoff 9: Delete-knoppen
@@ -73,8 +103,8 @@ Statusoverzicht van alle handoff-clusters. Regel: elke commit die een item (deel
 - [x] Activiteiten (herbouwd na verloren lokale versie)
 - [ ] Voeding
 - [~] Trends (loopt via route 2-traject hierboven)
-- [ ] Doelen
-- [ ] Coach + chat (vereist H11 cluster 14 SSE)
+- [ ] Doelen (loopt samen met: C4, C8)
+- [ ] Coach + chat (na: H11 cluster 14 SSE)
 
 ## Openstaand-lijst 2026-06-23 (restpunten)
 - [x] Info-tooltips stat-labels: PF_TIPS + initInfoTooltips live (geverifieerd 2026-07-10)
@@ -84,12 +114,26 @@ Statusoverzicht van alle handoff-clusters. Regel: elke commit die een item (deel
 - [ ] Fase-waarden referentiekaart (ATL/CTL/TSB per trainingsfase) in UI
 
 ## Overig
-- [ ] Running detail: threshold pace instellingenveld (activeert rTSS en IF, eerst)
-- [ ] Running detail: engine-laag GAP/NGP/rTSS/decoupling/CS-D'
-- [ ] Running detail: React frontend AdRunChart
-- [ ] Staging-omgeving (eerste stap van het eerstvolgende write-path cluster, niet standalone)
-- [ ] Sentry-integratie (lage prioriteit)
+- [ ] Running detail: threshold pace instellingenveld (activeert rTSS en IF)
+- [ ] Running detail: engine-laag GAP/NGP/rTSS/decoupling/CS-D' (na: threshold pace-veld)
+- [ ] Running detail: React frontend AdRunChart (na: engine-laag)
+- [ ] Staging-omgeving (eerste stap van C2b, niet standalone)
+- [ ] Sentry-integratie (lage prioriteit, geen afhankelijkheden)
 - [ ] Laag 2 multi-tenant auth (uitgesteld; triggert KvK-beslissing)
 
+## Besluitlog
+
+Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
+een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
+
+- 2026-07-10 | PROGRESS.md | verificatiegetallen in de herstructureringsprompt waren geschat (51/11) in plaats van geteld; guard sloeg terecht aan en blokkeerde de commit | tellers ankeren voortaan op statusregels (`^- \[.\].*(na: `), niet op vrije tekst; werkelijke waarden 69 statusregels en 14 afhankelijkheden
+- 2026-07-10 | C2a | supersede-venster begon op de maandag van de planweek in plaats van vandaag, waardoor verstreken voorschriften zonder opvolger stil gesupersedeerd raakten en nooit gereconcilieerd werden | vensterberekening geëxtraheerd naar pure computePlanWindow(prescriptionDates, nowMs) in planner.js
+- 2026-07-10 | C2a | insertPrescription-lus in server.js kon dubbele actieve voorschriften opleveren; uniq_presc_active werd alleen via console.warn opgevangen | vervangen door atomische replaceActivePrescriptions in db.js, plus modality-dedupe
+- 2026-07-10 | C0 | Railway-backup inhoudelijk compleet bevonden via restore-diff | H10 punt F (verwijderen migrate-to-postgres + loadData/saveData) ontgrendeld
+
 ## Gearchiveerde handoffs
-Handoff 1 t/m 8, Frontend Overhaul Handoff (origineel), Roadmap Lagen, Tooltip Aanbevelingen en de research-rapporten zijn afgerond of vervangen. Alle restpunten daaruit zijn doorgeschoven naar de secties hierboven via de Openstaand-lijst van 23 juni en Handoffs 10 t/m 12. Niet heropenen.
+
+Handoff 1 t/m 8, Frontend Overhaul Handoff (origineel), Roadmap Lagen, Tooltip
+Aanbevelingen en de research-rapporten zijn afgerond of vervangen. Alle restpunten
+daaruit zijn doorgeschoven naar de secties hierboven via de Openstaand-lijst van
+23 juni en Handoffs 10 t/m 12. Niet heropenen.
