@@ -198,6 +198,82 @@ async function initSchema() {
       sample_size INTEGER NOT NULL DEFAULT 0,
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    CREATE TABLE IF NOT EXISTS goals (
+      id            BIGSERIAL PRIMARY KEY,
+      user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      goal_type     TEXT NOT NULL,
+      weight        SMALLINT NOT NULL DEFAULT 2 CHECK (weight BETWEEN 1 AND 3),
+      target_date   DATE,
+      target_value  REAL,
+      baseline_value REAL,
+      metric        TEXT,
+      status        TEXT NOT NULL DEFAULT 'active',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      notes         TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals (user_id, status);
+
+    CREATE TABLE IF NOT EXISTS availability_slots (
+      id          BIGSERIAL PRIMARY KEY,
+      user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      slot_date   DATE NOT NULL,
+      minutes     INTEGER NOT NULL,
+      modalities  TEXT[] NOT NULL,
+      time_of_day TEXT,
+      source      TEXT NOT NULL DEFAULT 'concrete'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_avail_slot
+      ON availability_slots (user_id, slot_date, time_of_day);
+
+    CREATE TABLE IF NOT EXISTS plan_mesocycles (
+      id             BIGSERIAL PRIMARY KEY,
+      user_id        BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      macrocycle_id  TEXT NOT NULL,
+      week_start     DATE NOT NULL,
+      phase          TEXT NOT NULL,
+      week_index     INTEGER NOT NULL,
+      is_deload      BOOLEAN NOT NULL DEFAULT false,
+      endurance_tss_target REAL,
+      strength_sessions    SMALLINT,
+      running_minutes_cap  INTEGER,
+      distribution_model   TEXT,
+      dominant_modality    TEXT,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_meso_week
+      ON plan_mesocycles (user_id, macrocycle_id, week_start);
+
+    CREATE TABLE IF NOT EXISTS reviews (
+      id           BIGSERIAL PRIMARY KEY,
+      user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      review_type  TEXT NOT NULL,
+      period_start DATE,
+      period_end   DATE,
+      goal_id      BIGINT REFERENCES goals(id) ON DELETE SET NULL,
+      adherence_pct REAL,
+      perceived_load SMALLINT,
+      life_stress    SMALLINT,
+      sleep_quality  SMALLINT,
+      motivation     SMALLINT,
+      notes        TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS projections (
+      id           BIGSERIAL PRIMARY KEY,
+      user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      plan_run_id  TEXT NOT NULL,
+      goal_id      BIGINT REFERENCES goals(id) ON DELETE CASCADE,
+      horizon_date DATE NOT NULL,
+      metric       TEXT NOT NULL,
+      point_value  REAL,
+      lower_bound  REAL,
+      upper_bound  REAL,
+      reliability  TEXT NOT NULL,
+      computed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_proj_user_run ON projections (user_id, plan_run_id);
   `);
 }
 
@@ -724,6 +800,171 @@ async function getExerciseTemplates(userId) {
   return map;
 }
 
+async function insertGoal(userId, g) {
+  const { rows } = await query(
+    `INSERT INTO goals
+       (user_id, goal_type, weight, target_date, target_value, baseline_value,
+        metric, status, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     RETURNING id`,
+    [userId, g.goal_type, g.weight ?? 2, g.target_date ?? null,
+     g.target_value ?? null, g.baseline_value ?? null, g.metric ?? null,
+     g.status || 'active', g.notes ?? null]
+  );
+  return rows[0].id;
+}
+
+async function getActiveGoals(userId) {
+  const { rows } = await query(
+    `SELECT * FROM goals WHERE user_id = $1 AND status = 'active'
+     ORDER BY weight DESC, created_at`,
+    [userId]
+  );
+  return rows;
+}
+
+async function setGoalStatus(goalId, status) {
+  await query(
+    'UPDATE goals SET status = $2 WHERE id = $1',
+    [goalId, status]
+  );
+}
+
+async function upsertAvailabilitySlot(userId, slot) {
+  await query(
+    `INSERT INTO availability_slots
+       (user_id, slot_date, minutes, modalities, time_of_day, source)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (user_id, slot_date, time_of_day) DO UPDATE SET
+       minutes    = EXCLUDED.minutes,
+       modalities = EXCLUDED.modalities,
+       source     = EXCLUDED.source`,
+    [userId, slot.slot_date, slot.minutes, slot.modalities,
+     slot.time_of_day ?? null, slot.source || 'concrete']
+  );
+}
+
+async function getAvailabilitySlots(userId, fromDate, toDate) {
+  const { rows } = await query(
+    `SELECT * FROM availability_slots
+     WHERE user_id = $1 AND slot_date BETWEEN $2 AND $3
+     ORDER BY slot_date`,
+    [userId, fromDate, toDate]
+  );
+  return rows;
+}
+
+async function deleteAvailabilitySlot(userId, slotDate, timeOfDay) {
+  await query(
+    `DELETE FROM availability_slots
+     WHERE user_id = $1 AND slot_date = $2 AND time_of_day IS NOT DISTINCT FROM $3`,
+    [userId, slotDate, timeOfDay ?? null]
+  );
+}
+
+async function upsertMesocycle(userId, m) {
+  await query(
+    `INSERT INTO plan_mesocycles
+       (user_id, macrocycle_id, week_start, phase, week_index, is_deload,
+        endurance_tss_target, strength_sessions, running_minutes_cap,
+        distribution_model, dominant_modality)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     ON CONFLICT (user_id, macrocycle_id, week_start) DO UPDATE SET
+       phase                = EXCLUDED.phase,
+       week_index           = EXCLUDED.week_index,
+       is_deload            = EXCLUDED.is_deload,
+       endurance_tss_target = EXCLUDED.endurance_tss_target,
+       strength_sessions    = EXCLUDED.strength_sessions,
+       running_minutes_cap  = EXCLUDED.running_minutes_cap,
+       distribution_model   = EXCLUDED.distribution_model,
+       dominant_modality    = EXCLUDED.dominant_modality`,
+    [userId, m.macrocycle_id, m.week_start, m.phase, m.week_index,
+     m.is_deload ?? false, m.endurance_tss_target ?? null,
+     m.strength_sessions ?? null, m.running_minutes_cap ?? null,
+     m.distribution_model ?? null, m.dominant_modality ?? null]
+  );
+}
+
+async function getMesocycles(userId, macrocycleId) {
+  const { rows } = await query(
+    `SELECT * FROM plan_mesocycles
+     WHERE user_id = $1 AND macrocycle_id = $2
+     ORDER BY week_start`,
+    [userId, macrocycleId]
+  );
+  return rows;
+}
+
+async function getMesocycleForWeek(userId, weekStart) {
+  const { rows } = await query(
+    `SELECT * FROM plan_mesocycles WHERE user_id = $1 AND week_start = $2`,
+    [userId, weekStart]
+  );
+  return rows[0] || null;
+}
+
+async function insertReview(userId, r) {
+  const { rows } = await query(
+    `INSERT INTO reviews
+       (user_id, review_type, period_start, period_end, goal_id, adherence_pct,
+        perceived_load, life_stress, sleep_quality, motivation, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     RETURNING id`,
+    [userId, r.review_type, r.period_start ?? null, r.period_end ?? null,
+     r.goal_id ?? null, r.adherence_pct ?? null, r.perceived_load ?? null,
+     r.life_stress ?? null, r.sleep_quality ?? null, r.motivation ?? null,
+     r.notes ?? null]
+  );
+  return rows[0].id;
+}
+
+async function getReviews(userId, reviewType = null) {
+  const { rows } = await query(
+    `SELECT * FROM reviews
+     WHERE user_id = $1 AND ($2::text IS NULL OR review_type = $2)
+     ORDER BY created_at DESC`,
+    [userId, reviewType]
+  );
+  return rows;
+}
+
+async function replaceProjections(userId, planRunId, rows) {
+  if (!pool) throw new Error('replaceProjections: geen pool');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM projections WHERE user_id = $1 AND plan_run_id = $2`,
+      [userId, planRunId]
+    );
+    for (const p of rows) {
+      await client.query(
+        `INSERT INTO projections
+           (user_id, plan_run_id, goal_id, horizon_date, metric, point_value,
+            lower_bound, upper_bound, reliability)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [userId, planRunId, p.goal_id ?? null, p.horizon_date, p.metric,
+         p.point_value ?? null, p.lower_bound ?? null, p.upper_bound ?? null,
+         p.reliability]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+async function getProjections(userId, planRunId) {
+  const { rows } = await query(
+    `SELECT * FROM projections WHERE user_id = $1 AND plan_run_id = $2`,
+    [userId, planRunId]
+  );
+  return rows;
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
@@ -736,4 +977,9 @@ module.exports = {
   upsertSessionOutcome, getLearnedParams, getOutcomeHistory,
   setPrescriptionStatus,
   upsertExerciseTemplate, getExerciseTemplates,
+  insertGoal, getActiveGoals, setGoalStatus,
+  upsertAvailabilitySlot, getAvailabilitySlots, deleteAvailabilitySlot,
+  upsertMesocycle, getMesocycles, getMesocycleForWeek,
+  insertReview, getReviews,
+  replaceProjections, getProjections,
 };
