@@ -4,7 +4,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { legacyToSlots, slotsToLegacyDay } = require('../availability');
+const { legacyToSlots, slotsToLegacyDay, toISODate, mergeAvailabilityView } = require('../availability');
 
 describe('legacyToSlots', () => {
   test('dag met cycling+maxDuration wordt één slot met die minuten', () => {
@@ -70,4 +70,46 @@ describe('round-trip legacyToSlots → slotsToLegacyDay', () => {
       assert.deepStrictEqual(mirrored, legacy[date]);
     });
   }
+});
+
+describe('toISODate', () => {
+  test('Date-object wordt genormaliseerd uit lokale componenten', () => {
+    assert.strictEqual(toISODate(new Date(2026, 0, 5)), '2026-01-05');
+  });
+
+  test('string wordt afgekapt tot de eerste 10 tekens', () => {
+    assert.strictEqual(toISODate('2026-07-09T00:00:00Z'), '2026-07-09');
+  });
+});
+
+describe('mergeAvailabilityView', () => {
+  test('dbSlot met slot_date als Date-object levert ISO-string en crasht de sort niet', () => {
+    const dbSlots = [{ slot_date: new Date(2026, 6, 9), minutes: 90, modalities: ['cycling'], source: 'concrete' }];
+    const view = mergeAvailabilityView(dbSlots, {}, '2026-07-01', '2026-07-31');
+    assert.strictEqual(view.length, 1);
+    assert.strictEqual(view[0].slot_date, '2026-07-09');
+  });
+
+  test('dag in zowel dbSlots als weekAvailability verschijnt één keer met de dbSlot-versie', () => {
+    const dbSlots = [{ slot_date: '2026-07-09', minutes: 60, modalities: ['cycling'], source: 'concrete' }];
+    const weekAvailability = { '2026-07-09': { cycling: true, maxDuration: 90 } };
+    const view = mergeAvailabilityView(dbSlots, weekAvailability, '2026-07-01', '2026-07-31');
+    const day = view.filter(s => s.slot_date === '2026-07-09');
+    assert.strictEqual(day.length, 1);
+    assert.notStrictEqual(day[0].source, 'legacy');
+    assert.strictEqual(day[0].minutes, 60);
+  });
+
+  test('legacy-dag buiten [from,to] wordt weggefilterd', () => {
+    const weekAvailability = { '2026-01-14': { cycling: true, maxDuration: 60 } };
+    const view = mergeAvailabilityView([], weekAvailability, '2026-07-01', '2026-07-31');
+    assert.strictEqual(view.length, 0);
+  });
+
+  test('gemengde input (zomer- en winterdatum) wordt oplopend op datum gesorteerd', () => {
+    const dbSlots = [{ slot_date: new Date(2026, 6, 9), minutes: 90, modalities: ['cycling'], source: 'concrete' }];
+    const weekAvailability = { '2026-01-14': { cycling: true, maxDuration: 60 } };
+    const view = mergeAvailabilityView(dbSlots, weekAvailability, '2026-01-01', '2026-12-31');
+    assert.deepStrictEqual(view.map(s => s.slot_date), ['2026-01-14', '2026-07-09']);
+  });
 });

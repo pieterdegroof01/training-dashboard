@@ -14,7 +14,7 @@ const { buildPlan, computePlanWindow } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
 const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate } = require('./db');
-const { legacyToSlots, slotsToLegacyDay } = require('./availability');
+const { legacyToSlots, slotsToLegacyDay, mergeAvailabilityView } = require('./availability');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
@@ -3203,19 +3203,17 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 app.get('/api/availability-slots', async (req, res) => {
   try {
     const { from, to } = req.query;
+    if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
+      return res.status(400).json({ error: 'from en to (YYYY-MM-DD) zijn verplicht' });
+    }
     const user = await getDefaultUser();
     const slots = await getAvailabilitySlots(user.id, from, to);
 
     // Leesadapter-union: dagen die nog niet in availability_slots staan maar wel
     // in het oude week_availability-JSONB blijven leesbaar via de legacy-spiegel.
     // Slots uit availability_slots winnen per dag van de legacy-spiegel.
-    const seenDates = new Set(slots.map(s => s.slot_date));
-    const legacySlots = legacyToSlots(user.week_availability || {})
-      .filter(s => s.slot_date >= from && s.slot_date <= to && !seenDates.has(s.slot_date));
-
-    const all = [...slots, ...legacySlots];
-    all.sort((a, b) => a.slot_date.localeCompare(b.slot_date));
-    res.json(all);
+    const view = mergeAvailabilityView(slots, user.week_availability || {}, from, to);
+    res.json(view);
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 

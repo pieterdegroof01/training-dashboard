@@ -846,7 +846,8 @@ async function upsertAvailabilitySlot(userId, slot) {
 
 async function getAvailabilitySlots(userId, fromDate, toDate) {
   const { rows } = await query(
-    `SELECT * FROM availability_slots
+    `SELECT id, user_id, slot_date::text AS slot_date, minutes, modalities, time_of_day, source
+     FROM availability_slots
      WHERE user_id = $1 AND slot_date BETWEEN $2 AND $3
      ORDER BY slot_date`,
     [userId, fromDate, toDate]
