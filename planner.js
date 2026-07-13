@@ -525,11 +525,256 @@ function buildPlan(input, params) {
   return { skeleton, sessions, prescriptions };
 }
 
+// ─── C3 Backward planner: doel-sets, prioriteit, macrocyclus ────────────────
+// Puur; geen I/O. Bouwt voort op deriveMode/GOAL_PROFILES zonder ze te wijzigen.
+
+function goalsToGoalSet(legacyGoals, currentWeight, nowMs) {
+  // Zelfde mode-resolutie als buildPlan stap 1: expliciete goals.mode wint,
+  // anders deriveMode. deriveMode zelf blijft ongemoeid.
+  const resolved = (legacyGoals.mode && legacyGoals.mode !== 'auto')
+    ? legacyGoals.mode
+    : deriveMode(legacyGoals, currentWeight, nowMs);
+
+  let type = resolved;
+  let target_date = null;
+  let target_value = null;
+  let baseline_value = null;
+
+  if (resolved === 'event') {
+    target_date = legacyGoals.eventDate || null;
+  } else if (resolved === 'fatloss') {
+    type = 'composition';
+    const m = legacyGoals.weightTarget ? String(legacyGoals.weightTarget).match(/[\d.]+/) : null;
+    target_value = m ? parseFloat(m[0]) : null;
+    baseline_value = currentWeight;
+  }
+
+  return [{ type, weight: 2, target_date, target_value, baseline_value, status: 'active' }];
+}
+
+// Vaste modaliteitsvolgorde: laatste, deterministische tie-break bij gelijk
+// gewicht en gelijke fase-voorkeur (sectie 5).
+const MODALITY_ORDER = ['cycling', 'strength', 'running'];
+
+function goalModality(type) {
+  if (type === 'strength') return 'strength';
+  if (type === 'running')  return 'running';
+  return 'cycling'; // event, composition, ftp, vo2max, base, maintenance zijn fiets-doelen
+}
+
+function profileForType(type) {
+  return GOAL_PROFILES[type === 'composition' ? 'fatloss' : type] || null;
+}
+
+// Fase van een event-doel t.o.v. weekStartISO, dezelfde drempels als buildPlan
+// stap 5 (regels 307-308), hier alleen gebruikt voor de kracht/uithouding-
+// sequencing in resolveGoalPriority — beïnvloedt buildPlan niet.
+function phaseForGoal(goal, weekStartISO) {
+  if (goal && goal.type === 'event' && goal.target_date &&
+      dateToUTCms(goal.target_date) > dateToUTCms(weekStartISO)) {
+    const weeksToEvent = Math.ceil(daysBetweenUTC(weekStartISO, goal.target_date) / 7);
+    if (weeksToEvent <= 1) return 'race_week';
+    if (weeksToEvent <= 2) return 'taper';
+    if (weeksToEvent <= 4) return 'peak';
+    if (weeksToEvent <= 8) return 'build';
+    return 'base';
+  }
+  return 'build'; // geen (toekomstige) event-datum: doorlopend blokmodel
+}
+
+// Sessietabel sectie 5: dominante modaliteit → concreet sessieaantal per
+// modaliteit (nooit een bereik). Fiets-dominant kiest 4 uit 3-5 (midden);
+// kracht-dominant kiest 3 uit 3-4 (ondergrens, PPL-herstelbaarheid). De
+// hardloop-dominante tabel staat niet expliciet in sectie 5 ("etc.") en is
+// naar analogie met de fiets-tabel geëxtrapoleerd.
+const SESSION_TABLE = {
+  cycling:  (phase) => ({ cycling: 4, strength: (phase === 'base' || phase === 'build') ? 2 : 1, running: 1 }),
+  strength: ()      => ({ strength: 3, cycling: 2, running: 1 }),
+  running:  (phase) => ({ running: 4, strength: (phase === 'base' || phase === 'build') ? 2 : 1, cycling: 1 }),
+};
+
+function resolveGoalPriority(goalSet, weekStartISO, nowMs) {
+  const active = (goalSet || []).filter(g => g.status === 'active');
+  if (!active.length) {
+    return { dominant: null, sessionBudget: { cycling: 0, strength: 0, running: 0 } };
+  }
+
+  // Regel 1: doel met target_date binnen 4 weken krijgt tijdelijke voorrang,
+  // los van weight.
+  const windowed = active.filter(g => g.target_date &&
+    daysBetweenUTC(weekStartISO, g.target_date) >= 0 &&
+    daysBetweenUTC(weekStartISO, g.target_date) <= 28);
+  const pool = windowed.length ? windowed : active;
+
+  // Regel 2: hoogste weight wint. Bij gelijk weight: fase-sequencing
+  // (Rønnestad/Mujika) — kracht voorrang in de base-fase, uithouding
+  // (fiets/hardlopen) voorrang in build/peak/taper/race_week — en als dat
+  // ook gelijk blijft, de vaste modaliteitsvolgorde (MODALITY_ORDER).
+  const maxWeight = Math.max(...pool.map(g => g.weight));
+  const tied = pool.filter(g => g.weight === maxWeight);
+
+  let dominant = tied[0];
+  if (tied.length > 1) {
+    const eventGoal = tied.find(g => g.type === 'event') || active.find(g => g.type === 'event');
+    const phase = phaseForGoal(eventGoal, weekStartISO);
+    const favoured = phase === 'base' ? 'strength' : null;
+    const score = (g) => {
+      const modality = goalModality(g.type);
+      if (favoured ? modality === favoured : (modality === 'cycling' || modality === 'running')) return 0;
+      return 1 + MODALITY_ORDER.indexOf(modality);
+    };
+    dominant = [...tied].sort((a, b) => score(a) - score(b))[0];
+  }
+
+  // Regel 3: de lagere modaliteit verliest sessies (naar onderhoud), niet uren.
+  const dominantModality = goalModality(dominant.type);
+  const eventGoal = active.find(g => g.type === 'event');
+  const phase = phaseForGoal(dominant.type === 'event' ? dominant : eventGoal, weekStartISO);
+  const sessionBudget = SESSION_TABLE[dominantModality](phase);
+
+  return { dominant, sessionBudget };
+}
+
+function levelForCtl(ctl) {
+  return ctl < 40 ? 'novice' : ctl <= 70 ? 'intermediate' : ctl <= 100 ? 'advanced' : 'elite';
+}
+
+function distributionModelFor(weeklyHours, params) {
+  return weeklyHours >= params.distributionPolarizedMinHours ? 'polarized'
+    : weeklyHours >= params.distributionPyramidalMinHours ? 'pyramidal' : 'sweetspot';
+}
+
+function addWeeksISO(dateISO, n) {
+  return new Date(dateToUTCms(dateISO) + n * 7 * 86400000).toISOString().split('T')[0];
+}
+
+// Faseduren voor een event-doel, gebucket op weeksToEvent (sectie 5: 8/12/16+
+// weken-tabellen). Afrondingsregel: start op de ondergrens van elke fase,
+// verdeel de resterende weken achtereenvolgens over base → build → peak tot
+// de bovengrens; taper blijft vast op 1 week (6-10 dagen ≈ 1 week bij het
+// 8-wekenbucket; ondergrens van 1-2 weken bij de andere buckets). Zo sluit de
+// som van fase-weken altijd exact op weeksToEvent.
+function buildPhasePlan(weeksToEvent) {
+  const bucket = weeksToEvent <= 9  ? { base: [2, 3], build: [3, 3], peak: [1, 2] }
+    : weeksToEvent <= 13            ? { base: [4, 5], build: [4, 5], peak: [2, 2] }
+    :                                  { base: [6, 8], build: [4, 6], peak: [2, 3] };
+  const taper = 1;
+
+  let base = bucket.base[0], build = bucket.build[0], peak = bucket.peak[0];
+  let remainder = weeksToEvent - (base + build + peak + taper);
+  for (const key of ['base', 'build', 'peak']) {
+    const max = bucket[key][1];
+    while (remainder > 0 && (key === 'base' ? base : key === 'build' ? build : peak) < max) {
+      if (key === 'base') base++; else if (key === 'build') build++; else peak++;
+      remainder--;
+    }
+  }
+  if (remainder > 0) base += remainder; // veiligheidsklep buiten de gedocumenteerde bereiken
+
+  return [
+    { phase: 'base',  weeks: base },
+    { phase: 'build', weeks: build },
+    { phase: 'peak',  weeks: peak },
+    { phase: 'taper', weeks: taper },
+  ];
+}
+
+const RUNNING_SESSION_MIN = 45; // aanname: onderhoudsduur per hardloopsessie; sectie 5 geeft geen minuten
+
+function buildMacrocycle(goalSet, startDateISO, baseline, params, nowMs) {
+  const active = (goalSet || []).filter(g => g.status === 'active');
+  const eventGoal = active.find(g => g.type === 'event' && g.target_date &&
+    dateToUTCms(g.target_date) > dateToUTCms(getMondayOf(startDateISO)));
+
+  const weekStart0 = getMondayOf(startDateISO);
+  const masters = !!(params && params.masters) || !!(baseline.settings && baseline.settings.age >= 50);
+  const cadence = masters ? 3 : 4; // 2+1 masters, anders 3+1
+
+  const distributionModel = distributionModelFor(baseline.weeklyHours, params);
+
+  let phasePlan;
+  if (eventGoal) {
+    const weeksToEvent = Math.max(1, Math.ceil(daysBetweenUTC(weekStart0, eventGoal.target_date) / 7));
+    phasePlan = buildPhasePlan(weeksToEvent);
+  } else {
+    // Doorlopend blokmodel zonder target_date: 12 weken (midden van het
+    // gespecificeerde 8-12 wekenbereik), geen taper, altijd fase 'build'.
+    phasePlan = [{ phase: 'build', weeks: 12 }];
+  }
+
+  const weekPhases = [];
+  for (const seg of phasePlan) {
+    for (let i = 0; i < seg.weeks; i++) weekPhases.push(seg.phase);
+  }
+
+  let ctlProjected = baseline.ctl;
+  let lastLoadTSS = ctlProjected * 7;
+  const rows = [];
+
+  for (let i = 0; i < weekPhases.length; i++) {
+    const weekStart = addWeeksISO(weekStart0, i);
+    const phase = weekPhases[i];
+    const weekIndex = (i % cadence) + 1;
+    const isDeload = weekIndex === cadence;
+
+    const priority = resolveGoalPriority(active, weekStart, nowMs);
+    const dominantType = priority.dominant ? priority.dominant.type : 'base';
+    const dominantModality = priority.dominant ? goalModality(priority.dominant.type) : 'cycling';
+
+    let enduranceTarget;
+    if (phase === 'taper') {
+      // STEP-TAPER, NIET PROGRESSIEF. Bewuste afwijking van de
+      // handoff-formulering "progressief", conform PeakForm_Trainingstheorie.md
+      // regel 95 (Bosquet): het volume gaat in de eerste taperweek in één stap
+      // naar ~50% (binnen de 41-60% reductieband) van de laatste build/peak-
+      // week en blijft op dat niveau tot de eventdag. Intensiteit
+      // (distribution_model, zoneverdeling) verandert niet in de taper.
+      enduranceTarget = Math.round(lastLoadTSS * 0.5);
+    } else if (isDeload) {
+      enduranceTarget = Math.round(ctlProjected * 7 * 0.55);
+    } else {
+      const level = levelForCtl(ctlProjected);
+      let rampCap = params.rampCapCtlPerWeek;
+      if (level === 'novice' || masters) rampCap = Math.min(rampCap, 4);
+      const profile = profileForType(dominantType);
+      const rampMultiplier = profile ? profile.rampMultiplier : 1;
+      const rampEff = Math.min(rampCap, rampCap * rampMultiplier);
+      const rampThisWeek = phase === 'peak' ? rampEff * 0.6 : rampEff;
+      ctlProjected += rampThisWeek;
+      enduranceTarget = Math.round(ctlProjected * 7);
+      lastLoadTSS = enduranceTarget;
+    }
+
+    let strengthSessions = priority.sessionBudget.strength;
+    let runningMinutesCap = priority.sessionBudget.running * RUNNING_SESSION_MIN;
+    if (phase === 'taper') {
+      // Frequentie hooguit 20% omlaag in de taper; intensiteit blijft ongemoeid.
+      strengthSessions = Math.max(1, Math.round(strengthSessions * 0.8));
+      runningMinutesCap = Math.round(runningMinutesCap * 0.8);
+    }
+
+    rows.push({
+      week_start: weekStart,
+      phase,
+      week_index: weekIndex,
+      is_deload: isDeload,
+      endurance_tss_target: enduranceTarget,
+      strength_sessions: strengthSessions,
+      running_minutes_cap: runningMinutesCap,
+      distribution_model: distributionModel,
+      dominant_modality: dominantModality,
+    });
+  }
+
+  return rows;
+}
+
 module.exports = {
   buildPlan, zoneWatts, blockTSS, deriveMode,
   calcSessionTSS, calcSessionDuration, calcBlockTSS, calcBlockDuration,
   DIST_BASE, ZONE_IF, GOAL_PROFILES,
   dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
+  goalsToGoalSet, resolveGoalPriority, buildMacrocycle,
 };
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────

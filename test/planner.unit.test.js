@@ -10,6 +10,7 @@ const {
   buildPlan, zoneWatts, blockTSS, deriveMode,
   DIST_BASE, ZONE_IF,
   dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
+  goalsToGoalSet, resolveGoalPriority, buildMacrocycle,
 } = require('../planner');
 const { availDay, planParams } = require('./helpers');
 
@@ -315,5 +316,129 @@ describe('DST-regressie: zomerweek 2026-06-15', () => {
       `isRecoveryWeek=${p.skeleton.isRecoveryWeek}, mesocycleWeek=${p.skeleton.mesocycleWeek}`);
     assert.strictEqual(p.skeleton.mesocycleWeek, 1,
       `mesocycleWeek=${p.skeleton.mesocycleWeek}, verwacht 1`);
+  });
+});
+
+// ── C3 Backward planner: goalsToGoalSet, resolveGoalPriority, buildMacrocycle ──
+
+function isoPlusDays(iso, days) {
+  return new Date(dateToUTCms(iso) + days * 86400000).toISOString().split('T')[0];
+}
+
+const MACRO_PARAMS = {
+  rampCapCtlPerWeek: 6,
+  distributionPolarizedMinHours: 8,
+  distributionPyramidalMinHours: 6,
+};
+
+describe('goalsToGoalSet — legacy-adapter', () => {
+  const NOW = Date.UTC(2026, 5, 1); // 2026-06-01
+
+  test('event: type "event", target_date = eventDate', () => {
+    const [g] = goalsToGoalSet({ eventDate: '2026-08-01' }, 75, NOW);
+    assert.strictEqual(g.type, 'event');
+    assert.strictEqual(g.target_date, '2026-08-01');
+    assert.strictEqual(g.weight, 2);
+    assert.strictEqual(g.status, 'active');
+  });
+
+  test('fatloss: type "composition", target_value uit weightTarget, baseline_value = currentWeight', () => {
+    const [g] = goalsToGoalSet({ weightTarget: '65 kg' }, 70, NOW);
+    assert.strictEqual(g.type, 'composition');
+    assert.strictEqual(g.target_value, 65);
+    assert.strictEqual(g.baseline_value, 70);
+  });
+
+  test('geen eventDate, geen weightTarget: type "base"', () => {
+    const [g] = goalsToGoalSet({}, 70, NOW);
+    assert.strictEqual(g.type, 'base');
+  });
+
+  test('expliciete goals.mode "ftp" wint van deriveMode', () => {
+    const [g] = goalsToGoalSet({ mode: 'ftp' }, 70, NOW);
+    assert.strictEqual(g.type, 'ftp');
+  });
+});
+
+describe('resolveGoalPriority — temporele voorrang (winterdatum)', () => {
+  test('doel met target_date binnen 4 weken wint van zwaarder doel zonder target_date', () => {
+    const weekStart = '2026-01-05'; // winter, maandag
+    const nowMs = Date.UTC(2026, 0, 1);
+    const nearGoal  = { type: 'event', weight: 1, target_date: '2026-01-20', status: 'active' }; // 15 dagen
+    const heavyGoal = { type: 'base',  weight: 5, target_date: null,         status: 'active' };
+    const { dominant } = resolveGoalPriority([nearGoal, heavyGoal], weekStart, nowMs);
+    assert.strictEqual(dominant, nearGoal);
+  });
+});
+
+describe('resolveGoalPriority — sequencing bij gelijk gewicht (zomerdatum)', () => {
+  test('sessionBudget met twee gelijkwaardige doelen === sessionBudget met alleen de dominante (niet gesommeerd)', () => {
+    const weekStart = '2026-06-15';
+    const nowMs = Date.UTC(2026, 5, 1);
+    const both = [
+      { type: 'base',     weight: 2, target_date: null, status: 'active' },
+      { type: 'strength', weight: 2, target_date: null, status: 'active' },
+    ];
+    const { dominant, sessionBudget: budgetBoth } = resolveGoalPriority(both, weekStart, nowMs);
+    const { sessionBudget: budgetSolo } = resolveGoalPriority([dominant], weekStart, nowMs);
+    assert.deepStrictEqual(budgetBoth, budgetSolo);
+  });
+});
+
+describe('buildMacrocycle — faseduren (som fase-weken == weeksToEvent)', () => {
+  const cases = [
+    ['zomer, 8 weken',  '2026-06-17', 8],
+    ['winter, 12 weken', '2026-01-07', 12],
+    ['zomer, 16 weken', '2026-06-10', 16],
+  ];
+
+  for (const [label, start, weeks] of cases) {
+    test(`${label}`, () => {
+      const monday = getMondayOf(start);
+      const targetDate = isoPlusDays(monday, weeks * 7);
+      const goalSet = [{ type: 'event', weight: 2, target_date: targetDate, status: 'active' }];
+      const rows = buildMacrocycle(goalSet, start, { ctl: 55, weeklyHours: 9 }, MACRO_PARAMS, Date.UTC(2026, 5, 1));
+      assert.strictEqual(rows.length, weeks);
+      const sumPhaseWeeks = rows.reduce((acc, r) => { acc[r.phase] = (acc[r.phase] || 0) + 1; return acc; }, {});
+      const sum = Object.values(sumPhaseWeeks).reduce((a, b) => a + b, 0);
+      assert.strictEqual(sum, weeks);
+    });
+  }
+});
+
+describe('buildMacrocycle — deload-cadans', () => {
+  test('geen event-doel: deload op elke 4e week (cadence 4)', () => {
+    const rows = buildMacrocycle([], '2026-06-15', { ctl: 50, weeklyHours: 7 }, MACRO_PARAMS, Date.UTC(2026, 5, 1));
+    rows.forEach((r, i) => {
+      assert.strictEqual(r.is_deload, (i + 1) % 4 === 0, `week ${i + 1}`);
+    });
+  });
+
+  test('masters (settings.age >= 50): deload op elke 3e week (cadence 3), winterdatum', () => {
+    const baseline = { ctl: 50, weeklyHours: 7, settings: { age: 55 } };
+    const rows = buildMacrocycle([], '2026-01-05', baseline, MACRO_PARAMS, Date.UTC(2026, 0, 1));
+    rows.forEach((r, i) => {
+      assert.strictEqual(r.is_deload, (i + 1) % 3 === 0, `week ${i + 1}`);
+    });
+  });
+});
+
+describe('buildMacrocycle — step-taper (regel 95, Bosquet)', () => {
+  test('eerste taperweek: 40-60% lager dan laatste peak-week; distribution_model ongewijzigd', () => {
+    const start = '2026-06-17';
+    const monday = getMondayOf(start);
+    const targetDate = isoPlusDays(monday, 16 * 7);
+    const goalSet = [{ type: 'event', weight: 2, target_date: targetDate, status: 'active' }];
+    const rows = buildMacrocycle(goalSet, start, { ctl: 55, weeklyHours: 9 }, MACRO_PARAMS, Date.UTC(2026, 5, 1));
+
+    const peakRows  = rows.filter(r => r.phase === 'peak');
+    const taperRows = rows.filter(r => r.phase === 'taper');
+    const lastPeak  = peakRows[peakRows.length - 1];
+    const firstTaper = taperRows[0];
+
+    const reduction = 1 - firstTaper.endurance_tss_target / lastPeak.endurance_tss_target;
+    assert.ok(reduction >= 0.40 && reduction <= 0.60,
+      `reductie ${(reduction * 100).toFixed(1)}% buiten 40-60% band`);
+    assert.strictEqual(firstTaper.distribution_model, lastPeak.distribution_model);
   });
 });
