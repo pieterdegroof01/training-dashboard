@@ -7,7 +7,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  buildPlan, zoneWatts, blockTSS,
+  buildPlan, zoneWatts, blockTSS, deriveMode,
   DIST_BASE, ZONE_IF,
   dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
 } = require('../planner');
@@ -236,6 +236,57 @@ describe('computePlanWindow', () => {
     const a = computePlanWindow(['2026-01-10', '2026-01-07'], nowMs);
     const b = computePlanWindow(['2026-01-07', '2026-01-10'], nowMs);
     assert.strictEqual(a.windowEnd, b.windowEnd);
+  });
+});
+
+// ── deriveMode — nowMs-injectie i.p.v. systeemklok (commit C1) ──────────────────
+// deriveMode las voorheen de systeemklok direct via new Date(); niet-deterministisch
+// en ontestbaar zonder klok te mocken. nowMs wordt nu meegegeven met Date.now() als
+// default, en de vergelijking loopt via dateToUTCms (UTC-middernacht, DST-onafhankelijk).
+describe('deriveMode', () => {
+  const NOW = Date.UTC(2026, 6, 13);   // 2026-07-13, referentiemoment
+
+  test('eventDate in de toekomst t.o.v. NOW → "event"', () => {
+    assert.strictEqual(
+      deriveMode({ eventDate: '2026-08-01' }, 70, NOW),
+      'event'
+    );
+  });
+
+  test('eventDate in het verleden t.o.v. NOW, geen weightTarget → "base"', () => {
+    assert.strictEqual(
+      deriveMode({ eventDate: '2026-06-01' }, 70, NOW),
+      'base'
+    );
+  });
+
+  test('eventDate exact op NOW (dateToUTCms === nowMs) → niet "event" (strikt groter-dan)', () => {
+    assert.strictEqual(
+      deriveMode({ eventDate: '2026-07-13' }, 70, NOW),
+      'base'
+    );
+  });
+
+  test('geen eventDate, weightTarget > 1 kg onder currentWeight → "fatloss"', () => {
+    assert.strictEqual(
+      deriveMode({ weightTarget: '65 kg' }, 70, NOW),
+      'fatloss'
+    );
+  });
+
+  test('geen eventDate, geen weightTarget → "base"', () => {
+    assert.strictEqual(
+      deriveMode({}, 70, NOW),
+      'base'
+    );
+  });
+
+  test('determinisme: identieke NOW geeft identiek resultaat, onafhankelijk van systeemklok', () => {
+    const goals = { eventDate: '2026-08-01' };
+    const a = deriveMode(goals, 70, NOW);
+    const b = deriveMode(goals, 70, NOW);
+    assert.strictEqual(a, b);
+    assert.strictEqual(a, 'event');
   });
 });
 

@@ -79,8 +79,8 @@ function daysBetween(a, b) {
   return daysBetweenUTC(a, b);
 }
 
-function deriveMode(goals, currentWeight) {
-  if (goals.eventDate && new Date(goals.eventDate + 'T12:00:00') > new Date()) return 'event';
+function deriveMode(goals, currentWeight, nowMs = Date.now()) {
+  if (goals.eventDate && dateToUTCms(goals.eventDate) > nowMs) return 'event';
   if (goals.weightTarget) {
     const m = String(goals.weightTarget).match(/[\d.]+/);
     if (m) {
@@ -279,7 +279,7 @@ function buildPlan(input, params) {
   const { ctl } = metrics;
 
   // 1. Mode
-  const mode = (goals.mode && goals.mode !== 'auto') ? goals.mode : deriveMode(goals, currentWeight);
+  const mode = (goals.mode && goals.mode !== 'auto') ? goals.mode : deriveMode(goals, currentWeight, params.nowMs);
 
   // 2. weekStart & weeklyHours
   const sortedDays = [...availDays].sort((a, b) => a.date.localeCompare(b.date));
