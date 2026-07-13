@@ -862,6 +862,37 @@ async function deleteAvailabilitySlot(userId, slotDate, timeOfDay) {
   );
 }
 
+// Per-dag replace i.p.v. per-slot-upsert: de uniq-index (user_id, slot_date,
+// time_of_day) triggert ON CONFLICT niet bij NULL time_of_day (NULL is in
+// Postgres nooit gelijk aan NULL), dus een upsert per slot zou dubbele rijen
+// stapelen zodra time_of_day leeg is. Replace de hele dag transactioneel.
+async function replaceAvailabilitySlotsForDate(userId, slotDate, slots) {
+  if (!pool) throw new Error('replaceAvailabilitySlotsForDate: geen pool');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM availability_slots WHERE user_id = $1 AND slot_date = $2`,
+      [userId, slotDate]
+    );
+    for (const slot of slots) {
+      await client.query(
+        `INSERT INTO availability_slots
+           (user_id, slot_date, minutes, modalities, time_of_day, source)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [userId, slotDate, slot.minutes, slot.modalities,
+         slot.time_of_day ?? null, slot.source || 'concrete']
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 async function upsertMesocycle(userId, m) {
   await query(
     `INSERT INTO plan_mesocycles
@@ -978,7 +1009,7 @@ module.exports = {
   setPrescriptionStatus,
   upsertExerciseTemplate, getExerciseTemplates,
   insertGoal, getActiveGoals, setGoalStatus,
-  upsertAvailabilitySlot, getAvailabilitySlots, deleteAvailabilitySlot,
+  upsertAvailabilitySlot, getAvailabilitySlots, deleteAvailabilitySlot, replaceAvailabilitySlotsForDate,
   upsertMesocycle, getMesocycles, getMesocycleForWeek,
   insertReview, getReviews,
   replaceProjections, getProjections,
