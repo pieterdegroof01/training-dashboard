@@ -5,7 +5,7 @@ let S = {
   parsedNutr: null, currentWeekOffset: 0,
   pendingSession: null, histSummary: null,
   insightLoaded: {},
-  weekAvailability: {},
+  availabilitySlots: {},
   editingAiSession: null,
 };
 
@@ -33,9 +33,9 @@ async function syncAll() {
   const btns = document.querySelectorAll('[onclick="syncAll()"]');
   btns.forEach(b => { b.dataset.orig ??= b.innerHTML; b.textContent = '↻ Laden...'; b.disabled = true; });
   try {
-    await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadWeekAvailability(), loadFullState()]);
+    await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadAvailabilitySlots(), loadFullState()]);
     renderGreeting();
-    renderWeekGrid(); // re-render now that weekAvailability is guaranteed loaded
+    renderWeekGrid(); // re-render now that availabilitySlots is guaranteed loaded
     renderActivitiesTab();
   } finally {
     btns.forEach(b => { b.innerHTML = b.dataset.orig; b.disabled = false; });
@@ -799,15 +799,27 @@ function renderWeekGrid() {
     const sessions = wp[date] || [];
     const restrDay = restr[enNames[i]];
     const sessHtml = sessions.map((s,si) => _renderDayCardSession(s, date, si, restrDay)).join('');
-    const hasCycling = sessions.some(x => x.type === 'cycling');
     let availHtml = '';
-    if (!isPast && !isToday && !hasCycling) {
-      const avail = (S.weekAvailability && S.weekAvailability[date]) || {};
-      const on = !!avail.cycling;
+    if (!isPast) {
+      const daySlots = S.availabilitySlots[date] || [];
+      const usedHours = new Set(daySlots.map(s => s.time_of_day));
+      const allFull = HOUR_OPTIONS.every(h => usedHours.has(h));
+      const slotRows = daySlots.map((slot, idx) => {
+        const hourOpts = HOUR_OPTIONS.includes(slot.time_of_day) ? HOUR_OPTIONS : [...HOUR_OPTIONS, slot.time_of_day].sort();
+        const hourSelect = `<select class="pf-slot-hour" onchange="updateSlotHour('${date}',${idx},this.value)">${hourOpts.map(h => `<option value="${h}" ${h===slot.time_of_day?'selected':''}>${h}</option>`).join('')}</select>`;
+        const minInput = `<input class="pf-slot-min" type="number" min="15" max="360" step="15" value="${slot.minutes}" onchange="updateSlotMinutes('${date}',${idx},this.value)">`;
+        const chips = [['cycling','Fiets'],['strength','Kracht'],['running','Loop']].map(([m,lbl]) =>
+          `<span class="pf-modality-chip ${slot.modalities.includes(m)?'active':''}" onclick="toggleSlotModality('${date}',${idx},'${m}')">${lbl}</span>`
+        ).join('');
+        return `<div class="pf-slot">
+          ${hourSelect}${minInput}
+          <div class="pf-modality-chips">${chips}</div>
+          <button class="pf-slot-del" onclick="removeSlot('${date}',${idx})" title="Verwijder">×</button>
+        </div>`;
+      }).join('');
       availHtml = `<div class="pf-day-avail">
-        <label class="pf-switch"><input type="checkbox" ${on?'checked':''} onchange="toggleAvailability('${date}',this.checked)"><span class="pf-switch-slider"></span></label>
-        <span class="pf-day-avail-lbl">fiets vrij</span>
-        ${on ? `<input class="pf-day-avail-dur" type="number" min="30" max="360" value="${avail.maxDuration||90}" onchange="setAvailDuration('${date}',this.value)" title="Max duur (min)">` : ''}
+        ${slotRows}
+        ${allFull ? '' : `<button class="pf-slot-add" onclick="addSlot('${date}')">+ sessie</button>`}
       </div>`;
     }
     return `<div class="pf-day ${isToday?'pf-day-today':''} ${isPast?'pf-day-past':''}">
@@ -1083,28 +1095,83 @@ function changeWeek(dir) {
 }
 
 // ── Week availability ─────────────────────────────────────────────────────────
-async function loadWeekAvailability() {
-  try { S.weekAvailability = await api('/api/week-availability'); } catch {}
+async function loadAvailabilitySlots() {
+  const from = today();
+  const to = _shiftISO(from, 56);
+  try {
+    const flat = await api(`/api/availability-slots?from=${from}&to=${to}`);
+    const grouped = {};
+    for (const s of flat) {
+      (grouped[s.slot_date] ??= []).push(s);
+    }
+    for (const date in grouped) {
+      grouped[date].sort((a, b) => (a.time_of_day || '').localeCompare(b.time_of_day || ''));
+    }
+    S.availabilitySlots = grouped;
+  } catch {}
 }
 
-async function toggleAvailability(date, checked) {
-  if (date < today()) return;   // beschikbaarheid alleen vandaag en verder
-  if (checked) {
-    S.weekAvailability[date] = { cycling: true, maxDuration: S.weekAvailability[date]?.maxDuration || 90 };
-  } else {
-    delete S.weekAvailability[date];
-  }
+const HOUR_OPTIONS = Array.from({length:18}, (_,i) => String(5+i).padStart(2,'0') + ':00');
+
+function _sortDaySlots(date) {
+  (S.availabilitySlots[date] || []).sort((a, b) => (a.time_of_day || '').localeCompare(b.time_of_day || ''));
+}
+
+async function addSlot(date) {
+  const day = (S.availabilitySlots[date] ??= []);
+  const used = new Set(day.map(s => s.time_of_day));
+  const order = [...HOUR_OPTIONS.slice(1), HOUR_OPTIONS[0]]; // vanaf 06:00, dan 05:00
+  const hour = order.find(h => !used.has(h));
+  if (!hour) return;
+  day.push({ minutes: 60, modalities: ['cycling'], time_of_day: hour });
+  _sortDaySlots(date);
   renderWeekGrid();
-  try { await api('/api/week-availability', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(S.weekAvailability) }); }
-  catch(e) { console.warn('week-availability save failed:', e.message); }
+  await saveSlotsForDay(date);
 }
 
-async function setAvailDuration(date, val) {
-  const dur = parseInt(val) || 90;
-  if (!S.weekAvailability[date]) S.weekAvailability[date] = { cycling: true };
-  S.weekAvailability[date].maxDuration = dur;
-  try { await api('/api/week-availability', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(S.weekAvailability) }); }
-  catch(e) { console.warn('week-availability save failed:', e.message); }
+async function updateSlotHour(date, idx, hour) {
+  const day = S.availabilitySlots[date] || [];
+  if (day.some((s, i) => i !== idx && s.time_of_day === hour)) {
+    renderWeekGrid(); // weiger: re-render zodat de select terugspringt
+    return;
+  }
+  if (!day[idx]) return;
+  day[idx].time_of_day = hour;
+  _sortDaySlots(date);
+  renderWeekGrid();
+  await saveSlotsForDay(date);
+}
+
+async function updateSlotMinutes(date, idx, val) {
+  const day = S.availabilitySlots[date] || [];
+  if (!day[idx]) return;
+  day[idx].minutes = Math.min(360, Math.max(15, parseInt(val) || 60));
+  renderWeekGrid();
+  await saveSlotsForDay(date);
+}
+
+async function toggleSlotModality(date, idx, modality) {
+  const day = S.availabilitySlots[date] || [];
+  const slot = day[idx];
+  if (!slot) return;
+  const has = slot.modalities.includes(modality);
+  if (has && slot.modalities.length === 1) return; // minstens één modaliteit blijft
+  slot.modalities = has ? slot.modalities.filter(m => m !== modality) : [...slot.modalities, modality];
+  renderWeekGrid();
+  await saveSlotsForDay(date);
+}
+
+async function removeSlot(date, idx) {
+  const day = S.availabilitySlots[date] || [];
+  day.splice(idx, 1);
+  renderWeekGrid();
+  await saveSlotsForDay(date);
+}
+
+async function saveSlotsForDay(date) {
+  const slots = (S.availabilitySlots[date] || []).map(s => ({ minutes: s.minutes, modalities: s.modalities, time_of_day: s.time_of_day }));
+  try { await api('/api/availability-slots', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ date, slots }) }); }
+  catch(e) { console.warn('availability-slots save failed:', e.message); }
 }
 
 async function generateCyclingPlan() {
