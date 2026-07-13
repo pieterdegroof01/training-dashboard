@@ -387,6 +387,10 @@ body { overflow-x: clip; }
 .pf-greeting-title em { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; color: var(--accent); letter-spacing: -0.3px; }
 @media (max-width: 600px) { .pf-greeting-title { font-size: 26px; } }
 
+.pf-day-toggle { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; padding: 7px 12px; border-radius: 20px; border: 1px solid var(--border); background: var(--card2); color: var(--muted); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.pf-day-toggle:hover { border-color: var(--accent); }
+.pf-day-toggle.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .pf-briefing { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 16px 18px; }
 .pf-briefing-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .pf-briefing-label { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 1.4px; font-weight: 700; text-transform: uppercase; }

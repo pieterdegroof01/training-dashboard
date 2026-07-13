@@ -38,7 +38,7 @@ Regels voor wie dit bestand bijwerkt:
 - [x] C2a Supersede-bug: atomische replaceActivePrescriptions + computePlanWindow (2026-07-10, zie besluitlog)
 - [x] C2b Datamodel (na: C0, C2a; staging als eerste stap) (2026-07-13)
 - [x] C3 Backward planner (na: C1, C2b) (2026-07-13)
-- [~] C4 Tweetraps beschikbaarheid (na: C2b) (backend-brug + grid af 2026-07-13; Doelen-overhaul open als C4b-2)
+- [x] C4 Tweetraps beschikbaarheid (na: C2b) (2026-07-13) (volledig: brug, grid, Doelen-overhaul met weekcapaciteit 2026-07-13)
 - [ ] C5 Multimodale weeksolver (na: C3, C4)
 - [ ] C6 Prognose (na: C5)
 - [ ] C7 Reviewcadans (na: C2b)
@@ -126,6 +126,7 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-13 | C4b-2 | Doelen-tab: dubbele doel/event-flow geconsolideerd tot één saveGoals, weekcapaciteit (uren/krachtsessies/voorkeursdagen) toegevoegd in settings.weekCapacity als atleet-capaciteitslaag (niet per doel, want één capaciteit bij meerdere doelen); Vaste patronen en PPL bewust ongemoeid want ze voeden buildAvailDays/restricties tot C5 | buildMacrocycle leest weekCapacity.hours in C5
 - 2026-07-13 | C4b-1 | weekgrid herbouwd naar uur-slots per dag (time_of_day = concreet uur), meerdere sessies per dag, uniek uur per dag afgedwongen in de UI zodat de uniq-index niet botst; oude fiets-vrij-toggle verwijderd | round-trip op staging groen, slot_date komt als string na de C4a-fix
 - 2026-07-13 | C4a-fix | GET /api/availability-slots crashte op pg DATE-typing (slot_date kwam als Date-object, localeCompare bestond niet) en dedup faalde tegen legacy-strings; suite miste het omdat geen test de DB-round-trip raakt | slot_date::text-cast plus pure mergeAvailabilityView met lokale-componenten-normalisatie (geen toISOString i.v.m. TZ-shift), from/to-guard toegevoegd
 - 2026-07-13 | C4a | dubbelschrijf-brug: nieuwe slots naar availability_slots plus spiegel naar week_availability-JSONB, zodat buildAvailDays en de weekplanner ongebroken blijven tot C5 de slot-adapter bouwt | spiegel vervalt in C5, geen ontkoppeling van de planner tijdens de C4-C5-tussenperiode

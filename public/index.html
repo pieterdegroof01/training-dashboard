@@ -611,8 +611,14 @@
 
   <!-- PLANNING / DOELEN -->
   <div id="tab-planning" class="section hidden">
+
+    <div class="pf-greeting">
+      <div class="pf-greeting-eyebrow">RICHTING</div>
+      <h1 class="pf-greeting-title">Doelen<em> &amp; capaciteit</em></h1>
+    </div>
+
     <div class="card">
-      <div class="card-label">Doelen</div>
+      <div class="card-label">Doel</div>
       <div class="form-grid">
         <div class="fg full"><label>Trainingsdoel (bepaalt het schema)<button class="pf-info-btn" data-tip="training_mode" aria-label="Uitleg trainingsdoel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></label>
           <select id="gMode">
@@ -625,12 +631,36 @@
             <option value="maintenance">Onderhoud (weinig tijd)</option>
           </select>
         </div>
-        <div class="fg full"><label>Primair doel</label><input type="text" id="gPrimary" placeholder="Lichaamscompositie verbeteren, cut naar 90kg"></div>
+        <div class="fg"><label>Eventnaam</label><input type="text" id="event-name-input" placeholder="Bijv. Ronde van Vlaanderen granfondo"></div>
+        <div class="fg"><label>Eventdatum</label><input type="date" id="event-date-input"></div>
         <div class="fg"><label>Doelgewicht (kg)</label><input type="text" id="gWeight" placeholder="90-92"></div>
         <div class="fg"><label>Tijdlijn</label><input type="text" id="gTimeline" placeholder="Voor september"></div>
+        <div class="fg full"><label>Primair doel</label><input type="text" id="gPrimary" placeholder="Lichaamscompositie verbeteren, cut naar 90kg"></div>
         <div class="fg full"><label>Extra context</label><textarea id="gNotes" placeholder="Events, blessures, beperkingen..."></textarea></div>
       </div>
       <button class="btn btn-primary mt-3" onclick="saveGoals()" id="btnGoals">Doelen opslaan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Weekcapaciteit</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Basis voor de periodisering: hoeveel tijd en krachtsessies heb je structureel per week, en op welke dagen bij voorkeur?</p>
+      <div class="form-grid">
+        <div class="fg"><label>Trainingsuren per week</label><input type="number" id="wcHours" min="1" max="25" step="0.5" placeholder="10"></div>
+        <div class="fg"><label>Krachtsessies per week</label><input type="number" id="wcStrength" min="0" max="7" placeholder="3"></div>
+        <div class="fg full">
+          <label>Voorkeursdagen</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="pf-day-toggle" data-day="monday" onclick="toggleWcDay(this)">Ma</button>
+            <button type="button" class="pf-day-toggle" data-day="tuesday" onclick="toggleWcDay(this)">Di</button>
+            <button type="button" class="pf-day-toggle" data-day="wednesday" onclick="toggleWcDay(this)">Wo</button>
+            <button type="button" class="pf-day-toggle" data-day="thursday" onclick="toggleWcDay(this)">Do</button>
+            <button type="button" class="pf-day-toggle" data-day="friday" onclick="toggleWcDay(this)">Vr</button>
+            <button type="button" class="pf-day-toggle" data-day="saturday" onclick="toggleWcDay(this)">Za</button>
+            <button type="button" class="pf-day-toggle" data-day="sunday" onclick="toggleWcDay(this)">Zo</button>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-primary mt-3" onclick="saveWeekCapacity()" id="btnWc">Weekcapaciteit opslaan</button>
     </div>
 
     <div class="card">
@@ -786,16 +816,6 @@
         <div class="fg"><label>Diner</label><input type="time" id="mtWeDinner" value="19:00"></div>
       </div>
       <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsMeals()" id="btnSaveMeals">Opslaan</button>
-    </div>
-
-    <div class="card">
-      <div class="card-label">Event &amp; Planning</div>
-      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Stel een doelevent in. De periodiseringsengine berekent automatisch de fase, TSS-doelstelling en TID op basis van de resterende tijd.</p>
-      <div class="form-grid">
-        <div class="fg"><label>Eventnaam</label><input type="text" id="event-name-input" placeholder="Bijv. Ronde van Vlaanderen granfondo"></div>
-        <div class="fg"><label>Eventdatum</label><input type="date" id="event-date-input"></div>
-      </div>
-      <button class="btn btn-primary mt-3 btn-sm" onclick="saveEventPlanning()" id="btnSaveEvent">Opslaan</button>
     </div>
 
     <div class="card">

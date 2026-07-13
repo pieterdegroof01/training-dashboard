@@ -126,6 +126,13 @@ async function loadUserData() {
     const eNameEl = document.getElementById('event-name-input');
     if (eDateEl) eDateEl.value = g.eventDate || '';
     if (eNameEl) eNameEl.value = g.eventName || '';
+    // Weekcapaciteit
+    const wc = cfg.weekCapacity || {};
+    if (document.getElementById('wcHours')) document.getElementById('wcHours').value = wc.hours || '';
+    if (document.getElementById('wcStrength')) document.getElementById('wcStrength').value = wc.strengthSessions ?? '';
+    document.querySelectorAll('.pf-day-toggle').forEach(el => {
+      el.classList.toggle('active', (wc.preferredDays || []).includes(el.dataset.day));
+    });
     // PPL Pattern
     const pplPatterns = (S.data.patterns || []).filter(p => p.type === 'gym' && p.split);
     ['push', 'pull', 'legs'].forEach(split => {
@@ -1580,12 +1587,24 @@ async function saveManualNutr() {
 }
 
 async function saveGoals() {
-  const goals = { mode:document.getElementById('gMode').value, primary:document.getElementById('gPrimary').value, weightTarget:document.getElementById('gWeight').value, timeline:document.getElementById('gTimeline').value, notes:document.getElementById('gNotes').value };
+  const goals = { mode:document.getElementById('gMode').value, primary:document.getElementById('gPrimary').value, weightTarget:document.getElementById('gWeight').value, timeline:document.getElementById('gTimeline').value, notes:document.getElementById('gNotes').value, eventName:document.getElementById('event-name-input').value, eventDate:document.getElementById('event-date-input').value };
   await saveDataPartial({ goals });
   if (goals.weightTarget) document.getElementById('sWeightSub').textContent = `doel: ${goals.weightTarget}kg`;
   const b = document.getElementById('btnGoals');
   b.textContent='✓ Opgeslagen'; b.className='btn btn-success mt-3';
   setTimeout(()=>{b.textContent='Doelen opslaan';b.className='btn btn-primary mt-3';},2000);
+}
+
+function toggleWcDay(btn) {
+  btn.classList.toggle('active');
+}
+
+async function saveWeekCapacity() {
+  const hours = Math.min(25, Math.max(1, parseFloat(document.getElementById('wcHours').value) || 1));
+  const strengthSessions = Math.min(7, Math.max(0, parseInt(document.getElementById('wcStrength').value) || 0));
+  const preferredDays = Array.from(document.querySelectorAll('.pf-day-toggle.active')).map(el => el.dataset.day);
+  await saveDataPartial({ settings: { ...(S.data.settings||{}), weekCapacity: { hours, strengthSessions, preferredDays } } });
+  showSaved('btnWc', 'Weekcapaciteit opslaan', 'btn btn-primary mt-3');
 }
 
 async function saveSettings() {
@@ -2028,19 +2047,6 @@ async function saveSettingsMeals() {
     setTimeout(() => { btn.textContent = 'Opslaan'; }, 2000);
   } catch(e) {
     btn.textContent = 'Fout: ' + e.message; btn.disabled = false;
-  }
-}
-
-async function saveEventPlanning() {
-  const eventDate = document.getElementById('event-date-input').value;
-  const eventName = document.getElementById('event-name-input').value;
-  try {
-    await api('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eventDate, eventName }) });
-    S.data.goals = { ...(S.data.goals || {}), eventDate, eventName };
-    showSaved('btnSaveEvent', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
-  } catch(e) {
-    const b = document.getElementById('btnSaveEvent');
-    if (b) { b.textContent = 'Fout: ' + e.message; }
   }
 }
 
