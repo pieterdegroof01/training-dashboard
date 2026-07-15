@@ -1,4 +1,7 @@
 'use strict';
+// Eenrichtingsafhankelijkheid: planner.js mag engine.js importeren, nooit andersom.
+// engine.js mag planner.js nooit importeren.
+const { RUN_ZONE_IF, RUN_ZONE_BOUNDS } = require('./engine');
 // planner.js — Deterministische planningsmodule. Geen I/O, geen netwerkverzoeken.
 
 // ─── Zone-constanten ──────────────────────────────────────────────────────────
@@ -13,6 +16,26 @@ function zoneWatts(ftp) {
     Z4: [Math.round(ftp * 0.91), Math.round(ftp * 1.05)],
     Z5: [Math.round(ftp * 1.06), Math.round(ftp * 1.20)],
     SS: [Math.round(ftp * 0.88), Math.round(ftp * 0.94)],
+  };
+}
+
+// Loop-equivalent van zoneWatts: leest RUN_ZONE_BOUNDS (fracties van drempelsnelheid)
+// en zet ze om naar tempo in sec/km. Omkering t.o.v. snelheid: een hogere
+// snelheidsratio is een LAGER tempo, dus de ondergrens van een ratio-band levert de
+// bovengrens (traagste kant) van de tempo-band op, en omgekeerd. Per zone
+// [paceSnelSec, paceTraagSec], paceSnelSec < paceTraagSec. Z1 heeft geen trage
+// bovengrens (null), Z6 geen snelle ondergrens (null): buiten drempel is er geen
+// vastgelegd uiterste.
+function runPaceZones(thresholdPace) {
+  const b = RUN_ZONE_BOUNDS;
+  const pace = ratio => Math.round(thresholdPace / ratio);
+  return {
+    Z1: [pace(b.z1), null],
+    Z2: [pace(b.z2), pace(b.z1)],
+    Z3: [pace(b.z3), pace(b.z2)],
+    Z4: [pace(b.z4), pace(b.z3)],
+    Z5: [pace(b.z5), pace(b.z4)],
+    Z6: [null,       pace(b.z5)],
   };
 }
 
@@ -37,6 +60,14 @@ const DIST_BASE = {
 
 function blockTSS(durationMin, ifKey) {
   const v = ZONE_IF[ifKey];
+  return (durationMin / 60) * v * v * 100;
+}
+
+// RUN_ZONE_IF is prescriptief en mag uitsluitend geplande loopbelasting berekenen;
+// de load van een werkelijke loop komt altijd uit computeRunningLoad, dat IF uit
+// NGP afleidt.
+function runBlockTSS(durationMin, ifKey) {
+  const v = RUN_ZONE_IF[ifKey];
   return (durationMin / 60) * v * v * 100;
 }
 
@@ -111,6 +142,19 @@ function calcSessionTSS(blokken) {
 
 function calcSessionDuration(blokken) {
   return blokken.reduce((s, b) => s + calcBlockDuration(b), 0);
+}
+
+// calcBlockDuration/calcSessionDuration zijn IF-agnostisch (alleen duration ×
+// herhalingen) en gelden onveranderd voor loopblokken. calcBlockTSS niet: die
+// leest ZONE_IF via blockTSS, dus loopblokken hebben hun eigen paar op RUN_ZONE_IF.
+function calcRunBlockTSS(b) {
+  const n = b.herhalingen || 1;
+  const tss = runBlockTSS(b.duration, b._tssZone || b.zone) * n;
+  return tss + (b.herstelBlok ? runBlockTSS(b.herstelBlok.duration, b.herstelBlok.zone) * n : 0);
+}
+
+function calcRunSessionTSS(blokken) {
+  return blokken.reduce((s, b) => s + calcRunBlockTSS(b), 0);
 }
 
 // ─── Blok-bouwers ────────────────────────────────────────────────────────────
@@ -190,6 +234,95 @@ function buildSessionBlocks(sessionType, targetTSS, maxDur, zones) {
   }
 }
 
+// ─── Loopblok-bouwers ────────────────────────────────────────────────────────
+// Parallel aan de fietsbouwers hierboven, niet generaliseren: de eenheid (tempo
+// i.p.v. watt) en de zonesemantiek (snelheidsratio i.p.v. vermogensratio) lopen
+// uiteen, en gedeelde code zou dat verschil verhullen. runPaceZones levert de
+// zones-tabel; velden heten paceMinSec/paceMaxSec i.p.v. wattMin/wattMax.
+
+function buildRunRecoveryBlocks(targetTSS, maxDur, zones) {
+  const ifv = RUN_ZONE_IF['Z1'];
+  const dur = Math.min(maxDur, Math.max(20, Math.round(targetTSS / (ifv * ifv * 100) * 60)));
+  return [{ type: 'work', zone: 'Z1', duration: dur, paceMinSec: zones.Z1[0], paceMaxSec: zones.Z1[1] }];
+}
+
+function buildRunEnduranceBlocks(targetTSS, maxDur, zones) {
+  const warmup = 10;
+  const remainTSS = Math.max(0, targetTSS - runBlockTSS(warmup, 'Z1'));
+  const ifv = RUN_ZONE_IF['Z2'];
+  const workDur = Math.min(Math.max(10, Math.round(remainTSS / (ifv * ifv * 100) * 60)), maxDur - warmup);
+  return [
+    { type: 'warmup',  zone: 'Z1', duration: warmup,   paceMinSec: zones.Z1[0], paceMaxSec: zones.Z1[1] },
+    { type: 'work',    zone: 'Z2', duration: workDur,   paceMinSec: zones.Z2[0], paceMaxSec: zones.Z2[1] },
+  ];
+}
+
+function buildRunIntervalBlocks(cfg, targetTSS, maxDur, zones) {
+  const { warmupDur, warmupZone, cooldownDur, cooldownZone,
+          workDur, workZone, workIfKey, recoveryDur, recoveryZone } = cfg;
+
+  const fixedDur = warmupDur + cooldownDur;
+  const fixedTSS = runBlockTSS(warmupDur, warmupZone) + runBlockTSS(cooldownDur, cooldownZone);
+  const perRepTSS = runBlockTSS(workDur, workIfKey) + runBlockTSS(recoveryDur, recoveryZone);
+  const perRepDur = workDur + recoveryDur;
+
+  const nTarget = Math.max(1, Math.round((targetTSS - fixedTSS) / Math.max(perRepTSS, 0.1)));
+  const nMax    = Math.max(1, Math.floor((maxDur - fixedDur) / perRepDur));
+  const n = Math.min(nTarget, nMax);
+
+  const paceKey = workIfKey;
+
+  return [
+    { type: 'warmup',   zone: warmupZone,   duration: warmupDur,   paceMinSec: zones[warmupZone][0],   paceMaxSec: zones[warmupZone][1] },
+    {
+      type: 'work', zone: workZone, duration: workDur,
+      paceMinSec: zones[paceKey][0], paceMaxSec: zones[paceKey][1],
+      herhalingen: n,
+      herstelBlok: { duration: recoveryDur, zone: recoveryZone, paceMinSec: zones[recoveryZone][0], paceMaxSec: zones[recoveryZone][1] },
+      _tssZone: workIfKey,
+    },
+    { type: 'cooldown', zone: cooldownZone, duration: cooldownDur, paceMinSec: zones[cooldownZone][0], paceMaxSec: zones[cooldownZone][1] },
+  ];
+}
+
+function buildRunSessionBlocks(sessionType, targetTSS, maxDur, zones) {
+  switch (sessionType) {
+    case 'recovery':   return buildRunRecoveryBlocks(targetTSS, maxDur, zones);
+    case 'endurance':  return buildRunEnduranceBlocks(targetTSS, maxDur, zones);
+    case 'tempo':
+      return buildRunIntervalBlocks({
+        warmupDur: 10, warmupZone: 'Z1', cooldownDur: 10, cooldownZone: 'Z1',
+        workDur: 20, workZone: 'Z3', workIfKey: 'Z3', recoveryDur: 3, recoveryZone: 'Z1',
+      }, targetTSS, maxDur, zones);
+    case 'sweetspot':
+      // Z3 IS het sweetspot-analoog bij lopen; geen aparte SS-zone zoals bij fietsen.
+      return buildRunIntervalBlocks({
+        warmupDur: 10, warmupZone: 'Z1', cooldownDur: 10, cooldownZone: 'Z1',
+        workDur: 20, workZone: 'Z3', workIfKey: 'Z3', recoveryDur: 3, recoveryZone: 'Z1',
+      }, targetTSS, maxDur, zones);
+    case 'threshold':
+      // Daniels cruise intervals, 5-15 min werkblokken.
+      return buildRunIntervalBlocks({
+        warmupDur: 12, warmupZone: 'Z1', cooldownDur: 10, cooldownZone: 'Z1',
+        workDur: 10, workZone: 'Z4', workIfKey: 'Z4', recoveryDur: 2, recoveryZone: 'Z1',
+      }, targetTSS, maxDur, zones);
+    case 'vo2max':
+      // Daniels I, 3-5 min werkblokken.
+      return buildRunIntervalBlocks({
+        warmupDur: 15, warmupZone: 'Z1', cooldownDur: 10, cooldownZone: 'Z1',
+        workDur: 4, workZone: 'Z5', workIfKey: 'Z5', recoveryDur: 3, recoveryZone: 'Z1',
+      }, targetTSS, maxDur, zones);
+    case 'repetition':
+      // Daniels R, kortdurend.
+      return buildRunIntervalBlocks({
+        warmupDur: 15, warmupZone: 'Z1', cooldownDur: 10, cooldownZone: 'Z1',
+        workDur: 1, workZone: 'Z6', workIfKey: 'Z6', recoveryDur: 3, recoveryZone: 'Z1',
+      }, targetTSS, maxDur, zones);
+    default:
+      return buildRunEnduranceBlocks(targetTSS, maxDur, zones);
+  }
+}
+
 function sessionTitle(sessionType, blokken) {
   const w = blokken.find(b => b.type === 'work');
   const dur = calcSessionDuration(blokken);
@@ -201,6 +334,33 @@ function sessionTitle(sessionType, blokken) {
     case 'threshold':  return w ? `Drempel Z4 ${w.herhalingen}×${w.duration}min` : `Drempel ${dur}min`;
     case 'vo2max':     return w ? `VO2max Z5 ${w.herhalingen}×${w.duration}min` : `VO2max ${dur}min`;
     default:           return `Training ${dur}min`;
+  }
+}
+
+function formatPaceMinSec(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Labels volgen RUN_ZONE_NAMES-semantiek (Herstel/Duur/Tempo/Drempel/VO2max/
+// Herhaling). Sweetspot krijgt hetzelfde label als tempo: bij lopen is Z3 het
+// sweetspot-analoog, er is geen aparte SS-zone om te onderscheiden.
+function runSessionTitle(sessionType, blokken) {
+  const w = blokken.find(b => b.type === 'work');
+  const dur = calcSessionDuration(blokken);
+  const paceStr = (w && w.paceMinSec != null && w.paceMaxSec != null)
+    ? ` ${formatPaceMinSec(w.paceMinSec)}-${formatPaceMinSec(w.paceMaxSec)}/km`
+    : '';
+  switch (sessionType) {
+    case 'recovery':   return `Herstel Z1 ${dur}min`;
+    case 'endurance':  return `Duur Z2 ${dur}min`;
+    case 'tempo':      return w ? `Tempo${paceStr} ${w.herhalingen}×${w.duration}min` : `Tempo ${dur}min`;
+    case 'sweetspot':  return w ? `Tempo${paceStr} ${w.herhalingen}×${w.duration}min` : `Tempo ${dur}min`;
+    case 'threshold':  return w ? `Drempel${paceStr} ${w.herhalingen}×${w.duration}min` : `Drempel ${dur}min`;
+    case 'vo2max':     return w ? `VO2max${paceStr} ${w.herhalingen}×${w.duration}min` : `VO2max ${dur}min`;
+    case 'repetition': return w ? `Herhaling${paceStr} ${w.herhalingen}×${w.duration}min` : `Herhaling ${dur}min`;
+    default:           return `Duur Z2 ${dur}min`;
   }
 }
 
@@ -223,6 +383,31 @@ function buildSession(date, sessionType, targetTSS, maxDur, ftp) {
     aiGenerated: true,
     source: 'planner',
     title: sessionTitle(sessionType, blokken),
+    targetTSS: targetTSSCalc,
+    duration,
+    blokken,
+  };
+}
+
+// Zonder thresholdPace is er geen anker en dus geen loopzone: de planner mag dan
+// niet gokken, vandaar null i.p.v. een fallback-schatting.
+function buildRunSession(date, sessionType, targetTSS, maxDur, thresholdPace) {
+  if (!(thresholdPace > 0)) return null;
+
+  const zones = runPaceZones(thresholdPace);
+  const rawBlokken = buildRunSessionBlocks(sessionType, targetTSS, maxDur, zones);
+
+  const blokken = rawBlokken.map(b => Object.assign({}, b));
+
+  const targetTSSCalc = Math.round(calcRunSessionTSS(rawBlokken));
+  const duration = calcSessionDuration(rawBlokken);
+
+  return {
+    date,
+    type: 'running',
+    aiGenerated: true,
+    source: 'planner',
+    title: runSessionTitle(sessionType, blokken),
     targetTSS: targetTSSCalc,
     duration,
     blokken,
@@ -775,6 +960,8 @@ module.exports = {
   DIST_BASE, ZONE_IF, GOAL_PROFILES,
   dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
   goalsToGoalSet, resolveGoalPriority, buildMacrocycle,
+  buildRunSession, runPaceZones, runBlockTSS, buildRunSessionBlocks,
+  buildSession,
 };
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────

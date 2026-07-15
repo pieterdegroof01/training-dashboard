@@ -11,6 +11,7 @@ const {
   DIST_BASE, ZONE_IF,
   dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
   goalsToGoalSet, resolveGoalPriority, buildMacrocycle,
+  runPaceZones, runBlockTSS, buildRunSession, buildSession,
 } = require('../planner');
 const { availDay, planParams } = require('./helpers');
 
@@ -440,5 +441,82 @@ describe('buildMacrocycle — step-taper (regel 95, Bosquet)', () => {
     assert.ok(reduction >= 0.40 && reduction <= 0.60,
       `reductie ${(reduction * 100).toFixed(1)}% buiten 40-60% band`);
     assert.strictEqual(firstTaper.distribution_model, lastPeak.distribution_model);
+  });
+});
+
+// ── runPaceZones — pace-omkering t.o.v. RUN_ZONE_BOUNDS ─────────────────────
+// thresholdPace 255 sec/km. Hogere snelheidsratio = lager (sneller) tempo, dus
+// de ratio-ondergrens van een zone levert de tempo-bovengrens (traagste kant).
+
+describe('runPaceZones', () => {
+  const z = runPaceZones(255);
+
+  test('Z4 = [round(255/1.02), round(255/0.95)] = [250, 268]', () => {
+    assert.deepStrictEqual(z.Z4, [250, 268]);
+  });
+
+  test('omkering: Z5 (sneller) heeft een lager tempogetal dan Z2 (trager)', () => {
+    assert.ok(z.Z5[0] < z.Z2[0], `Z5[0]=${z.Z5[0]} moet < Z2[0]=${z.Z2[0]}`);
+    assert.ok(z.Z5[1] < z.Z2[1], `Z5[1]=${z.Z5[1]} moet < Z2[1]=${z.Z2[1]}`);
+  });
+
+  test('per zone paceSnelSec < paceTraagSec (waar beide gezet zijn)', () => {
+    for (const key of ['Z2', 'Z3', 'Z4', 'Z5']) {
+      assert.ok(z[key][0] < z[key][1], `${key}: ${JSON.stringify(z[key])}`);
+    }
+  });
+
+  test('Z1 heeft geen trage bovengrens (null), Z6 geen snelle ondergrens (null)', () => {
+    assert.strictEqual(z.Z1[1], null);
+    assert.strictEqual(z.Z6[0], null);
+  });
+
+  test('aansluiting tussen zones: Z1[0] == Z2[1], Z2[0] == Z3[1], ... Z5[0] == Z6[1]', () => {
+    assert.strictEqual(z.Z1[0], z.Z2[1]);
+    assert.strictEqual(z.Z2[0], z.Z3[1]);
+    assert.strictEqual(z.Z3[0], z.Z4[1]);
+    assert.strictEqual(z.Z4[0], z.Z5[1]);
+    assert.strictEqual(z.Z5[0], z.Z6[1]);
+  });
+});
+
+// ── runBlockTSS — leest RUN_ZONE_IF, niet de fietstabel ZONE_IF ─────────────
+
+describe('runBlockTSS', () => {
+  test('runBlockTSS(60,"Z4") = 1.00²×100 = 100', () => {
+    assert.strictEqual(runBlockTSS(60, 'Z4'), 100);
+  });
+
+  test('runBlockTSS(60,"Z1") ligt rond 49 (0.70²×100), niet rond 25 zoals ZONE_IF.Z1=0.50 zou geven', () => {
+    assert.ok(Math.abs(runBlockTSS(60, 'Z1') - 49) < 0.1,
+      `runBlockTSS(60,"Z1") = ${runBlockTSS(60, 'Z1')}`);
+  });
+});
+
+// ── buildRunSession ──────────────────────────────────────────────────────────
+
+describe('buildRunSession', () => {
+  test("threshold, 60min budget: type 'running', werkblok met herhalingen >= 1, duur <= maxDur", () => {
+    const s = buildRunSession('2026-07-20', 'threshold', 60, 60, 255);
+    assert.strictEqual(s.type, 'running');
+    const w = s.blokken.find(b => b.type === 'work');
+    assert.ok(w, 'geen werkblok gevonden');
+    assert.ok(w.herhalingen >= 1, `herhalingen = ${w.herhalingen}`);
+    assert.ok(s.duration <= 60, `duration ${s.duration} > maxDur 60`);
+  });
+
+  test('thresholdPace null: geen anker, dus null i.p.v. gokken', () => {
+    assert.strictEqual(buildRunSession('2026-07-20', 'threshold', 60, 60, null), null);
+  });
+
+  test('thresholdPace 0: eveneens null (niet > 0)', () => {
+    assert.strictEqual(buildRunSession('2026-07-20', 'threshold', 60, 60, 0), null);
+  });
+
+  test('regressie: loop-endurance 60min Z2 heeft strikt hogere targetTSS dan fiets-endurance 60min Z2 (snelheidsratio\'s comprimeren minder dan vermogensratio\'s)', () => {
+    const run = buildRunSession('2026-07-20', 'endurance', 60, 60, 255);
+    const cyc = buildSession('2026-07-20', 'endurance', 60, 60, 280);
+    assert.ok(run.targetTSS > cyc.targetTSS,
+      `run ${run.targetTSS} moet > cyc ${cyc.targetTSS} zijn`);
   });
 });
