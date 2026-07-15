@@ -39,11 +39,23 @@ Regels voor wie dit bestand bijwerkt:
 - [x] C2b Datamodel (na: C0, C2a; staging als eerste stap) (2026-07-13)
 - [x] C3 Backward planner (na: C1, C2b) (2026-07-13)
 - [x] C4 Tweetraps beschikbaarheid (na: C2b) (2026-07-13) (volledig: brug, grid, Doelen-overhaul met weekcapaciteit 2026-07-13)
-- [ ] C5 Multimodale weeksolver (na: C3, C4)
+- [ ] C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4)
 - [ ] C6 Prognose (na: C5)
 - [ ] C7 Reviewcadans (na: C2b)
 - [ ] C8 Onboarding (na: C4; loopt samen met frontend-overhaul Doelen-tab)
 - [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
+
+## Handoff 13: Hardlopen gestructureerd (onderzoek 2026-07-15)
+- [ ] R0 Drempeltempo-veld settings.thresholdPace in sec/km + Doelen-UI + validatie; activeert rTSS/IF in computeRunningLoad (engine.js ~1867)
+- [ ] R1 Loopzones Z1-Z6 op drempelsnelheid + eigen RUN_ZONE_IF-tabel in engine.js, puur (na: R0)
+- [ ] R2 Seiler-mapping loopzones zodat fiets en loop in één TID-analyse vallen (na: R1)
+- [ ] R3 Loopblok-builders buildRunSession in planner.js, puur, analoog aan buildSession (na: R1)
+- [ ] R4 Interferentieparameters: loopweging 1.5-2x fiets, 6u ondergrens, 24u voorkeur, EIMD 48u (na: R1)
+- [ ] R5 ACWR-loopband 0.8-1.3 + single-run-spike-guard t.o.v. langste run 30 dagen (na: R1)
+- [ ] R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0)
+- [ ] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3)
+- [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (na: R3)
+- [!] R-doc Trainingstheorie versioneren in repo onder docs/ + framing per atleetsituatie i.p.v. time-crunched (beslissing Pieter)
 
 ## Handoff 11: Bugs, UX, features
 - [x] Cluster 1 Read-path performance: analytics-memo met ?force=1 bypass (geverifieerd 2026-07-10)
@@ -126,6 +138,10 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-15 | R-doc | PeakForm_Trainingstheorie.md staat niet in de repo maar alleen in projectkennis, terwijl de Besluitlog ernaar verwijst op regelnummer (C3, regel 95); een invoeging boven dat regelnummer breekt het citaat stil | beslispunt: doc versioneren onder docs/ zodat de canon meeversioneert met de code
+- 2026-07-15 | H13 | clusters R0-R8 vooraf geregistreerd in plaats van bij eerste uitvoering, afwijkend van de legenda-regel, omdat de volgorde van C5 ervan afhangt | annotatie C5 uitgebreid naar (na: C3, C4, R0, R1, R3, R4)
+- 2026-07-15 | H13 | theoriedoc sprak zichzelf tegen: de 3-uur-scheiding kracht-duur is niet gedekt door Robineau 2016, waar het effect pas bij 6u verdwijnt en 24u beter is dan 6u | interferentieconstraint in R4 en C5 op 6u ondergrens en 24u voorkeur, niet 3u
+- 2026-07-15 | H13 | loop-IF is een fractie van drempelsnelheid, fiets-IF van drempelvermogen; snelheidsratio's comprimeren minder (fiets-Z1 0.50 tegen loop-Z1 0.70) | RUN_ZONE_IF wordt een eigen tabel in R1/R3; ZONE_IF kopiëren onderschat loop-rTSS structureel
 - 2026-07-13 | C4b-2 | Doelen-tab: dubbele doel/event-flow geconsolideerd tot één saveGoals, weekcapaciteit (uren/krachtsessies/voorkeursdagen) toegevoegd in settings.weekCapacity als atleet-capaciteitslaag (niet per doel, want één capaciteit bij meerdere doelen); Vaste patronen en PPL bewust ongemoeid want ze voeden buildAvailDays/restricties tot C5 | buildMacrocycle leest weekCapacity.hours in C5
 - 2026-07-13 | C4b-1 | weekgrid herbouwd naar uur-slots per dag (time_of_day = concreet uur), meerdere sessies per dag, uniek uur per dag afgedwongen in de UI zodat de uniq-index niet botst; oude fiets-vrij-toggle verwijderd | round-trip op staging groen, slot_date komt als string na de C4a-fix
 - 2026-07-13 | C4a-fix | GET /api/availability-slots crashte op pg DATE-typing (slot_date kwam als Date-object, localeCompare bestond niet) en dedup faalde tegen legacy-strings; suite miste het omdat geen test de DB-round-trip raakt | slot_date::text-cast plus pure mergeAvailabilityView met lokale-componenten-normalisatie (geen toISOString i.v.m. TZ-shift), from/to-guard toegevoegd
