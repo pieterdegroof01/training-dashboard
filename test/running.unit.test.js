@@ -5,6 +5,7 @@ const engine = require('../engine');
 const {
   gradeAdjustFactor, computeNGP,
   computeRunningLoad, computeRunningEF, computeRunningDecoupling,
+  RUN_ZONE_BOUNDS, RUN_ZONE_IF, runZoneFromSpeedRatio, computeRunPaceZones,
 } = engine;
 
 // ── gradeAdjustFactor (Minetti 2002) ────────────────────────────────────────
@@ -152,5 +153,92 @@ describe('computeRunningDecoupling', () => {
     assert.strictEqual(computeRunningDecoupling(null, []),   null);
     assert.strictEqual(computeRunningDecoupling([], null),   null);
     assert.strictEqual(computeRunningDecoupling(null, null), null);
+  });
+});
+
+// ── Loopzones op drempelsnelheid ────────────────────────────────────────────
+
+describe('runZoneFromSpeedRatio', () => {
+  test('grenzen liggen op 0.72 / 0.83 / 0.95 / 1.02 / 1.14', () => {
+    assert.strictEqual(runZoneFromSpeedRatio(0.60), 1);
+    assert.strictEqual(runZoneFromSpeedRatio(0.719), 1);
+    assert.strictEqual(runZoneFromSpeedRatio(0.72), 2);   // ondergrens inclusief
+    assert.strictEqual(runZoneFromSpeedRatio(0.80), 2);
+    assert.strictEqual(runZoneFromSpeedRatio(0.83), 3);
+    assert.strictEqual(runZoneFromSpeedRatio(0.94), 3);
+    assert.strictEqual(runZoneFromSpeedRatio(0.95), 4);
+    assert.strictEqual(runZoneFromSpeedRatio(1.00), 4);   // drempel zelf is Z4
+    assert.strictEqual(runZoneFromSpeedRatio(1.02), 5);
+    assert.strictEqual(runZoneFromSpeedRatio(1.13), 5);
+    assert.strictEqual(runZoneFromSpeedRatio(1.14), 6);
+    assert.strictEqual(runZoneFromSpeedRatio(1.50), 6);
+  });
+
+  test('niet-positieve ratio geeft null', () => {
+    assert.strictEqual(runZoneFromSpeedRatio(0), null);
+    assert.strictEqual(runZoneFromSpeedRatio(-1), null);
+    assert.strictEqual(runZoneFromSpeedRatio(null), null);
+  });
+});
+
+describe('RUN_ZONE_IF', () => {
+  test('canon-waarden Z1 0.70 t/m Z6 1.20', () => {
+    assert.deepStrictEqual(RUN_ZONE_IF, { Z1: 0.70, Z2: 0.78, Z3: 0.90, Z4: 1.00, Z5: 1.10, Z6: 1.20 });
+  });
+
+  test('monotoon stijgend en drempel exact 1.00', () => {
+    const v = ['Z1','Z2','Z3','Z4','Z5','Z6'].map(k => RUN_ZONE_IF[k]);
+    for (let i = 1; i < v.length; i++) assert.ok(v[i] > v[i-1], `Z${i+1} moet boven Z${i} liggen`);
+    assert.strictEqual(RUN_ZONE_IF.Z4, 1.00);
+  });
+
+  test('is geen kopie van de fiets-tabel: Z1 ligt fors boven 0.50', () => {
+    const { ZONE_IF } = require('../planner');
+    assert.ok(RUN_ZONE_IF.Z1 > ZONE_IF.Z1 + 0.15, 'snelheidsratio comprimeert minder dan vermogensratio');
+  });
+
+  test('rTSS per uur volgt (dur/60) x IF^2 x 100', () => {
+    const rtssPerUur = k => Math.round(RUN_ZONE_IF[k] ** 2 * 100);
+    assert.strictEqual(rtssPerUur('Z1'), 49);
+    assert.strictEqual(rtssPerUur('Z4'), 100);
+    assert.strictEqual(rtssPerUur('Z6'), 144);
+  });
+});
+
+describe('computeRunPaceZones', () => {
+  const tl = (paces) => paces.map((pace, i) => ({ t: i * 5, pace }));
+
+  test('zonder thresholdPace geen zoneverdeling', () => {
+    assert.strictEqual(computeRunPaceZones(tl([300, 300]), {}), null);
+    assert.strictEqual(computeRunPaceZones(tl([300, 300]), { lthr: 160 }), null);
+  });
+
+  test('lege of ontbrekende timeline geeft null', () => {
+    assert.strictEqual(computeRunPaceZones([], { thresholdPace: 300 }), null);
+    assert.strictEqual(computeRunPaceZones(null, { thresholdPace: 300 }), null);
+  });
+
+  test('elk punt telt 5 seconden en landt in de juiste zone', () => {
+    // drempeltempo 300 s/km. ratio = 300/pace.
+    // 500 -> 0.60 Z1 | 375 -> 0.80 Z2 | 333 -> 0.90 Z3 | 300 -> 1.00 Z4 | 273 -> 1.10 Z5 | 250 -> 1.20 Z6
+    const z = computeRunPaceZones(tl([500, 375, 333, 300, 273, 250]), { thresholdPace: 300 });
+    assert.deepStrictEqual(
+      [z.z1Min, z.z2Min, z.z3Min, z.z4Min, z.z5Min, z.z6Min],
+      [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    );
+    assert.strictEqual(z.totalMin, 0.5);   // 6 x 5s = 30s, afgerond op 0.1 min
+    assert.strictEqual(z.basis, 'pace');
+  });
+
+  test('punten zonder tempo tellen niet mee; alles ongeldig geeft null', () => {
+    const z = computeRunPaceZones(tl([500, null, 0, 500]), { thresholdPace: 300 });
+    assert.strictEqual(z.z1Min, 0.2);
+    assert.strictEqual(computeRunPaceZones(tl([null, 0]), { thresholdPace: 300 }), null);
+  });
+
+  test('een uur rustig lopen telt 12 minuten per 12 punten, som klopt met de tijdlijn', () => {
+    const z = computeRunPaceZones(tl(Array(720).fill(400)), { thresholdPace: 300 }); // ratio 0.75 = Z2
+    assert.strictEqual(z.z2Min, 60);
+    assert.strictEqual(z.totalMin, 60);
   });
 });

@@ -1977,6 +1977,74 @@ function computeRunHrZones(hrTimeline, settings) {
   };
 }
 
+// HARDLOOP-PACEZONES — verankerd op drempelsnelheid
+// ────────────────────────────────────────────────────────────────────────────
+// Twee tabellen met verschillende rollen; nooit door elkaar gebruiken.
+//
+// RUN_ZONE_BOUNDS is descriptief: bovengrenzen als fractie van drempelsnelheid,
+// voor classificatie van werkelijk gelopen tempo. Fysiologisch anker uit
+// veldstudie endurance-lopers (n=1411): LT1/VT1 ≈ 73.9% ± 5.5% en LT2/VT2 ≈
+// 87.6% ± 3.9% van snelheid bij VO2peak, met drempel als 100%-anker.
+//
+// RUN_ZONE_IF is prescriptief: één representatieve IF per zone waarmee de
+// planner geplande rTSS berekent als er nog geen data is. Afgeleid uit Daniels'
+// %vVO2max-banden (E 59-74, M 75-84, T 83-88, I 95-100, R 105-115), omgerekend
+// naar %drempelsnelheid met drempel ≈ 88% vVO2max, gekruist met de Friel/
+// TrainingPeaks IF-bandbreedtes. Dit is een afgeleide synthese, geen
+// gepubliceerde tabel: het gekozen drempelanker (86 vs 88% vVO2max) verschuift
+// Z5 en Z6 enkele procenten.
+//
+// Waarom niet ZONE_IF uit planner.js (Z1=0.50 ... Z5=1.12): daar is IF een
+// fractie van drempelVERMOGEN, hier van drempelSNELHEID. Snelheidsratio's
+// comprimeren veel minder (rustig lopen ≈ 0.72 van drempel, rustig fietsen
+// ≈ 0.50 van FTP). Kopiëren onderschat loop-rTSS structureel.
+//
+// Gebruik RUN_ZONE_IF nooit om de load van een werkelijke loop te schatten:
+// computeRunningLoad rekent IF deterministisch uit NGP en drempeltempo.
+const RUN_ZONE_BOUNDS = { z1: 0.72, z2: 0.83, z3: 0.95, z4: 1.02, z5: 1.14 };
+const RUN_ZONE_IF     = { Z1: 0.70, Z2: 0.78, Z3: 0.90, Z4: 1.00, Z5: 1.10, Z6: 1.20 };
+const RUN_ZONE_NAMES  = { 1: 'Herstel', 2: 'Duur', 3: 'Tempo', 4: 'Drempel', 5: 'VO2max', 6: 'Herhaling' };
+
+// ratio = gradient-gecorrigeerde snelheid / drempelsnelheid. Retour: 1..6.
+function runZoneFromSpeedRatio(ratio) {
+  if (!(ratio > 0)) return null;
+  if (ratio < RUN_ZONE_BOUNDS.z1) return 1;
+  if (ratio < RUN_ZONE_BOUNDS.z2) return 2;
+  if (ratio < RUN_ZONE_BOUNDS.z3) return 3;
+  if (ratio < RUN_ZONE_BOUNDS.z4) return 4;
+  if (ratio < RUN_ZONE_BOUNDS.z5) return 5;
+  return 6;
+}
+
+// gapTimeline: [{t, pace}, ...] uit computeNGP, pace in sec/km per 5s-venster,
+// uitsluitend bewegende samples. De som van de zoneminuten is daarom korter dan
+// de bruto duur; dat is bedoeld, stilstand is geen trainingstijd.
+// Zonder settings.thresholdPace is er geen anker en dus geen zoneverdeling:
+// retour null, zodat de aanroeper terugvalt op computeRunHrZones.
+function computeRunPaceZones(gapTimeline, settings) {
+  const tp = settings?.thresholdPace;
+  if (!tp || !gapTimeline || !gapTimeline.length) return null;
+
+  const sec = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+  let counted = 0;
+  for (const pt of gapTimeline) {
+    if (!pt || !(pt.pace > 0)) continue;
+    const zone = runZoneFromSpeedRatio(tp / pt.pace); // snelheidsratio = tempoverhouding omgekeerd
+    if (!zone) continue;
+    sec[zone] += 5;
+    counted++;
+  }
+  if (!counted) return null;
+
+  const r = v => Math.round(v / 60 * 10) / 10;
+  return {
+    z1Min: r(sec[1]), z2Min: r(sec[2]), z3Min: r(sec[3]),
+    z4Min: r(sec[4]), z5Min: r(sec[5]), z6Min: r(sec[6]),
+    totalMin: r(sec[1] + sec[2] + sec[3] + sec[4] + sec[5] + sec[6]),
+    basis: 'pace'
+  };
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // ECCENTRISCHE BELASTING — interferentie-flag voor krachttraining
 // Bron: Wilson 2012 — hardlopen (niet fietsen) drijft lower-body interferentie.
@@ -2049,4 +2117,6 @@ module.exports = {
   gradeAdjustFactor, computeNGP,
   computeRunningLoad, computeRunningEF, computeRunningDecoupling,
   computeRunHrZones, computeEccentricLoad,
+  RUN_ZONE_BOUNDS, RUN_ZONE_IF, RUN_ZONE_NAMES,
+  runZoneFromSpeedRatio, computeRunPaceZones,
 };
