@@ -7,10 +7,10 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. C1 Determinisme (nowMs-injectie). Puur, test-gedekt, geen schema, geen write-path.
-2. Staging-omgeving. Eerste stap van C2b, niet standalone.
-3. C2b Datamodel. Ontgrendelt C3 t/m C9; zolang C2b open staat is elk ander
-   H12-cluster geblokkeerd.
+1. R0 Drempeltempo-veld (Handoff 13). Geen afhankelijkheden; ontgrendelt de meeste
+   vervolgitems (4).
+2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
+3. C8 Onboarding (na: C4, klaar; loopt samen met frontend-overhaul Doelen-tab).
 
 ## Legenda
 
@@ -27,8 +27,17 @@ Regels voor wie dit bestand bijwerkt:
 - Een statusregel blijft een regel. Bevindingen, vervolgfixes en afwegingen gaan
   naar de Besluitlog, niet achter de statusregel.
 - Blijkt tijdens uitvoering dat een `(na: ...)` niet klopt of dat een nieuw item
-  nodig is: schrijf een besluitlogregel, pas de annotatie aan, en STOP. De sectie
-  "Nu" wordt nooit door een agent herschreven; die volgorde bepaalt Pieter.
+  nodig is: schrijf een besluitlogregel, pas de annotatie aan, en STOP.
+- De sectie "Nu" is een afgeleide weergave, geen oordeel, en loopt mee in dezelfde
+  commit als elke statuswijziging. Afleiding, in deze volgorde: verwijder items die
+  op `[x]` staan; vul aan tot maximaal drie met open items (`[ ]` of `[~]`) uit de
+  secties gemarkeerd als "actief traject" waarvan elke `(na: ...)` op `[x]` staat;
+  sorteer aflopend op het aantal items dat ze vrijspelen
+  (`grep -c "na:.*<id>" PROGRESS.md`), bij gelijkstand op cluster-ID. Eén regel
+  motivering per item; bevindingen gaan naar de Besluitlog. Items op `[!]` tellen
+  niet mee. Een item met de markering `[vast]` blijft ongemoeid op zijn plek. Is de
+  uitkomst niet eenduidig af te leiden: schrijf een besluitlogregel, laat "Nu"
+  ongewijzigd, en STOP.
 - Nieuwe clusters uit toekomstige handoffs worden bij hun eerste uitvoering
   toegevoegd, mét `(na: ...)`.
 
@@ -45,7 +54,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] C8 Onboarding (na: C4; loopt samen met frontend-overhaul Doelen-tab)
 - [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
 
-## Handoff 13: Hardlopen gestructureerd (onderzoek 2026-07-15)
+## Handoff 13: Hardlopen gestructureerd (actief traject, onderzoek 2026-07-15)
 - [ ] R0 Drempeltempo-veld settings.thresholdPace in sec/km + Doelen-UI + validatie; activeert rTSS/IF in computeRunningLoad (engine.js ~1867)
 - [ ] R1 Loopzones Z1-Z6 op drempelsnelheid + eigen RUN_ZONE_IF-tabel in engine.js, puur (na: R0)
 - [ ] R2 Seiler-mapping loopzones zodat fiets en loop in één TID-analyse vallen (na: R1)
@@ -138,6 +147,7 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-15 | PROGRESS.md | Nu-sectie liep uit de pas en noemde C1, staging en C2b terwijl die alle drie op [x] stonden; oorzaak was dat alleen Pieter hem mocht herschrijven, waardoor niemand het deed | regel omgedraaid: Nu is een afgeleide weergave die elke commit meeloopt, mechanisch afgeleid uit de (na: ...)-annotaties, met STOP bij ambiguïteit en een [vast]-markering als override voor Pieter
 - 2026-07-15 | R-doc | PeakForm_Trainingstheorie.md staat niet in de repo maar alleen in projectkennis, terwijl de Besluitlog ernaar verwijst op regelnummer (C3, regel 95); een invoeging boven dat regelnummer breekt het citaat stil | beslispunt: doc versioneren onder docs/ zodat de canon meeversioneert met de code
 - 2026-07-15 | H13 | clusters R0-R8 vooraf geregistreerd in plaats van bij eerste uitvoering, afwijkend van de legenda-regel, omdat de volgorde van C5 ervan afhangt | annotatie C5 uitgebreid naar (na: C3, C4, R0, R1, R3, R4)
 - 2026-07-15 | H13 | theoriedoc sprak zichzelf tegen: de 3-uur-scheiding kracht-duur is niet gedekt door Robineau 2016, waar het effect pas bij 6u verdwijnt en 24u beter is dan 6u | interferentieconstraint in R4 en C5 op 6u ondergrens en 24u voorkeur, niet 3u
