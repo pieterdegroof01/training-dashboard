@@ -135,10 +135,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] Fase-waarden referentiekaart (ATL/CTL/TSB per trainingsfase) in UI
 
 ## Overig
-- [ ] Running detail: threshold pace instellingenveld (activeert rTSS en IF)
-- [ ] Running detail: engine-laag GAP/NGP/rTSS/decoupling/CS-D' (na: threshold pace-veld)
-- [ ] Running detail: React frontend AdRunChart (na: engine-laag)
-- [ ] Staging-omgeving (eerste stap van C2b, niet standalone)
+- [x] Staging-omgeving (eerste stap van C2b) (2026-07-13)
 - [ ] Sentry-integratie (lage prioriteit, geen afhankelijkheden)
 - [ ] Laag 2 multi-tenant auth (uitgesteld; triggert KvK-beslissing)
 
@@ -147,6 +144,7 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-15 | Overig | drie "Running detail"-regels beschreven hetzelfde werk als H13 R0/R2/R8 plus de al live AdRunChart, en stonden op [ ] terwijl R0 en R2 op [x] staan: twee waarheden over één traject | regels verwijderd in plaats van afgevinkt (afvinken zou suggereren dat er twee trajecten waren); CS/D' blijft uitsluitend bestaan als R8 (na: R3, nu vrij); staging-regel afgevinkt want C2b [x] bevestigt dat de eerste stap uitgevoerd is
 - 2026-07-15 | R3 | planner.js kreeg zijn eerste require: RUN_ZONE_IF/RUN_ZONE_BOUNDS uit engine.js, expliciet eenrichtingsverkeer (engine.js mag planner.js nooit importeren); loop-warmup/cooldown staan in Z1 i.p.v. fiets-warmup Z2, want loop-Z1 is al IF 0.70 tegen fiets-Z1 0.50 en een Z2-warmup zou fixedTSS te hoog zetten en nTarget/repcount vervormen | buildRunSession/buildSession nu ook geëxporteerd voor het testen van de rTSS-regressie (test e); buildPlan roept buildRunSession nog niet aan, dat is C5
 - 2026-07-15 | R2 | activityZoneClassification keek niet naar type en had average_watts als eerste tak, waardoor Strava's geschatte hardloopvermogen door FTP werd gedeeld en rustige duurlopen als Z4/Z5 in de weekverdeling landden | looptak boven de vermogenstak, lopers slaan die tak altijd over (ook zonder drempeltempo, dan HR); historische TID van weken met hardlopen verschuift, dat is de correctie
 - 2026-07-15 | R2 | canon splitst loop-Z4 (95-102% drempelsnelheid) over Seiler-band 2 en 3, maar de classificatie is sessieniveau met één label per activiteit en de fiets splitst Z4 ook niet | zoneToCategory blijft ongewijzigd: Z4-Z6 hoog; splitsen voor loop en niet voor fiets zou de sporten onvergelijkbaar maken, herzien pas als time-in-zone op streams de sessielabel-aanpak vervangt
