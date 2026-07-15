@@ -6,7 +6,9 @@ const {
   gradeAdjustFactor, computeNGP,
   computeRunningLoad, computeRunningEF, computeRunningDecoupling,
   RUN_ZONE_BOUNDS, RUN_ZONE_IF, runZoneFromSpeedRatio, computeRunPaceZones,
+  runZoneFromActivity, activityZoneClassification, zoneToCategory, weeklyZoneBreakdown,
 } = engine;
+const { makeRun, makeRide } = require('./helpers');
 
 // ── gradeAdjustFactor (Minetti 2002) ────────────────────────────────────────
 
@@ -240,5 +242,105 @@ describe('computeRunPaceZones', () => {
     const z = computeRunPaceZones(tl(Array(720).fill(400)), { thresholdPace: 300 }); // ratio 0.75 = Z2
     assert.strictEqual(z.z2Min, 60);
     assert.strictEqual(z.totalMin, 60);
+  });
+});
+
+// ── Seiler-mapping: loop en fiets in één TID-analyse ────────────────────────
+
+describe('runZoneFromActivity', () => {
+  const S = { thresholdPace: 300 };   // 5:00/km → drempelsnelheid 3.333 m/s
+
+  test('ratio = snelheid / drempelsnelheid, zonelabel volgt de grenzen', () => {
+    assert.strictEqual(runZoneFromActivity({ average_speed: 2.20 }, S).zone, 'Z1');  // 0.66
+    assert.strictEqual(runZoneFromActivity({ average_speed: 2.50 }, S).zone, 'Z2');  // 0.75
+    assert.strictEqual(runZoneFromActivity({ average_speed: 3.00 }, S).zone, 'Z3');  // 0.90
+    assert.strictEqual(runZoneFromActivity({ average_speed: 3.33 }, S).zone, 'Z4');  // 1.00
+    assert.strictEqual(runZoneFromActivity({ average_speed: 3.60 }, S).zone, 'Z5');  // 1.08
+    assert.strictEqual(runZoneFromActivity({ average_speed: 4.00 }, S).zone, 'Z6');  // 1.20
+    assert.strictEqual(runZoneFromActivity({ average_speed: 2.50 }, S).method, 'pace');
+    assert.strictEqual(runZoneFromActivity({ average_speed: 2.50 }, S).ratio, 0.75);
+  });
+
+  test('zonder drempeltempo of zonder snelheid geen zone', () => {
+    assert.strictEqual(runZoneFromActivity({ average_speed: 3.0 }, {}), null);
+    assert.strictEqual(runZoneFromActivity({ average_speed: 0 }, S), null);
+    assert.strictEqual(runZoneFromActivity({}, S), null);
+  });
+});
+
+describe('activityZoneClassification voor hardlopen', () => {
+  const S = { thresholdPace: 300, hrMax: 197 };
+
+  test('loop met drempeltempo → pace-methode', () => {
+    const a = makeRun({ date: '2026-07-01', durationSec: 3600, avgHr: 140, avgSpeed: 2.5 });
+    const z = activityZoneClassification(a, 280, 197, S);
+    assert.strictEqual(z.method, 'pace');
+    assert.strictEqual(z.zone, 'Z2');
+  });
+
+  test('Strava-loopvermogen wordt genegeerd, ook met drempeltempo', () => {
+    // 300 geschatte watt / FTP 280 = IF 1.07 → zou zonder typecheck Z5 geven
+    const a = makeRun({ date: '2026-07-01', durationSec: 3600, avgHr: 140, avgSpeed: 2.5, watts: 300 });
+    const z = activityZoneClassification(a, 280, 197, S);
+    assert.strictEqual(z.method, 'pace');
+    assert.strictEqual(z.zone, 'Z2');
+  });
+
+  test('loop zonder drempeltempo valt terug op HR, niet op vermogen', () => {
+    const a = makeRun({ date: '2026-07-01', durationSec: 3600, avgHr: 130, avgSpeed: 2.5, watts: 300 });
+    const z = activityZoneClassification(a, 280, 197, { hrMax: 197 });
+    assert.strictEqual(z.method, 'hr');
+  });
+
+  test('TrailRun volgt dezelfde tak als Run', () => {
+    const a = makeRun({ date: '2026-07-01', durationSec: 3600, avgHr: 140, avgSpeed: 2.5, type: 'TrailRun' });
+    assert.strictEqual(activityZoneClassification(a, 280, 197, S).method, 'pace');
+  });
+
+  test('fiets blijft ongewijzigd op vermogen classificeren', () => {
+    const a = makeRide({ date: '2026-07-01', durationSec: 3600, watts: 250, npWatts: 250 });
+    const z = activityZoneClassification(a, 280, 197, S);
+    assert.strictEqual(z.method, 'power');
+  });
+});
+
+describe('zoneToCategory mapt loop en fiets op dezelfde Seiler-banden', () => {
+  test('Z1/Z2 laag, Z3 matig, Z4 t/m Z6 hoog', () => {
+    assert.strictEqual(zoneToCategory('Z1'), 'low');
+    assert.strictEqual(zoneToCategory('Z2'), 'low');
+    assert.strictEqual(zoneToCategory('Z3'), 'mid');
+    assert.strictEqual(zoneToCategory('Z4'), 'high');
+    assert.strictEqual(zoneToCategory('Z5'), 'high');
+    assert.strictEqual(zoneToCategory('Z6'), 'high');
+  });
+});
+
+describe('weeklyZoneBreakdown telt loop en fiets in dezelfde week op', () => {
+  const S = { thresholdPace: 300, hrMax: 197, ftp: 280 };
+
+  test('rustige loop landt laag, interval landt hoog, minuten kloppen', () => {
+    // De rit is powerSource 'estimated', dus rollingFtp slaat hem over en ftpForDate
+    // valt terug op settings.ftp = 280. Een measured rit zou zijn eigen FTP ankeren
+    // (150W → rollingFtp 143 → IF 1.05 → Z4) en de fixture zichzelf laten bijten.
+    const ride = { ...makeRide({ date: '2026-07-09', durationSec: 3600, watts: 150, npWatts: 150 }),
+                   powerSource: 'estimated', device_watts: false };
+    const acts = [
+      makeRun({ date: '2026-07-06', durationSec: 3600, avgHr: 140, avgSpeed: 2.5 }),   // 60 min Z2 → laag
+      makeRun({ date: '2026-07-08', durationSec: 1800, avgHr: 175, avgSpeed: 3.6 }),   // 30 min Z5 → hoog
+      ride,                                                                             // 60 min Z1 → laag
+    ];
+    const wk = weeklyZoneBreakdown(acts, S);
+    assert.strictEqual(wk.length, 1);
+    assert.strictEqual(wk[0].sessions, 3);
+    assert.strictEqual(wk[0].lowMin, 120);
+    assert.strictEqual(wk[0].highMin, 30);
+    assert.strictEqual(wk[0].totalMin, 150);
+  });
+
+  test('zonder drempeltempo telt de loop nog steeds mee, via HR', () => {
+    const acts = [makeRun({ date: '2026-07-06', durationSec: 3600, avgHr: 130, avgSpeed: 2.5 })];
+    const wk = weeklyZoneBreakdown(acts, { hrMax: 197 });
+    assert.strictEqual(wk[0].sessions, 1);
+    assert.strictEqual(wk[0].totalMin, 60);
   });
 });

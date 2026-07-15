@@ -146,8 +146,18 @@ function activityZoneClassification(activity, ftp, hrMax, settings) {
   const z3 = (z.z3 != null ? z.z3 / 100 : null) ?? 0.91; // Z3 = 76-90% FTP, Z4 vanaf 91% (PeakForm_Trainingstheorie.md §Zones)
   const z4 = (z.z4 != null ? z.z4 / 100 : null) ?? 1.05;
   const hrMaxEff = settings?.hrMax || hrMax || DEFAULT_HR_MAX;
+  const isRun = activity.type === 'Run' || activity.type === 'TrailRun';
 
-  if (activity.average_watts && !inUnreliable) {
+  // Hardlopen eerst: Strava zet op loopjes een geschat hardloopvermogen, en dat is
+  // een andere grootheid dan fietsvermogen. Delen door FTP maakt van een rustige
+  // duurloop een Z4-sessie. Lopers slaan de vermogenstak daarom altijd over, ook
+  // zonder drempeltempo; dan blijft HR over, wat voor hardlopen het juiste anker is.
+  if (isRun) {
+    const rz = runZoneFromActivity(activity, settings);
+    if (rz) return rz;
+  }
+
+  if (activity.average_watts && !inUnreliable && !isRun) {
     const np = activity.weighted_average_watts || activity.average_watts;
     const IF = np / ftp;
     if (IF < z1) return { zone: 'Z1', method: 'power', IF: +IF.toFixed(2) };
@@ -177,6 +187,31 @@ function activityZoneClassification(activity, ftp, hrMax, settings) {
   return { zone: 'Z2', method: 'default' };
 }
 
+// Sessieniveau-loopzone uit gemiddelde snelheid en drempeltempo.
+// ratio = gemiddelde snelheid / drempelsnelheid = average_speed × thresholdPace / 1000.
+//
+// Bewust geen gradientcorrectie: die vereist streams (computeNGP) en de aanroeper
+// weeklyZoneBreakdown draait op getActivitiesLite zonder streams. Dit is symmetrisch
+// met de fiets, die ook op sessiegemiddelde classificeert. Op heuvelachtige loopjes
+// onderschat dit de intensiteit; de detailpagina heeft wel NGP en computeRunPaceZones.
+function runZoneFromActivity(activity, settings) {
+  const tp = settings?.thresholdPace;
+  const v  = activity?.average_speed;
+  if (!tp || !(v > 0)) return null;
+  const ratio = v * tp / 1000;
+  const z = runZoneFromSpeedRatio(ratio);
+  if (!z) return null;
+  return { zone: 'Z' + z, method: 'pace', ratio: +ratio.toFixed(2) };
+}
+
+// Seiler-3-zone-mapping, identiek voor fiets en loop zodat de TID-classificatie
+// (polarized/pyramidaal/threshold) over beide sporten optelt.
+//   laag  = Seiler 1 (< LT1):  fiets Z1/Z2, loop Z1/Z2 (< 83% drempelsnelheid)
+//   matig = Seiler 2 (LT1-LT2): fiets Z3, loop Z3 (83-95% drempelsnelheid)
+//   hoog  = Seiler 3 (> LT2):  fiets Z4/Z5, loop Z4/Z5/Z6 (>= 95%)
+// De canon splitst loop-Z4 (95-102%) over Seiler 2 en 3, maar op sessieniveau is er
+// één label per activiteit; dat splitsen voor loop en niet voor fiets zou de twee
+// sporten juist onvergelijkbaar maken. Zie Besluitlog 2026-07-15 | R2.
 function zoneToCategory(zone) {
   if (zone === 'Z1' || zone === 'Z2') return 'low';
   if (zone === 'Z3') return 'mid';
@@ -2090,7 +2125,7 @@ module.exports = {
   computeStrengthTrends,
   computeCalibrationFactor,
   rollingFtp, ftpForDate,
-  activityZoneClassification,
+  activityZoneClassification, zoneToCategory,
   weeklyZoneBreakdown, classifyTrainingModel,
   performanceTrends,
   detectPlateau, detectOverreaching,
@@ -2118,5 +2153,5 @@ module.exports = {
   computeRunningLoad, computeRunningEF, computeRunningDecoupling,
   computeRunHrZones, computeEccentricLoad,
   RUN_ZONE_BOUNDS, RUN_ZONE_IF, RUN_ZONE_NAMES,
-  runZoneFromSpeedRatio, computeRunPaceZones,
+  runZoneFromSpeedRatio, computeRunPaceZones, runZoneFromActivity,
 };

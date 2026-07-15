@@ -13,13 +13,16 @@ function makeRide({ date, durationSec, watts, npWatts, type = 'Ride' }) {
   };
 }
 
-function makeRun({ date, durationSec, avgHr }) {
-  return {
-    type: 'Run',
+function makeRun({ date, durationSec, avgHr, avgSpeed, watts, type = 'Run' }) {
+  const a = {
+    type,
     start_date: date + 'T12:00:00Z',
     moving_time: durationSec,
     average_heartrate: avgHr,
   };
+  if (avgSpeed != null) a.average_speed = avgSpeed;                          // m/s
+  if (watts != null) { a.average_watts = watts; a.weighted_average_watts = watts; }  // Strava-schatting
+  return a;
 }
 
 // Returns { 'YYYY-MM-DD': loadPerDay, ... } for `days` consecutive days.
