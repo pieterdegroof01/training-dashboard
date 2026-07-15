@@ -100,6 +100,7 @@ async function loadUserData() {
     document.getElementById('sPwrEnd').value = cfg.unreliablePowerEnd||'2020-12-31';
     document.getElementById('sFtp').value = cfg.ftp||280;
     if (document.getElementById('setting-lthr')) document.getElementById('setting-lthr').value = cfg.lthr ?? '';
+    if (document.getElementById('sThresholdPace')) document.getElementById('sThresholdPace').value = formatSecToPace(cfg.thresholdPace);
     const z = cfg.zones||{};
     if (document.getElementById('sZ1')) document.getElementById('sZ1').value = z.z1||55;
     if (document.getElementById('sZ2')) document.getElementById('sZ2').value = z.z2||75;
@@ -1631,6 +1632,42 @@ async function saveSettingsFysiologie() {
   await saveDataPartial({ settings });
   window._admSettings = { ...(window._admSettings || {}), ...settings };
   showSaved('btnSaveFys', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
+}
+
+// ── Drempeltempo ─────────────────────────────────────────────────────────────
+// UI werkt in mm:ss per km, opslag in sec/km omdat engine.js daarop rekent
+// (computeRunningLoad: ftpSpeed = 1000 / thresholdPace). Pure functies.
+// Retour: null bij lege invoer, NaN bij ongeldige invoer, anders integer sec/km.
+function parsePaceToSec(str) {
+  const s = String(str ?? '').trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!m) return NaN;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+
+function formatSecToPace(sec) {
+  if (sec == null || !isFinite(sec)) return '';
+  const s = Math.round(sec);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+async function saveSettingsHardlopen() {
+  const msg = document.getElementById('runSettingsMsg');
+  const sec = parsePaceToSec(document.getElementById('sThresholdPace').value);
+  const fout = (t) => { msg.className = 'alert alert-error mt-2'; msg.textContent = t; msg.classList.remove('hidden'); };
+  if (Number.isNaN(sec)) return fout('Ongeldig tempo. Gebruik mm:ss per kilometer, bijvoorbeeld 4:45.');
+  if (sec !== null && (sec < 150 || sec > 600)) return fout('Drempeltempo moet tussen 2:30 en 10:00 per kilometer liggen.');
+  const settings = { ...(S.data.settings || {}), thresholdPace: sec };
+  await saveDataPartial({ settings });
+  S.data.settings = settings;
+  window._admSettings = { ...(window._admSettings || {}), ...settings };
+  msg.className = 'alert alert-success mt-2';
+  msg.textContent = sec === null
+    ? 'Drempeltempo gewist. Hardloop-load valt terug op hrTSS.'
+    : `Drempeltempo opgeslagen: ${formatSecToPace(sec)} per km (${sec} s/km). rTSS en IF zijn actief op nieuwe hardloopanalyses.`;
+  msg.classList.remove('hidden');
+  showSaved('btnSaveHardlopen', 'Opslaan', 'btn btn-primary mt-3 btn-sm');
 }
 
 async function saveSettingsKracht() {

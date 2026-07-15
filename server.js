@@ -3066,6 +3066,20 @@ app.post('/api/data', async (req, res) => {
     const body = req.body || {};
     const fields = {};
     if (body.goals     !== undefined) fields.goals     = { ...(user.goals     || {}), ...body.goals };
+    // thresholdPace voedt rTSS in engine.computeRunningLoad; de merge hieronder is
+    // spread-based en laat alles door, dus valideer hier voordat het persistent wordt.
+    if (body.settings && Object.prototype.hasOwnProperty.call(body.settings, 'thresholdPace')) {
+      const tp = body.settings.thresholdPace;
+      if (tp === null || tp === '') {
+        body.settings.thresholdPace = null;
+      } else {
+        const n = Number(tp);
+        if (!Number.isInteger(n) || n < 150 || n > 600) {
+          return res.status(400).json({ error: 'thresholdPace moet null zijn of een geheel aantal seconden per kilometer tussen 150 en 600' });
+        }
+        body.settings.thresholdPace = n;
+      }
+    }
     if (body.settings  !== undefined) fields.settings  = { ...(user.settings  || {}), ...body.settings };
     if (body.patterns  !== undefined) fields.patterns  = body.patterns;
     if (body.weekPlan  !== undefined) fields.week_plan = body.weekPlan;

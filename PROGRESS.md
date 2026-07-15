@@ -7,8 +7,8 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. R0 Drempeltempo-veld (Handoff 13). Geen afhankelijkheden; ontgrendelt de meeste
-   vervolgitems (4).
+1. R1 Loopzones Z1-Z6 op drempelsnelheid (na: R0, klaar). Ontgrendelt de meeste
+   vervolgitems (5).
 2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
 3. C8 Onboarding (na: C4, klaar; loopt samen met frontend-overhaul Doelen-tab).
 
@@ -55,7 +55,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
 
 ## Handoff 13: Hardlopen gestructureerd (actief traject, onderzoek 2026-07-15)
-- [ ] R0 Drempeltempo-veld settings.thresholdPace in sec/km + Doelen-UI + validatie; activeert rTSS/IF in computeRunningLoad (engine.js ~1867)
+- [x] R0 Drempeltempo-veld settings.thresholdPace in sec/km + Instellingen-UI + validatie; activeert rTSS/IF in computeRunningLoad (2026-07-15)
 - [ ] R1 Loopzones Z1-Z6 op drempelsnelheid + eigen RUN_ZONE_IF-tabel in engine.js, puur (na: R0)
 - [ ] R2 Seiler-mapping loopzones zodat fiets en loop in één TID-analyse vallen (na: R1)
 - [ ] R3 Loopblok-builders buildRunSession in planner.js, puur, analoog aan buildSession (na: R1)
@@ -147,6 +147,7 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-15 | R0 | annotatie zei Doelen-UI, maar de twee zusterankers FTP en LTHR staan in Instellingen en Doelen gaat sinds C4b-2 over doel, event en weekcapaciteit, niet over fysiologische ankers | veld geplaatst in Instellingen als eigen kaart met eigen saveSettingsHardlopen zodat saveSettings ongemoeid blijft; annotatie R0 gecorrigeerd naar Instellingen-UI; engine.js ongewijzigd want computeRunningLoad las thresholdPace al
 - 2026-07-15 | PROGRESS.md | Nu-sectie liep uit de pas en noemde C1, staging en C2b terwijl die alle drie op [x] stonden; oorzaak was dat alleen Pieter hem mocht herschrijven, waardoor niemand het deed | regel omgedraaid: Nu is een afgeleide weergave die elke commit meeloopt, mechanisch afgeleid uit de (na: ...)-annotaties, met STOP bij ambiguïteit en een [vast]-markering als override voor Pieter
 - 2026-07-15 | PROGRESS.md | testguard in de H13-prompt stond op 165/165 maar de suite geeft 171 groen; het getal was uit een grep op test(-regels afgeleid in plaats van uit een run, node telt suites en subtests mee (tweede keer deze fout, zie 2026-07-10) | testguards ankeren voortaan op '0 fail' en niet op een absoluut aantal; het aantal mag groeien
 - 2026-07-15 | R-doc | PeakForm_Trainingstheorie.md staat niet in de repo maar alleen in projectkennis, terwijl de Besluitlog ernaar verwijst op regelnummer (C3, regel 95); een invoeging boven dat regelnummer breekt het citaat stil | beslispunt: doc versioneren onder docs/ zodat de canon meeversioneert met de code

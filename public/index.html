@@ -779,6 +779,16 @@
     </div>
 
     <div class="card">
+      <div class="card-label">Hardlopen: drempeltempo</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.6">Gemiddeld tempo over de laatste 20 minuten van een maximale inspanning van 30 minuten op vlak terrein. Zonder deze waarde valt de hardloop-load terug op hrTSS. Met de waarde rekent de engine rTSS en IF op basis van gradient-gecorrigeerd tempo (NGP).</p>
+      <div class="form-grid">
+        <div class="fg"><label>Drempeltempo (mm:ss per km)</label><input type="text" id="sThresholdPace" placeholder="bijv. 4:45"><span style="font-size:11px;color:var(--muted);margin-top:3px">Leeg laten wist de waarde. Toegestaan bereik 2:30 tot 10:00 per kilometer.</span></div>
+      </div>
+      <div id="runSettingsMsg" class="hidden"></div>
+      <button class="btn btn-primary mt-3 btn-sm" onclick="saveSettingsHardlopen()" id="btnSaveHardlopen">Opslaan</button>
+    </div>
+
+    <div class="card">
       <div class="card-label">Garmin CSV — Gewicht importeren</div>
       <p style="color:var(--muted);font-size:12px;line-height:1.7;margin-bottom:12px">
         Exporteer je gewichtsgeschiedenis via <strong style="color:var(--text)">Gezondheid → Gewicht → Exporteren (CSV)</strong>. Bestaande handmatige invoer wordt niet overschreven. Pounds worden automatisch omgezet naar kg.
