@@ -13,7 +13,17 @@ const POPULATION_PRIORS = {
   ctlTimeConstantDays: 42,
   atlTimeConstantDays: 7,
   minTsbForQuality: -25,
-  interferenceFactor: 1.0,
+  // Interferentie kracht-duur bij lopen. Wilson et al. 2012 (meta-analyse):
+  // hardlopen na/voor krachttraining geeft wél significante krachtdecrementen,
+  // fietsen niet. De 1.5-2x-weging is semi-kwantitatief, geen gepubliceerde
+  // multiplier — vandaar een band i.p.v. één vaste waarde. De 6-uursondergrens
+  // is de harde fysiologische bodem uit dezelfde literatuur; 24u is de voorkeur
+  // waarbinnen het effect grotendeels weg is; EIMD (spierschade door
+  // excentrische belasting, bv. downhill) verlengt dat tot 48u.
+  runInterferenceWeight:   1.75,   // band 1.5-2.0, relatief aan fietsen = 1.0
+  minHoursRunToLegs:          6,   // harde fysiologische ondergrens
+  preferredHoursRunToLegs:   24,
+  eimdRecoveryHours:         48,   // na loop met eccentricFlag, vóór zware legs
   maxHitSessionsPerWeek: 3,
   minHoursBetweenHit: 48,
   distributionPolarizedMinHours: 8,

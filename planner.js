@@ -741,6 +741,68 @@ function goalsToGoalSet(legacyGoals, currentWeight, nowMs) {
 // gewicht en gelijke fase-voorkeur (sectie 5).
 const MODALITY_ORDER = ['cycling', 'strength', 'running'];
 
+// Cycling is het anker (1.0): Wilson et al. 2012 vindt bij fietsen geen
+// significante krachtdecrementen door interferentie. Running is null hier
+// omdat zijn gewicht atleet-variabel is en uit params komt, niet uit een
+// vaste tabel — zie modalityInterferenceWeight. Strength is de bron niet de
+// ontvanger van interferentie in deze richting en heeft daarom geen eigen
+// gewicht nodig.
+const MODALITY_INTERFERENCE = { cycling: 1.0, running: null, strength: null };
+
+// Puur. Geeft het interferentiegewicht van modality t.o.v. het fiets-anker
+// (1.0). Voor running komt de waarde uit params, geclampt op de gepubliceerde
+// band 1.5-2.0 (Wilson 2012, semi-kwantitatief). Nooit een default hardcoden
+// buiten de clampgrenzen: ontbreekt de waarde, dan is 1.5 (de bandbodem) de
+// enige toegestane terugval.
+function modalityInterferenceWeight(modality, params) {
+  if (modality === 'cycling') return MODALITY_INTERFERENCE.cycling;
+  if (modality === 'running') {
+    const w = typeof params?.runInterferenceWeight === 'number' ? params.runInterferenceWeight : 1.5;
+    return Math.min(2.0, Math.max(1.5, w));
+  }
+  return 1.0;
+}
+
+// Puur, muteert params niet. De 6-uursbodem (minHoursRunToLegs) is de harde
+// fysiologische ondergrens uit Wilson 2012 en is universeel: de leerlaag (C9)
+// mag hem nooit onderschrijden. preferredHoursRunToLegs en eimdRecoveryHours
+// zijn daarom ook naar boven toe verankerd op elkaar (eimd >= preferred >=
+// min), zodat een geleerde waarde de volgorde niet kan omdraaien. De weging
+// runInterferenceWeight is wél personaliseerbaar, maar binnen zijn eigen band.
+function clampInterferenceParams(params) {
+  const runInterferenceWeight = Math.min(2.0, Math.max(1.5, params.runInterferenceWeight));
+  const minHoursRunToLegs = Math.max(6, params.minHoursRunToLegs);
+  const preferredHoursRunToLegs = Math.max(minHoursRunToLegs, params.preferredHoursRunToLegs);
+  const eimdRecoveryHours = Math.max(preferredHoursRunToLegs, params.eimdRecoveryHours);
+  return { ...params, runInterferenceWeight, minHoursRunToLegs, preferredHoursRunToLegs, eimdRecoveryHours };
+}
+
+// Puur. prev/next zijn descriptors { modality, isLegs, eimdFlag }. Fiets-legs
+// valt hier bewust buiten: Wilson 2012 vindt bij fietsen geen significante
+// krachtdecrementen, en de bestaande fiets-legs-heuristiek leeft al in de
+// AI-prompt van server.js — die blijft ongemoeid.
+function requiredSeparationHours(prev, next, params) {
+  const p = clampInterferenceParams(params);
+  const runLegsPair =
+    (prev.modality === 'running' && next.modality === 'strength' && next.isLegs) ||
+    (prev.modality === 'strength' && prev.isLegs && next.modality === 'running');
+  if (!runLegsPair) {
+    return { hours: 0, level: 'ok', reason: 'geen loop-legs-paar' };
+  }
+  if (prev.modality === 'running' && prev.eimdFlag && next.modality === 'strength' && next.isLegs) {
+    return { hours: p.eimdRecoveryHours, level: 'eimd' };
+  }
+  return { hours: p.preferredHoursRunToLegs, level: 'preferred' };
+}
+
+// Puur.
+function separationLevel(hoursBetween, required, params) {
+  const p = clampInterferenceParams(params);
+  if (hoursBetween < p.minHoursRunToLegs) return 'conflict';
+  if (hoursBetween < required) return 'suboptimaal';
+  return 'ok';
+}
+
 function goalModality(type) {
   if (type === 'strength') return 'strength';
   if (type === 'running')  return 'running';
@@ -962,6 +1024,8 @@ module.exports = {
   goalsToGoalSet, resolveGoalPriority, buildMacrocycle,
   buildRunSession, runPaceZones, runBlockTSS, buildRunSessionBlocks,
   buildSession,
+  modalityInterferenceWeight, clampInterferenceParams,
+  requiredSeparationHours, separationLevel,
 };
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────
@@ -973,7 +1037,10 @@ if (require.main === module) {
     ctlTimeConstantDays:         42,
     atlTimeConstantDays:          7,
     minTsbForQuality:           -10,
-    interferenceFactor:          0.8,
+    runInterferenceWeight:      1.75,
+    minHoursRunToLegs:             6,
+    preferredHoursRunToLegs:       24,
+    eimdRecoveryHours:             48,
     maxHitSessionsPerWeek:         2,
     minHoursBetweenHit:           48,
     distributionPolarizedMinHours: 8,

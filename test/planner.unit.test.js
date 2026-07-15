@@ -12,6 +12,8 @@ const {
   dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
   goalsToGoalSet, resolveGoalPriority, buildMacrocycle,
   runPaceZones, runBlockTSS, buildRunSession, buildSession,
+  modalityInterferenceWeight, clampInterferenceParams,
+  requiredSeparationHours, separationLevel,
 } = require('../planner');
 const { availDay, planParams } = require('./helpers');
 
@@ -518,5 +520,99 @@ describe('buildRunSession', () => {
     const cyc = buildSession('2026-07-20', 'endurance', 60, 60, 280);
     assert.ok(run.targetTSS > cyc.targetTSS,
       `run ${run.targetTSS} moet > cyc ${cyc.targetTSS} zijn`);
+  });
+});
+
+// ── modalityInterferenceWeight — cycling anker 1.0, running atleet-variabel ──
+
+describe('modalityInterferenceWeight', () => {
+  const p = planParams();
+
+  test('cycling = 1.0', () => {
+    assert.strictEqual(modalityInterferenceWeight('cycling', p), 1.0);
+  });
+
+  test('running = 1.75 (prior)', () => {
+    assert.strictEqual(modalityInterferenceWeight('running', p), 1.75);
+  });
+
+  test('running met prior 3.0 wordt geclampt naar 2.0', () => {
+    assert.strictEqual(modalityInterferenceWeight('running', { ...p, runInterferenceWeight: 3.0 }), 2.0);
+  });
+
+  test('running met prior 1.0 wordt geclampt naar 1.5', () => {
+    assert.strictEqual(modalityInterferenceWeight('running', { ...p, runInterferenceWeight: 1.0 }), 1.5);
+  });
+});
+
+// ── clampInterferenceParams — 6-uursbodem universeel, geen mutatie ──────────
+
+describe('clampInterferenceParams', () => {
+  test('minHoursRunToLegs 2 -> 6, input blijft ongemoeid', () => {
+    const input = { ...planParams(), minHoursRunToLegs: 2 };
+    const snapshot = { ...input };
+    const out = clampInterferenceParams(input);
+    assert.strictEqual(out.minHoursRunToLegs, 6);
+    assert.deepStrictEqual(input, snapshot, 'clampInterferenceParams mag de input niet muteren');
+  });
+});
+
+// ── requiredSeparationHours — alleen loop-legs-paren tellen ─────────────────
+
+describe('requiredSeparationHours', () => {
+  const p = planParams();
+
+  test('cycling-legs: 0 (fiets valt buiten de heuristiek, zie server.js AI-prompt)', () => {
+    const r = requiredSeparationHours({ modality: 'cycling' }, { modality: 'strength', isLegs: true }, p);
+    assert.strictEqual(r.hours, 0);
+  });
+
+  test('run-push (isLegs false): 0', () => {
+    const r = requiredSeparationHours({ modality: 'running' }, { modality: 'strength', isLegs: false }, p);
+    assert.strictEqual(r.hours, 0);
+  });
+
+  test('run-legs zonder eimdFlag: 24 (preferred)', () => {
+    const r = requiredSeparationHours({ modality: 'running', eimdFlag: false }, { modality: 'strength', isLegs: true }, p);
+    assert.strictEqual(r.hours, 24);
+    assert.strictEqual(r.level, 'preferred');
+  });
+
+  test('run-legs met eimdFlag: 48 (eimd)', () => {
+    const r = requiredSeparationHours({ modality: 'running', eimdFlag: true }, { modality: 'strength', isLegs: true }, p);
+    assert.strictEqual(r.hours, 48);
+    assert.strictEqual(r.level, 'eimd');
+  });
+});
+
+// ── separationLevel ──────────────────────────────────────────────────────────
+
+describe('separationLevel', () => {
+  const p = planParams();
+
+  test('4u tegen required 24u = conflict (onder minHoursRunToLegs)', () => {
+    assert.strictEqual(separationLevel(4, 24, p), 'conflict');
+  });
+
+  test('12u tegen required 24u = suboptimaal', () => {
+    assert.strictEqual(separationLevel(12, 24, p), 'suboptimaal');
+  });
+
+  test('26u tegen required 24u = ok', () => {
+    assert.strictEqual(separationLevel(26, 24, p), 'ok');
+  });
+});
+
+// ── R4 regressie: interferenceFactor is dode code, geen consumenten ─────────
+
+describe('R4 regressie: interferenceFactor verwijderd', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  test('geen enkel bronbestand noemt interferenceFactor nog', () => {
+    for (const rel of ['planner.js', 'athleteParams.js', 'test/helpers.js']) {
+      const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+      assert.ok(!src.includes('interferenceFactor'), `${rel} noemt interferenceFactor nog`);
+    }
   });
 });
