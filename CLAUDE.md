@@ -5,3 +5,7 @@
 ## Voortgangsregel
 
 PROGRESS.md in de repo-root is het statusoverzicht van alle handoff-clusters. Elke commit die een item (deels) uitvoert MOET in dezelfde commit de bijbehorende regel in PROGRESS.md bijwerken: status en datum. Een statusregel blijft één regel. Bevindingen, vervolgfixes en gewijzigde aannames gaan naar de Besluitlog onderaan PROGRESS.md, niet achter de statusregel. Afhankelijkheden staan als `(na: X)` achter het item; blijkt tijdens uitvoering dat een afhankelijkheid niet klopt of dat een nieuw item nodig is, schrijf dan een besluitlogregel, pas de annotatie aan en STOP met verdere uitvoering. De sectie "Nu" bovenaan PROGRESS.md is een afgeleide weergave en MOET in dezelfde commit worden herberekend: verwijder items op `[x]`, vul aan tot maximaal drie met open items uit de secties gemarkeerd als "actief traject" waarvan elke `(na: ...)` op `[x]` staat, aflopend gesorteerd op het aantal items dat ze vrijspelen en bij gelijkstand op cluster-ID; items op `[!]` tellen niet mee, een item met `[vast]` blijft staan. Is de uitkomst niet eenduidig af te leiden: besluitlogregel, "Nu" ongewijzigd laten, STOP. Nieuwe clusters uit toekomstige handoffs worden bij hun eerste uitvoering toegevoegd, mét `(na: ...)`-annotatie.
+
+## Trainingscanon
+
+De trainingscanon staat in docs/PeakForm_Trainingstheorie.md en is de bron voor elke trainingswetenschappelijke claim in engine.js en planner.js. Citeer hem altijd op sectiekop, nooit op regelnummer, want regelnummers schuiven bij elke invoeging.
