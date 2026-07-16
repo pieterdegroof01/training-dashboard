@@ -8,7 +8,7 @@ Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere sec
 zijn statusinventaris en zeggen niets over volgorde.
 
 1. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
-2. R7 Periodiseringsprofielen per atleetsituatie (na: R3, klaar). Ontgrendelt C5.
+2. R7 Periodiseringsprofielen per atleetsituatie (na: R3, R5, R-doc-a, klaar). Ontgrendelt C5.
 3. C8 Onboarding (na: C4, klaar); loopt samen met frontend-overhaul Doelen-tab.
 
 ## Legenda
@@ -63,8 +63,8 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0)
 - [ ] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3, R5, R-doc-a)
 - [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (na: R3)
-- [x] R-doc-a Trainingstheorie ongewijzigd geversioneerd onder docs/ + citeerregel in CLAUDE.md (2026-07-16)
-- [ ] R-doc-b Sectie Trainingsintensiteitsverdeling herschrijven naar matrix per atleetsituatie i.p.v. time-crunched framing (na: R-doc-a; landt in de R7-commit)
+- [x] R-doc-a Trainingstheorie geversioneerd onder docs/ (herziene versie, 343 regels, zes hardloopsecties + Robineau-correctie) + citeerregel in CLAUDE.md (2026-07-16)
+- [ ] R-doc-b Dubbele intensiteitssectie harmoniseren: sectie Trainingsintensiteitsverdeling spreekt de sectie Intensiteitsverdeling en periodisering per atleetsituatie tegen (na: R-doc-a; landt in de R7-commit)
 
 ## Handoff 11: Bugs, UX, features
 - [x] Cluster 1 Read-path performance: analytics-memo met ?force=1 bypass (geverifieerd 2026-07-10)
@@ -144,16 +144,10 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
-- 2026-07-16 | R-doc | versioneren en herschrijven zijn twee dingen: de canon buiten
-  de repo maakt R7 onschrijfbaar (geen guard mogelijk, agent kan het bestand niet
-  lezen), maar de herschrijving hoort in dezelfde commit als de code die eruit volgt |
-  gesplitst in R-doc-a (versioneren, nu) en R-doc-b (herschrijven, in de R7-commit);
-  R7-annotatie uitgebreid naar (na: R3, R5, R-doc-a)
-- 2026-07-16 | R7 | annotatie miste R5: niveau wordt deterministisch afgeleid uit
-  chronische loopbelasting en historielengte i.p.v. uit een gebruikersveld, en die
-  reeks (runningDailyETL) bestaat pas sinds R5; een expliciete override in
-  Instellingen kan later als C8-laag eroverheen, nooit andersom | R5 opgenomen in de
-  (na: ...) van R7, beide staan op [x] dus R7 blijft vrij
+- 2026-07-16 | R-doc-a | de commit beschrijft zichzelf onjuist: er landde geen kopie maar een herziene canon (343 tegen 217 regels, zes nieuwe hardloopsecties, twee herschreven alinea's waaronder de intrekking van de drie-uursregel ten gunste van Robineau 6u/24u), en de oude sectie Trainingsintensiteitsverdeling spreekt de nieuwe sectie per atleetsituatie tegen binnen hetzelfde bestand | statusregel R-doc-a gecorrigeerd, R-doc-b geherformuleerd van "matrix schrijven" naar "dubbele sectie harmoniseren" want de matrix bestaat al; de canon ondersteunt de R5-drempels 10/30/100 nu expliciet, die afwijking uit de R5-besluitlog is daarmee vervallen
+- 2026-07-16 | werkregel | de projectkennis-kopie die een sessie op schijf krijgt kan verouderd zijn (217 regels tegen de 344 die in de UI staan), waardoor een diff tegen die kopie een verschil laat zien dat er niet is | inhoudelijke claims over een projectdocument altijd tegen de actuele bron toetsen, niet tegen de meegeleverde kopie; verificatie van de canon tegen engine.js/athleteParams.js bevestigde acht alinea's uit vier secties en alle constanten (RUN_ZONE_BOUNDS, RUN_ZONE_IF, rTSS-kolom, RUN_ACWR_BAND, RUN_SPIKE_BAND, interferentieparameters) byte-identiek
+- 2026-07-16 | R-doc | versioneren en herschrijven zijn twee dingen: de canon buiten de repo maakt R7 onschrijfbaar (geen guard mogelijk, agent kan het bestand niet lezen), maar de herschrijving hoort in dezelfde commit als de code die eruit volgt | gesplitst in R-doc-a (versioneren, nu) en R-doc-b (herschrijven, in de R7-commit); R7-annotatie uitgebreid naar (na: R3, R5, R-doc-a)
+- 2026-07-16 | R7 | annotatie miste R5: niveau wordt deterministisch afgeleid uit chronische loopbelasting en historielengte i.p.v. uit een gebruikersveld, en die reeks (runningDailyETL) bestaat pas sinds R5; een expliciete override in Instellingen kan later als C8-laag eroverheen, nooit andersom | R5 opgenomen in de (na: ...) van R7, beide staan op [x] dus R7 blijft vrij
 - 2026-07-16 | C5 | annotatie miste R7: de weeksolver kiest zijn zoneverdeling via GOAL_PROFILES/DIST_BASE en R7 vervangt precies die selectie door een keuze op atleetsituatie (tijdsbudget, niveau, doeltype), dus C5 vóór R7 bouwen betekent solveWeek twee keer schrijven, hetzelfde patroon als C4/C8 op de Doelen-tab | annotatie C5 uitgebreid naar (na: C3, C4, R0, R1, R3, R4, R7); C5 valt daarmee uit Nu tot R7 klaar is; R5 blijft bewust géén (na:) van C5, want de guard is een volgorde-voorkeur (goedkoper om te consumeren dan achteraf in te weven) en geen afhankelijkheid
 - 2026-07-16 | R5 | drempels op 10/30/100% terwijl de implementeerbaar-regel in het onderzoeksdoc 30/100 noemde | de 10-30%-band had in de studie de hoogste hazard rate ratio (+64%), de hoogste gemeten risicoband; een guard die daar niet aanslaat mist de zwaarste band; gevolg: classifyRunSpike is de primaire guard en computeRunAcwr de secundaire, C5 consumeert classifyRunSpike bij het plaatsen van de lange duurloop
 - 2026-07-16 | R5 | single-run-spike-guard rekent op afstand, niet op rTSS | Frandsen 2025 mat afstandsverhoudingen t.o.v. de langste run, geen rTSS; longestRunDistance en classifyRunSpike zijn daarom op activity.distance gebouwd
