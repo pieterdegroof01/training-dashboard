@@ -9,7 +9,7 @@ zijn statusinventaris en zeggen niets over volgorde.
 
 1. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
 2. R7 Periodiseringsprofielen per atleetsituatie (na: R3, R5, R-doc-a, klaar). Ontgrendelt C5.
-3. C8 Onboarding (na: C4, klaar); loopt samen met frontend-overhaul Doelen-tab.
+3. R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0, klaar). Ontgrendelt niets, vult de derde plek.
 
 ## Legenda
 
@@ -50,7 +50,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4, R7)
 - [ ] C6 Prognose (na: C5)
 - [ ] C7 Reviewcadans (na: C2b)
-- [ ] C8 Onboarding (na: C4; loopt samen met frontend-overhaul Doelen-tab)
+- [ ] C8 Onboarding (na: C4, C5; loopt samen met frontend-overhaul Doelen-tab)
 - [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
 
 ## Handoff 13: Hardlopen gestructureerd (actief traject, onderzoek 2026-07-15)
@@ -144,6 +144,7 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | C8 | annotatie miste C5: de blokkerende velden van de wizard zijn doeltype en gewicht per doel, en gewicht per doel bestaat alleen in de goals-tabel, die nul consumenten heeft (insertGoal/getActiveGoals/setGoalStatus ongebruikt, buildPlan draait via goalsToGoalSet op het legacy users.goals-JSONB en POST /api/goals merget daarin); C8 nu bouwen betekent of schrijven naar een tabel die de planner niet leest, of een tweede doelformulier naast de C4b-2-Doelen-tab dat bij C5 opnieuw moet, hetzelfde patroon als C5/R7 | annotatie C8 naar (na: C4, C5); het optionele veld trainingservaring per modaliteit valt daarmee transitief achter R7, conform de C8-als-override-regel uit de R7-besluitlogregel; C8 uit Nu, R6 vult de derde plek (nul ontgrendelingen, gelijkstand met R8 op cluster-ID beslist, R-doc-b telt niet mee want gebonden aan de R7-commit)
 - 2026-07-16 | R-doc-a | de commit beschrijft zichzelf onjuist: er landde geen kopie maar een herziene canon (343 tegen 217 regels, zes nieuwe hardloopsecties, twee herschreven alinea's waaronder de intrekking van de drie-uursregel ten gunste van Robineau 6u/24u), en de oude sectie Trainingsintensiteitsverdeling spreekt de nieuwe sectie per atleetsituatie tegen binnen hetzelfde bestand | statusregel R-doc-a gecorrigeerd, R-doc-b geherformuleerd van "matrix schrijven" naar "dubbele sectie harmoniseren" want de matrix bestaat al; de canon ondersteunt de R5-drempels 10/30/100 nu expliciet, die afwijking uit de R5-besluitlog is daarmee vervallen
 - 2026-07-16 | werkregel | de projectkennis-kopie die een sessie op schijf krijgt kan verouderd zijn (217 regels tegen de 344 die in de UI staan), waardoor een diff tegen die kopie een verschil laat zien dat er niet is | inhoudelijke claims over een projectdocument altijd tegen de actuele bron toetsen, niet tegen de meegeleverde kopie; verificatie van de canon tegen engine.js/athleteParams.js bevestigde acht alinea's uit vier secties en alle constanten (RUN_ZONE_BOUNDS, RUN_ZONE_IF, rTSS-kolom, RUN_ACWR_BAND, RUN_SPIKE_BAND, interferentieparameters) byte-identiek
 - 2026-07-16 | R-doc | versioneren en herschrijven zijn twee dingen: de canon buiten de repo maakt R7 onschrijfbaar (geen guard mogelijk, agent kan het bestand niet lezen), maar de herschrijving hoort in dezelfde commit als de code die eruit volgt | gesplitst in R-doc-a (versioneren, nu) en R-doc-b (herschrijven, in de R7-commit); R7-annotatie uitgebreid naar (na: R3, R5, R-doc-a)
