@@ -13,7 +13,7 @@ function makeRide({ date, durationSec, watts, npWatts, type = 'Ride' }) {
   };
 }
 
-function makeRun({ date, durationSec, avgHr, avgSpeed, watts, type = 'Run' }) {
+function makeRun({ date, durationSec, avgHr, avgSpeed, watts, type = 'Run', distanceM }) {
   const a = {
     type,
     start_date: date + 'T12:00:00Z',
@@ -22,6 +22,7 @@ function makeRun({ date, durationSec, avgHr, avgSpeed, watts, type = 'Run' }) {
   };
   if (avgSpeed != null) a.average_speed = avgSpeed;                          // m/s
   if (watts != null) { a.average_watts = watts; a.weighted_average_watts = watts; }  // Strava-schatting
+  if (distanceM != null) a.distance = distanceM;                             // m
   return a;
 }
 

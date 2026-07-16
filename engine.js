@@ -8,6 +8,7 @@ const DEFAULT_FTP = 280;
 const DEFAULT_HR_MAX = 197;
 
 const ENDURANCE_TYPES = new Set(['Ride','VirtualRide','Run','TrailRun','Swim','Hike','Walk']);
+const RUN_TYPES = new Set(['Run','TrailRun']);
 const STRENGTH_TYPES  = new Set(['WeightTraining','Workout']);
 
 const PRIMARY_WEIGHT   = 1.0;
@@ -338,6 +339,7 @@ function computeETLForHevyWorkout(workout, opts = {}) {
 function buildDailyETLSeries(activities, hevyWorkouts, settings) {
   const enduranceDailyETL = {};
   const strengthDailyETL  = {};
+  const runningDailyETL   = {};
   const sources  = {};
 
   const _ftpMemo = {};
@@ -354,6 +356,9 @@ function buildDailyETLSeries(activities, hevyWorkouts, settings) {
     sources[d].push({ kind: 'strava', type: a.type, name: a.name, etl, tssSource, durMin: Math.round((a.moving_time || 0) / 60) });
     if (ENDURANCE_TYPES.has(a.type)) {
       enduranceDailyETL[d] = (enduranceDailyETL[d] || 0) + etl;
+      if (RUN_TYPES.has(a.type)) {
+        runningDailyETL[d] = (runningDailyETL[d] || 0) + etl;
+      }
     } else {
       strengthDailyETL[d] = (strengthDailyETL[d] || 0) + etl;
     }
@@ -370,7 +375,7 @@ function buildDailyETLSeries(activities, hevyWorkouts, settings) {
     sources[d].push({ kind: 'hevy', name: w.name || 'Workout', etl, breakdown });
   });
 
-  return { enduranceDailyETL, strengthDailyETL, sources };
+  return { enduranceDailyETL, strengthDailyETL, runningDailyETL, sources };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -2115,6 +2120,86 @@ function computeEccentricLoad(altitudeTimeline, runHrZones) {
   return { descentM: Math.round(descentM), eccentricFlag, reason };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// BLESSURE-GUARDRAILS HARDLOPEN — Gabbett 2016 (ACWR) + Frandsen 2025 (spike)
+// ────────────────────────────────────────────────────────────────────────────
+const RUN_ACWR_BAND  = { low: 0.80, high: 1.30, crit: 1.50 };
+const RUN_SPIKE_BAND = { small: 0.10, moderate: 0.30, large: 1.00 };
+const RUN_SPIKE_WINDOW_DAYS = 30;
+const RUN_SPIKE_MIN_RUNS    = 3;
+const RUN_ACWR_MIN_CTL      = 5;
+
+// ACWR op de hardloop-only ETL-reeks (Gabbett 2016). asOfISO wordt door de
+// aanroeper meegegeven: deze functie erft geen klok en mag nooit "vandaag" raden.
+function computeRunAcwr(runningDailyETL, asOfISO) {
+  if (!asOfISO || !runningDailyETL || !Object.keys(runningDailyETL).length) {
+    return { acwr: null, atl: null, ctl: null, status: 'insufficient', reliability: 'insufficient', reason: 'Geen loopdata of geen peildatum om ACWR op te ankeren' };
+  }
+  const m = computeLoadMetrics(runningDailyETL, asOfISO);
+  if (m.ctl < RUN_ACWR_MIN_CTL) {
+    return { acwr: m.acwr, atl: m.atl, ctl: m.ctl, status: 'insufficient', reliability: 'insufficient', reason: 'Te weinig chronische loopbelasting om een ratio op te ankeren: ACWR is een ratio en een kleine noemer maakt hem betekenisloos' };
+  }
+  let status;
+  if (m.acwr > RUN_ACWR_BAND.crit) status = 'high';
+  else if (m.acwr > RUN_ACWR_BAND.high) status = 'warn';
+  else if (m.acwr < RUN_ACWR_BAND.low) status = 'detraining';
+  else status = 'ok';
+  return { acwr: m.acwr, atl: m.atl, ctl: m.ctl, status, reliability: 'ok', band: RUN_ACWR_BAND };
+}
+
+// Langste run in het venster vóór asOfISO (Frandsen 2025 gebruikt afstand als
+// referentie, niet rTSS: het onderzoek mat afstandsverhoudingen). Het venster
+// sluit asOfISO zelf strikt uit, zodat de te beoordelen run nooit zijn eigen
+// baseline is. UTC-rekenkunde op de datumcomponenten, geen lokale-tijd-deling.
+function longestRunDistance(activities, asOfISO, windowDays = RUN_SPIKE_WINDOW_DAYS) {
+  const DAY_MS = 86400000;
+  const [y, mo, da] = asOfISO.split('-').map(Number);
+  const asOfMs = Date.UTC(y, mo - 1, da);
+  const fromMs = asOfMs - windowDays * DAY_MS;
+  const fromISO = new Date(fromMs).toISOString().split('T')[0];
+  const toISO   = asOfISO;
+
+  let longestM = 0;
+  let runCount = 0;
+  (activities || []).forEach(a => {
+    if (!RUN_TYPES.has(a.type)) return;
+    if (!(a.distance > 0)) return;
+    const d = a.start_date?.split('T')[0];
+    if (!d) return;
+    const [dy, dmo, dda] = d.split('-').map(Number);
+    const dMs = Date.UTC(dy, dmo - 1, dda);
+    if (dMs < fromMs || dMs >= asOfMs) return;
+    runCount += 1;
+    if (a.distance > longestM) longestM = a.distance;
+  });
+
+  return { longestM, runCount, fromISO, toISO, windowDays };
+}
+
+// Single-run-spike t.o.v. de langste run uit de lopende trainingsgeschiedenis
+// (Frandsen 2025). In deze studie voorspelde ACWR géén blessurerisico, maar
+// single-run-spikes wél: de spike is hier de primaire guard, ACWR de secundaire.
+function classifyRunSpike(candidateDistanceM, baseline) {
+  if (!baseline || baseline.runCount < RUN_SPIKE_MIN_RUNS || baseline.longestM <= 0) {
+    return { ratio: null, severity: 'none', reliability: 'insufficient', reason: 'Minder dan drie runs in het venster: geen trainingsgeschiedenis om een spike tegen af te zetten' };
+  }
+  const ratio = candidateDistanceM / baseline.longestM;
+  const excess = ratio - 1;
+  let severity;
+  if (excess > RUN_SPIKE_BAND.large) severity = 'large';         // HRR 2.28
+  else if (excess > RUN_SPIKE_BAND.moderate) severity = 'moderate'; // +52%
+  else if (excess > RUN_SPIKE_BAND.small) severity = 'small';       // +64%, hoogste gemeten risicoband
+  else severity = 'none';
+  return {
+    ratio: Math.round(ratio * 100) / 100,
+    excessPct: Math.round(excess * 100),
+    severity,
+    reliability: 'ok',
+    longestM: baseline.longestM,
+    band: RUN_SPIKE_BAND,
+  };
+}
+
 module.exports = {
   computeETLForActivity,
   computeETLForHevyWorkout,
@@ -2154,4 +2239,6 @@ module.exports = {
   computeRunHrZones, computeEccentricLoad,
   RUN_ZONE_BOUNDS, RUN_ZONE_IF, RUN_ZONE_NAMES,
   runZoneFromSpeedRatio, computeRunPaceZones, runZoneFromActivity,
+  RUN_TYPES, RUN_ACWR_BAND, RUN_SPIKE_BAND,
+  computeRunAcwr, longestRunDistance, classifyRunSpike,
 };

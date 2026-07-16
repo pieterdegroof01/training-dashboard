@@ -60,7 +60,7 @@ Regels voor wie dit bestand bijwerkt:
 - [x] R2 Seiler-mapping loopzones zodat fiets en loop in één TID-analyse vallen (2026-07-15)
 - [x] R3 Loopblok-builders buildRunSession in planner.js, puur, analoog aan buildSession (na: R1) (2026-07-15)
 - [x] R4 Interferentieparameters: loopweging 1.5-2x fiets, 6u ondergrens, 24u voorkeur, EIMD 48u (na: R1) (2026-07-15)
-- [ ] R5 ACWR-loopband 0.8-1.3 + single-run-spike-guard t.o.v. langste run 30 dagen (na: R1)
+- [x] R5 ACWR-loopband 0.8-1.3 + single-run-spike-guard t.o.v. langste run 30 dagen (na: R1) (2026-07-16)
 - [ ] R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0)
 - [ ] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3)
 - [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (na: R3)
@@ -144,6 +144,8 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | R5 | drempels op 10/30/100% terwijl de implementeerbaar-regel in het onderzoeksdoc 30/100 noemde | de 10-30%-band had in de studie de hoogste hazard rate ratio (+64%), de hoogste gemeten risicoband; een guard die daar niet aanslaat mist de zwaarste band; gevolg: classifyRunSpike is de primaire guard en computeRunAcwr de secundaire, C5 consumeert classifyRunSpike bij het plaatsen van de lange duurloop
+- 2026-07-16 | R5 | single-run-spike-guard rekent op afstand, niet op rTSS | Frandsen 2025 mat afstandsverhoudingen t.o.v. de langste run, geen rTSS; longestRunDistance en classifyRunSpike zijn daarom op activity.distance gebouwd
 - 2026-07-15 | R4 | interferenceFactor had drie definities (athleteParams.js prior 1.0, planner.js-zelftest 0.8, test/helpers.js-mirror 1.0) en nul consumenten, met twee onderling tegenstrijdige waarden 1.0/0.8 die niemand opmerkte | dode knop verwijderd, vervangen door vier benoemde knoppen; weging (runInterferenceWeight) blijft atleet-variabel in athleteParams.js/POPULATION_PRIORS voor de leerlaag (C9), maar de 6-uursbodem (minHoursRunToLegs, Wilson 2012) is universeel en wordt door clampInterferenceParams in planner.js afgedwongen ongeacht wat de leerlaag aanlevert; buildPlan roept deze helpers nog niet aan, dat is C5
 - 2026-07-15 | Overig | drie "Running detail"-regels beschreven hetzelfde werk als H13 R0/R2/R8 plus de al live AdRunChart, en stonden op [ ] terwijl R0 en R2 op [x] staan: twee waarheden over één traject | regels verwijderd in plaats van afgevinkt (afvinken zou suggereren dat er twee trajecten waren); CS/D' blijft uitsluitend bestaan als R8 (na: R3, nu vrij); staging-regel afgevinkt want C2b [x] bevestigt dat de eerste stap uitgevoerd is
 - 2026-07-15 | R3 | planner.js kreeg zijn eerste require: RUN_ZONE_IF/RUN_ZONE_BOUNDS uit engine.js, expliciet eenrichtingsverkeer (engine.js mag planner.js nooit importeren); loop-warmup/cooldown staan in Z1 i.p.v. fiets-warmup Z2, want loop-Z1 is al IF 0.70 tegen fiets-Z1 0.50 en een Z2-warmup zou fixedTSS te hoog zetten en nTarget/repcount vervormen | buildRunSession/buildSession nu ook geëxporteerd voor het testen van de rTSS-regressie (test e); buildPlan roept buildRunSession nog niet aan, dat is C5

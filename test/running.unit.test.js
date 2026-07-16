@@ -7,8 +7,10 @@ const {
   computeRunningLoad, computeRunningEF, computeRunningDecoupling,
   RUN_ZONE_BOUNDS, RUN_ZONE_IF, runZoneFromSpeedRatio, computeRunPaceZones,
   runZoneFromActivity, activityZoneClassification, zoneToCategory, weeklyZoneBreakdown,
+  buildDailyETLSeries, computeETLForActivity,
+  computeRunAcwr, longestRunDistance, classifyRunSpike,
 } = engine;
-const { makeRun, makeRide } = require('./helpers');
+const { makeRun, makeRide, constantDailyETL, impulseDailyETL } = require('./helpers');
 
 // ── gradeAdjustFactor (Minetti 2002) ────────────────────────────────────────
 
@@ -342,5 +344,160 @@ describe('weeklyZoneBreakdown telt loop en fiets in dezelfde week op', () => {
     const wk = weeklyZoneBreakdown(acts, { hrMax: 197 });
     assert.strictEqual(wk[0].sessions, 1);
     assert.strictEqual(wk[0].totalMin, 60);
+  });
+});
+
+// ── buildDailyETLSeries: runningDailyETL naast enduranceDailyETL ───────────
+
+describe('buildDailyETLSeries met runningDailyETL', () => {
+  test('rit + run op één dag: runningDailyETL bevat alleen de run, enduranceDailyETL blijft de som van beide', () => {
+    const ride = makeRide({ date: '2026-07-06', durationSec: 3600, watts: undefined });
+    const run  = makeRun({ date: '2026-07-06', durationSec: 3600 });
+
+    // Onafhankelijk narekenen: dezelfde ETL-berekening die buildDailyETLSeries intern
+    // gebruikt, rechtstreeks op de twee activiteiten, zonder vermogenspad (geen watts/ftp).
+    const rideEtl = computeETLForActivity(ride, undefined, null).etl;
+    const runEtl  = computeETLForActivity(run, undefined, null).etl;
+
+    const { enduranceDailyETL, strengthDailyETL, runningDailyETL } =
+      buildDailyETLSeries([ride, run], [], undefined);
+
+    assert.deepStrictEqual(runningDailyETL, { '2026-07-06': runEtl });
+    assert.deepStrictEqual(enduranceDailyETL, { '2026-07-06': rideEtl + runEtl });
+    assert.deepStrictEqual(strengthDailyETL, {});
+  });
+});
+
+// ── computeRunAcwr — Gabbett 2016 ───────────────────────────────────────────
+
+describe('computeRunAcwr', () => {
+  // Onafhankelijke EWMA-referentie: zelfde recursie als computeLoadMetrics in
+  // engine.js (ATL_TAU=7, CTL_TAU=42), hier los van de geteste functie herbouwd.
+  function ewma(dailyETL, datesAsc, tau) {
+    const k = 1 - Math.exp(-1 / tau);
+    let x = 0;
+    for (const d of datesAsc) x = x + k * ((dailyETL[d] || 0) - x);
+    return x;
+  }
+  function expectedAcwr(dailyETL) {
+    const dates = Object.keys(dailyETL).sort();
+    const atl = ewma(dailyETL, dates, 7);
+    const ctl = ewma(dailyETL, dates, 42);
+    return { atl, ctl, acwr: ctl > 0 ? +(atl / ctl).toFixed(2) : 0 };
+  }
+
+  test('constante loopbelasting lang genoeg voor CTL-convergentie (tau 42) geeft acwr rond 1.0 en status ok', () => {
+    // 210 dagen ≈ 5x CTL_TAU: zowel ATL als CTL zijn dan nagenoeg volledig
+    // geconvergeerd naar de constante load, dus acwr → 1.0.
+    const dailyETL = constantDailyETL('2026-01-01', 210, 60);
+    const asOfISO = Object.keys(dailyETL).sort().at(-1);
+    const exp = expectedAcwr(dailyETL);
+    const r = computeRunAcwr(dailyETL, asOfISO);
+    assert.strictEqual(r.status, 'ok');
+    assert.strictEqual(r.reliability, 'ok');
+    assert.strictEqual(r.acwr, exp.acwr);
+    assert.ok(Math.abs(r.acwr - 1.0) < 0.05, `acwr=${r.acwr}, verwacht rond 1.0`);
+  });
+
+  test('lege reeks geeft insufficient', () => {
+    const r = computeRunAcwr({}, '2026-07-16');
+    assert.deepStrictEqual(r, {
+      acwr: null, atl: null, ctl: null,
+      status: 'insufficient', reliability: 'insufficient',
+      reason: r.reason,
+    });
+    assert.ok(r.reason && r.reason.length > 0);
+  });
+
+  test('reeks met ctl < 5 geeft insufficient', () => {
+    const dailyETL = constantDailyETL('2026-01-01', 5, 3);
+    const asOfISO = Object.keys(dailyETL).sort().at(-1);
+    const exp = expectedAcwr(dailyETL);
+    assert.ok(exp.ctl < 5, `test-aanname geschonden: ctl=${exp.ctl} >= 5`);
+    const r = computeRunAcwr(dailyETL, asOfISO);
+    assert.strictEqual(r.status, 'insufficient');
+    assert.strictEqual(r.reliability, 'insufficient');
+  });
+
+  test('impuls die atl/ctl boven 1.5 duwt geeft high', () => {
+    const dailyETL = impulseDailyETL('2026-01-01', 42, 41, 50, 400);
+    const asOfISO = Object.keys(dailyETL).sort().at(-1);
+    const exp = expectedAcwr(dailyETL);
+    assert.ok(exp.acwr > 1.5, `test-aanname geschonden: acwr=${exp.acwr} <= 1.5`);
+    assert.ok(exp.ctl >= 5, `test-aanname geschonden: ctl=${exp.ctl} < 5`);
+    const r = computeRunAcwr(dailyETL, asOfISO);
+    assert.strictEqual(r.status, 'high');
+    assert.strictEqual(r.reliability, 'ok');
+    assert.strictEqual(r.acwr, exp.acwr);
+  });
+
+  test('reeks die na een blok opdroogt geeft detraining', () => {
+    const block = constantDailyETL('2026-01-01', 60, 50);
+    const dry   = constantDailyETL('2026-03-02', 20, 0);
+    const dailyETL = { ...block, ...dry };
+    const asOfISO = Object.keys(dailyETL).sort().at(-1);
+    const exp = expectedAcwr(dailyETL);
+    assert.ok(exp.acwr < 0.8, `test-aanname geschonden: acwr=${exp.acwr} >= 0.8`);
+    assert.ok(exp.ctl >= 5, `test-aanname geschonden: ctl=${exp.ctl} < 5`);
+    const r = computeRunAcwr(dailyETL, asOfISO);
+    assert.strictEqual(r.status, 'detraining');
+    assert.strictEqual(r.reliability, 'ok');
+    assert.strictEqual(r.acwr, exp.acwr);
+  });
+});
+
+// ── longestRunDistance + classifyRunSpike — Frandsen 2025 ──────────────────
+
+describe('longestRunDistance sluit de run op asOfISO zelf uit', () => {
+  test('een run van 30km op asOfISO zelf verandert de baseline niet', () => {
+    const activities = [
+      makeRun({ date: '2026-03-05', durationSec: 3000, distanceM: 10000 }),
+      makeRun({ date: '2026-03-10', durationSec: 3000, distanceM: 10000 }),
+      makeRun({ date: '2026-03-15', durationSec: 3000, distanceM: 10000 }),
+      makeRun({ date: '2026-03-31', durationSec: 9000, distanceM: 30000 }), // asOfISO zelf
+    ];
+    const baseline = longestRunDistance(activities, '2026-03-31', 30);
+    assert.strictEqual(baseline.longestM, 10000);
+    assert.strictEqual(baseline.runCount, 3);
+    assert.strictEqual(baseline.fromISO, '2026-03-01');
+    assert.strictEqual(baseline.toISO, '2026-03-31');
+    assert.strictEqual(baseline.windowDays, 30);
+  });
+});
+
+describe('classifyRunSpike', () => {
+  const baseline = { longestM: 10000, runCount: 3, fromISO: '2026-03-01', toISO: '2026-03-31', windowDays: 30 };
+
+  test('5% boven de langste run geeft none', () => {
+    const r = classifyRunSpike(10500, baseline);
+    assert.strictEqual(r.severity, 'none');
+    assert.strictEqual(r.reliability, 'ok');
+  });
+
+  test('20% boven de langste run geeft small', () => {
+    const r = classifyRunSpike(12000, baseline);
+    assert.strictEqual(r.severity, 'small');
+  });
+
+  test('50% boven de langste run geeft moderate', () => {
+    const r = classifyRunSpike(15000, baseline);
+    assert.strictEqual(r.severity, 'moderate');
+  });
+
+  test('120% boven de langste run geeft large', () => {
+    const r = classifyRunSpike(22000, baseline);
+    assert.strictEqual(r.severity, 'large');
+  });
+
+  test('twee runs in het venster geeft reliability insufficient en severity none', () => {
+    const activities = [
+      makeRun({ date: '2026-03-05', durationSec: 3000, distanceM: 10000 }),
+      makeRun({ date: '2026-03-10', durationSec: 3000, distanceM: 10000 }),
+    ];
+    const thinBaseline = longestRunDistance(activities, '2026-03-31', 30);
+    assert.strictEqual(thinBaseline.runCount, 2);
+    const r = classifyRunSpike(50000, thinBaseline);
+    assert.strictEqual(r.severity, 'none');
+    assert.strictEqual(r.reliability, 'insufficient');
   });
 });
