@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
-const { buildPlan, computePlanWindow } = require('./planner');
+const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
 const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate } = require('./db');
@@ -3241,8 +3241,9 @@ app.post('/api/availability-slots', async (req, res) => {
     const toStore = slots.map(s => ({ ...s, source: 'concrete' }));
     await replaceAvailabilitySlotsForDate(user.id, date, toStore);
 
-    // Dubbelschrijf-brug: spiegel naar week_availability zodat buildAvailDays
-    // (en dus de weekplanner) gevoed blijft tot C5 de slot-adapter bouwt.
+    // Dubbelschrijf-brug: spiegel naar week_availability zodat adjustCurrentWeek
+    // en mergeAvailabilityView gevoed blijven; blijft bestaan tot C5f de
+    // spiegel opruimt (C5b-besluitlog: vervalt niet zoals C4a aannam).
     const freshUser = await getDefaultUser();
     const wa = { ...(freshUser.week_availability || {}) };
     const mirror = slotsToLegacyDay(toStore);
@@ -3578,77 +3579,106 @@ app.post('/api/goals', async (req, res) => {
 
 // ── Week plan generation ──────────────────────────────────────────────────────
 
-  function buildAvailDays(weekAvailability, patterns) {
-    const dayOrder = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
-    const legsDays = new Set(
-      (patterns || [])
-        .filter(p => p.type === 'gym' && p.split === 'legs')
-        .map(p => (p.day || '').toLowerCase())
-    );
-    function maxZoneForDate(dateStr) {
-      const name = dayNameFromDate(dateStr);
-      const idx  = dayOrder.indexOf(name);
-      if (idx < 0) return 5;
-      if (legsDays.has(name)) return 2;
-      if (legsDays.has(dayOrder[(idx + 6) % 7])) return 2;
-      if (legsDays.has(dayOrder[(idx + 5) % 7])) return 3;
-      return 5;
-    }
-    // Plan is vooruitkijkend: alleen vandaag en verder voorschrijven.
-    // UTC-ISO, consistent met getISOWeekBounds / reconcilePrescriptions.
-    const todayISO = new Date().toISOString().split('T')[0];
-    return Object.entries(weekAvailability)
-      .filter(([date, v]) => v.cycling && date >= todayISO)
-      .map(([date, v]) => ({ date, maxDuration: v.maxDuration || 90, maxZone: maxZoneForDate(date) }))
-      .sort((a, b) => a.date.localeCompare(b.date));
+  // Een sessie is vervangbaar door een nieuwe generate-run als hij door de
+  // planner is gezet, nog niet uitgevoerd of overgeslagen is, en binnen het
+  // vooruitkijkende venster valt. Alles daarbuiten (verleden, handmatig,
+  // uitgevoerd, unplanned) blijft ongewijzigd bezetting en interferentiebron
+  // — dat is de reden dat solveWeek zijn eigen output nooit als bestaand
+  // terugkrijgt en opnieuw genereren geen no-op wordt.
+  function isReplaceableSession(s, date, monday, sunday, todayISO) {
+    return s.source === 'planner' && s.aiGenerated && s.completionScore === undefined &&
+      !s.missed && !s.unplanned && date >= monday && date <= sunday && date >= todayISO;
   }
 
   async function runWeekplanGeneration() {
+    const nowMs    = Date.now(); // enige klok-aanroep; alles eronder krijgt nowMs door
+    const todayISO = new Date(nowMs).toISOString().split('T')[0];
+    const monday   = getMondayOf(todayISO);
+    const sunday   = new Date(new Date(monday + 'T00:00:00Z').getTime() + 6 * 86400000).toISOString().split('T')[0];
+
     const user = await getDefaultUser();
-    const [allActivities, hevyWorkouts, weight, nutrition, sleep] = await Promise.all([
+    const [allActivities, hevyWorkouts, weight, nutrition, sleep, dbSlots] = await Promise.all([
       getActivities(user.id),
       getHevyWorkouts(user.id),
       getWeightMap(user.id),
       getNutrition(user.id),
       getSleep(user.id),
+      getAvailabilitySlots(user.id, monday, sunday),
     ]);
-    const settings         = user.settings          || {};
-    const weekAvailability = user.week_availability || {};
-    const goals            = user.goals             || {};
-    const patterns         = user.patterns          || [];
+    const settings  = user.settings  || {};
+    const goals     = user.goals     || {};
+    const patterns  = user.patterns  || [];
 
-    const availDays = buildAvailDays(weekAvailability, patterns);
-    if (!availDays.length) return { sessions: [], message: 'Geen beschikbare fietsdagen ingesteld.' };
+    // Beschikbaarheid: dezelfde adapter als GET /api/availability-slots, geen
+    // tweede adapter bouwen (C5b-besluitlog).
+    const slots = mergeAvailabilityView(dbSlots, user.week_availability || {}, monday, sunday);
+    if (!slots.length) return { sessions: [], message: 'Geen beschikbare slots ingesteld.' };
 
-    const engineData = { sleep, goals, patterns, weekAvailability };
+    const engineData = { sleep, goals, patterns, weekAvailability: user.week_availability || {} };
     const state = engine.computeFullState(allActivities, hevyWorkouts, weight, nutrition,
                                           user.week_plan || {}, settings, engineData);
 
     const ftp    = state.ftpInfo?.ftp || settings.ftp || 280;
     const params = await getAthleteParams(user.id);
 
-    const plan = buildPlan({
-      goals,
-      metrics:       state.enduranceMetrics || { ctl: 0, atl: 0, tsb: 0, acwr: 0 },
-      currentWeight: state.currentWeight || 80,
-      availDays,
+    // Macrocyclus: blijft in het geheugen, deterministisch herrekend per
+    // generate (C5b-besluitlog: macrocycle_id heeft geen stabiele semantiek).
+    const goalSet = goalsToGoalSet(goals, state.currentWeight, nowMs);
+    const weeklyHours = Number(settings.weekCapacity?.hours) > 0
+      ? Number(settings.weekCapacity.hours)
+      : slots.reduce((s, sl) => s + sl.minutes, 0) / 60;
+    const baseline = { ctl: state.enduranceMetrics?.ctl ?? 0, weeklyHours, settings };
+    const mesoRows = buildMacrocycle(goalSet, todayISO, baseline, params, nowMs);
+    const meso = mesoRows.find(r => r.week_start === monday) || mesoRows[0];
+    if (!meso) return { sessions: [], message: 'Geen macrocyclus kon worden opgebouwd.' };
+
+    // Solverstate: eerste consumenten van longestRunDistance, computeRunAcwr
+    // en runMinutesInWeek — die functies bestaan sinds R5 en hadden tot nu
+    // toe nul aanroepers.
+    const vorigeMaandag = new Date(new Date(monday + 'T00:00:00Z').getTime() - 7 * 86400000).toISOString().split('T')[0];
+    const solverState = {
       ftp,
-      settings,
-    }, params);
+      thresholdPace: settings.thresholdPace,
+      runBaseline: engine.longestRunDistance(allActivities, todayISO),
+      runAcwr: engine.computeRunAcwr(state.runningDailyETL, todayISO),
+      lastWeekRunMinutes: engine.runMinutesInWeek(allActivities, vorigeMaandag),
+    };
+
+    const existingSessions = {};
+    for (const [date, sessOnDate] of Object.entries(user.week_plan || {})) {
+      const kept = (sessOnDate || []).filter(s => !isReplaceableSession(s, date, monday, sunday, todayISO));
+      if (kept.length) existingSessions[date] = kept;
+    }
+
+    const plan = solveWeek(meso, slots, solverState, existingSessions, params, nowMs);
 
     // Defensieve write: verse user vlak voor de merge.
     const freshUser = await getDefaultUser();
     const updatedWp = { ...(freshUser.week_plan || {}) };
+    for (const [date, sessOnDate] of Object.entries(updatedWp)) {
+      updatedWp[date] = (sessOnDate || []).filter(s => !isReplaceableSession(s, date, monday, sunday, todayISO));
+    }
     Object.entries(plan.sessions).forEach(([date, newSessions]) => {
-      const kept = (updatedWp[date] || []).filter(x =>
-        x.type !== 'cycling' || x.unplanned || x.completionScore !== undefined || x.missed
-      );
-      updatedWp[date] = [...kept, ...newSessions];
+      updatedWp[date] = [...(updatedWp[date] || []), ...newSessions];
     });
+
+    const summary = summarizeWeek(plan.prescriptions);
+    const skeleton = {
+      mode: meso.dominant_type,
+      phase: meso.phase,
+      mesocycleWeek: meso.week_index,
+      isRecoveryWeek: meso.is_deload,
+      weeklyTSSTarget: summary.weeklyTSSTarget,
+      distributionModel: meso.distribution_model,
+      realizedDistribution: summary.realizedDistribution,
+      tidMinutes: summary.tidMinutes,
+      diagnostics: plan.diagnostics,
+    };
+
     const planInvalidatePages = ['vandaag', 'integratie', 'activiteiten', 'voeding', 'week', 'weekplanning', 'trends', 'voorspelling'];
     const wipedInsights = { ...(freshUser.ai_insights || {}) };
     planInvalidatePages.forEach(k => { delete wipedInsights[k]; });
-    await saveUserFields(freshUser.id, { week_plan: updatedWp, plan_skeleton: plan.skeleton, ai_insights: wipedInsights });
+    await saveUserFields(freshUser.id, { week_plan: updatedWp, plan_skeleton: skeleton, ai_insights: wipedInsights });
 
     // Prescriptions verrijken met run-id en belief-state, dan wegschrijven.
     const runId = crypto.randomUUID();
@@ -3658,16 +3688,15 @@ app.post('/api/goals', async (req, res) => {
         ? { ctl: state.enduranceMetrics.ctl, atl: state.enduranceMetrics.atl,
             tsb: state.enduranceMetrics.tsb, acwr: state.enduranceMetrics.acwr }
         : null,
-      skeleton: plan.skeleton,
+      skeleton,
     };
     if (plan.prescriptions.length) {
-      // Venster begint bij VANDAAG, niet bij de maandag van de week: buildAvailDays
-      // schrijft alleen vanaf vandaag voor, en verstreken voorschriften moeten actief
-      // blijven zodat reconcilePrescriptions ze nog kan matchen of als missed markeren.
-      // Het einde is wel de zondag van de planweek, zodat toekomstige dagen die uit de
-      // beschikbaarheid zijn verdwenen alsnog hun voorschrift verliezen.
+      // Venster begint bij VANDAAG, niet bij de maandag van de week: het plan
+      // schrijft alleen vanaf vandaag voor, en verstreken voorschriften moeten
+      // actief blijven zodat reconcilePrescriptions ze nog kan matchen of als
+      // missed markeren. Het einde is wel de zondag van de planweek.
       const dates = plan.prescriptions.map(p => p.prescribed_date);
-      const { windowStart, windowEnd } = computePlanWindow(dates, Date.now());
+      const { windowStart, windowEnd } = computePlanWindow(dates, nowMs);
       if (windowStart > windowEnd) {
         console.warn(`replaceActivePrescriptions overgeslagen: leeg venster (${windowStart}..${windowEnd})`);
       } else {
@@ -3684,13 +3713,16 @@ app.post('/api/goals', async (req, res) => {
       }
     }
 
-    return { sessions: Object.values(plan.sessions).flat(), skeleton: plan.skeleton };
-  }
+    const sessions = Object.values(plan.sessions).flat();
+    const modalityCounts = sessions.reduce((acc, s) => {
+      const m = sessionModality(s);
+      acc[m] = (acc[m] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(`weekplan sessies per modaliteit: ${JSON.stringify(modalityCounts)}`);
 
-function dayNameFromDate(dateStr) {
-  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  return days[new Date(dateStr + 'T12:00:00').getDay()];
-}
+    return { sessions, skeleton };
+  }
 
 app.post('/api/weekplan/generate', async (req, res) => {
     try {

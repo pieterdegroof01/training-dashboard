@@ -7,9 +7,9 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. C5b Slot-adapter + solveWeek aansluiten (na: C5a, klaar). Ontgrendelt C5c en C8.
+1. C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (na: C5b, klaar). Ontgrendelt C6.
 2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
-3. R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0, klaar). Ontgrendelt niets, vult de derde plek.
+3. C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen (na: C5b, klaar). Ontgrendelt niets, vult de derde plek.
 
 ## Legenda
 
@@ -48,9 +48,11 @@ Regels voor wie dit bestand bijwerkt:
 - [x] C3 Backward planner (na: C1, C2b) (2026-07-13)
 - [x] C4 Tweetraps beschikbaarheid (na: C2b) (2026-07-13) (volledig: brug, grid, Doelen-overhaul met weekcapaciteit 2026-07-13)
 - [x] C5a solveWeek puur in planner.js + constraint-tests (na: C3, C4, R0, R1, R3, R4, R7) (2026-07-16)
-- [ ] C5b Slot-adapter + runWeekplanGeneration op buildMacrocycle/solveWeek; buildAvailDays en maxZoneForDate weg, legacy-spiegel vervalt (na: C5a)
+- [x] C5b runWeekplanGeneration op buildMacrocycle/solveWeek; buildAvailDays en maxZoneForDate weg (na: C5a) (2026-07-16)
 - [ ] C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (na: C5b)
 - [ ] C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen, waardoor het mid-doel onhaalbaar is zodra HIT en de lange duurrit de meeste minuten opeisen (na: C5b)
+- [ ] C5e AI-planblok multimodaal: buildPrescriptionBlock filtert op type==='cycling' en meldt een rustdag terwijl er een loop- of krachtsessie gepland staat (na: C5b)
+- [ ] C5f adjustCurrentWeek: AI-bijstelling op dag-granulariteit gaat over de urenplafonds van solveWeek heen; legacy-spiegel week_availability vervalt in dezelfde commit (na: C5b)
 - [ ] C6 Prognose (na: C5c)
 - [ ] C7 Reviewcadans (na: C2b)
 - [ ] C8 Onboarding (na: C4, C5b; loopt samen met frontend-overhaul Doelen-tab; levert doelafstand hardlopen voor de R7-matrix)
@@ -147,6 +149,11 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | C5b | de legacy-spiegel kan niet vervallen zoals de C4a-besluitlog aannam: adjustCurrentWeek leest week_availability plus de dag-gebaseerde cyclingRestrictions uit engine.js en draait op elke sync en webhook een AI-bijstelling van het weekplan, dus die AI gaat na C5b over de urenplafonds van solveWeek heen | spiegel blijft staan; de verwijdering plus het botsingsprobleem samen als C5f (na: C5b); de C4a-annotatie "spiegel vervalt in C5" is daarmee achterhaald
+- 2026-07-16 | C5b | plan_mesocycles niet gevuld: macrocycle_id heeft geen stabiele semantiek (bij een doorlopend doel schuift het 12-weeksvenster elke week op) en getMesocycleForWeek filtert niet op macrocycle_id, dus twee overlappende macrocycli maken die query niet-deterministisch | macrocyclus blijft in het geheugen, deterministisch herrekend per generate; persistentie krijgt pas een consument bij C7 en wordt daar beslist; de C5a-besluitlogregel die de ADD COLUMN dominant_type bij C5b legde is daarmee vervallen
+- 2026-07-16 | C5b | solveWeek genereert per (datum, modaliteit) niets zodra er al een sessie staat, dus zijn eigen vorige output als existingSessions voeren maakt opnieuw genereren een no-op en kan een gebruiker zijn plan nooit herzien | vervangbaarheid ligt bij de aanroeper: server.js houdt planner-sessies zonder uitkomst binnen het venster buiten existingSessions; solveWeek blijft ongewijzigd en de C5a-idempotentietest blijft geldig
+- 2026-07-16 | C5b | longestRunDistance, computeRunAcwr, classifyRunSpike en runningDailyETL hadden sinds R5 nul aanroepers: buildDailyETLSeries berekende runningDailyETL wel maar computeFullState destructureerde hem niet | computeFullState geeft runningDailyETL nu door (additief, geen herberekening); C5b is de eerste consument van de hele R5-laag
+- 2026-07-16 | C5b | de statusregel beloofde een slot-adapter, maar mergeAvailabilityView in availability.js levert al exact de solver-input van solveWeek ([{ slot_date, minutes, modalities, time_of_day }]) | geen adapter gebouwd, alleen aangesloten; statusregel C5b gecorrigeerd
 - 2026-07-16 | C5a | de zelftestguard in de prompt stond op "drie CONSISTENT-verdicts" terwijl staging er vóór C5a al maar twee gaf; het getal was geschat en niet geteld, en blok 0 mat npm test wel maar node planner.js niet | derde keer dezelfde fout (zie 2026-07-15 en 2026-07-10); de regel "testguards ankeren op 0 fail en niet op een absoluut aantal" geldt vanaf nu ook voor zelftest-verdicts: elke guard op een niet-npm-test-uitvoer wordt in blok 0 als nulmeting gedraaid en de vergelijking is nulmeting-vs-na, nooit een verwachte waarde uit het hoofd
 - 2026-07-16 | C5a | buildPlan-zelftest TEST 2 geeft realized mid 0.11 tegen doel 0.20 en dat is geen testartefact: mid wordt uitsluitend toegewezen aan otherNonHit-dagen, want HIT-dagen krijgen hitType en de langste niet-HIT-dag krijgt hard endurance; bij weinig dagen is het mid-doel daarmee structureel onhaalbaar en FIX 3 verbergt dat door weeklyTSSTarget achteraf naar de gebouwde sessies te rekenen, zodat alleen de mid-check nog aanslaat | solveWeek erft de bug omdat C5a de dagtoewijzing bewust letterlijk kopieert (verplaatsing zonder gedragswijziging, zodat C5b een pure omschakeling blijft); geregistreerd als C5d (na: C5b), want repareren in buildPlan is weggegooid werk zodra C5b hem uit het schrijfpad haalt
 - 2026-07-16 | C5a | Blok 9-zelftest (node planner.js) toont TEST 2 INCONSISTENT (gerealiseerde mid 0,11 tegen doel 0,20); bevestigd pre-existing via git stash tegen ongewijzigde staging, dus geen regressie door C5a | commit gaat door zonder herstel: buildPlan blijft dit commit onaangeraakt (expliciete C5a-scope-grens), een fix hoort bij een apart aangewezen item

@@ -1597,7 +1597,7 @@ function suggestLTHR(activities) {
 // COMPLETE STATE
 // ────────────────────────────────────────────────────────────────────────────
 function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan, settings, data = null) {
-  const { enduranceDailyETL, strengthDailyETL, sources } = buildDailyETLSeries(activities, hevyWorkouts, settings);
+  const { enduranceDailyETL, strengthDailyETL, runningDailyETL, sources } = buildDailyETLSeries(activities, hevyWorkouts, settings);
   const enduranceMetrics = computeLoadMetrics(enduranceDailyETL);
   const strengthMetrics  = computeStrengthMetrics(hevyWorkouts);
   const ftpInfo = rollingFtp(activities, settings);
@@ -1632,7 +1632,7 @@ function computeFullState(activities, hevyWorkouts, weight, nutrition, weekPlan,
   const adaptivePlan = adaptiveWeekAdjustments(weekPlan, readiness, overreaching, plateaus, currentZoneModel);
 
   return {
-    enduranceDailyETL, strengthDailyETL, sources,
+    enduranceDailyETL, strengthDailyETL, runningDailyETL, sources,
     enduranceMetrics,
     metrics: enduranceMetrics, // backward-compat alias
     strengthMetrics,
@@ -2200,6 +2200,27 @@ function classifyRunSpike(candidateDistanceM, baseline) {
   };
 }
 
+// Som van moving_time (in minuten) over loopactiviteiten in
+// [weekStartISO, weekStartISO + 6 dagen]. UTC-rekenkunde op de
+// datumcomponenten, geen lokale-tijd-Date-objecten, geen klok.
+function runMinutesInWeek(activities, weekStartISO) {
+  const DAY_MS = 86400000;
+  const [y, mo, da] = weekStartISO.split('-').map(Number);
+  const fromMs = Date.UTC(y, mo - 1, da);
+  const toMs = fromMs + 6 * DAY_MS;
+  let minutes = 0;
+  (activities || []).forEach(a => {
+    if (!RUN_TYPES.has(a.type)) return;
+    const d = a.start_date?.split('T')[0];
+    if (!d) return;
+    const [dy, dmo, dda] = d.split('-').map(Number);
+    const dMs = Date.UTC(dy, dmo - 1, dda);
+    if (dMs < fromMs || dMs > toMs) return;
+    minutes += (a.moving_time || 0) / 60;
+  });
+  return minutes;
+}
+
 module.exports = {
   computeETLForActivity,
   computeETLForHevyWorkout,
@@ -2241,4 +2262,5 @@ module.exports = {
   runZoneFromSpeedRatio, computeRunPaceZones, runZoneFromActivity,
   RUN_TYPES, RUN_ACWR_BAND, RUN_SPIKE_BAND,
   computeRunAcwr, longestRunDistance, classifyRunSpike,
+  runMinutesInWeek,
 };

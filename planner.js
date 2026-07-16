@@ -1645,6 +1645,50 @@ function solveWeek(mesocycle, slots, state, existingSessions, params, nowMs) {
   return { sessions, prescriptions, diagnostics };
 }
 
+// ─── C5b: plan_skeleton-realisatie voor solveWeek-output ─────────────────────
+// plan_skeleton heeft precies één consument (buildPrescriptionBlock), die
+// weeklyTSSTarget/tidMinutes/realizedDistribution leest. solveWeek levert die
+// realisatie zelf niet, dus deze helper rekent hem na uit de prescriptions.
+// Band-indeling identiek aan buildPlan FIX 3 en de R2-besluitlog: Z1/Z2 laag,
+// Z3 midden, Z4 en hoger hoog, met als enige uitzondering het
+// sweetspot-werkblok dat als midden telt. Kracht doet niet mee: geen zones,
+// geen TSS. zoneToCategory splitst loop-Z4 bewust niet (R2-besluitlog), dus
+// loopblokken volgen dezelfde indeling als fietsblokken.
+function summarizeWeek(prescriptions) {
+  let sumTSS = 0;
+  const tidMinutes = { low: 0, mid: 0, high: 0 };
+
+  for (const p of (prescriptions || [])) {
+    if (p.modality !== 'cycling' && p.modality !== 'running') continue;
+    sumTSS += p.target_tss || 0;
+    const isSweetspot = p.session_type === 'sweetspot';
+    for (const b of (p.blocks || [])) {
+      const n = b.herhalingen || 1;
+      const isSweetspotWork = isSweetspot && b.type === 'work' && b.zone === 'Z4';
+      const cat = isSweetspotWork ? 'mid'
+        : (b.zone === 'Z1' || b.zone === 'Z2') ? 'low'
+        : b.zone === 'Z3' ? 'mid' : 'high';
+      tidMinutes[cat] += b.duration * n;
+      if (b.herstelBlok) {
+        const hCat = (b.herstelBlok.zone === 'Z1' || b.herstelBlok.zone === 'Z2') ? 'low'
+          : b.herstelBlok.zone === 'Z3' ? 'mid' : 'high';
+        tidMinutes[hCat] += b.herstelBlok.duration * n;
+      }
+    }
+  }
+  tidMinutes.total = tidMinutes.low + tidMinutes.mid + tidMinutes.high;
+  const weeklyTSSTarget = Math.round(sumTSS);
+
+  const _t = tidMinutes.total || 1;
+  const realizedDistribution = {
+    low:  Math.round(tidMinutes.low  / _t * 100) / 100,
+    mid:  Math.round(tidMinutes.mid  / _t * 100) / 100,
+    high: Math.round(tidMinutes.high / _t * 100) / 100,
+  };
+
+  return { weeklyTSSTarget, tidMinutes, realizedDistribution };
+}
+
 module.exports = {
   buildPlan, zoneWatts, blockTSS, deriveMode,
   calcSessionTSS, calcSessionDuration, calcBlockTSS, calcBlockDuration,
@@ -1658,7 +1702,7 @@ module.exports = {
   deriveLevel, selectPeriodizationProfile, clampProfileParams,
   LEVEL_CTL_BOUNDS, LEVEL_MIN_HISTORY_DAYS,
   solveWeek, buildStrengthSession, slotStartMs, sessionModality,
-  plannedRunDistanceM, legsZoneCeiling, selectStrengthSplits,
+  plannedRunDistanceM, legsZoneCeiling, selectStrengthSplits, summarizeWeek,
   DEFAULT_SLOT_HOUR, LEGS_QUALITY_BLOCK_HOURS, LEGS_BLOCKED_MAX_ZONE,
   STRENGTH_SPLIT_ORDER, STRENGTH_SESSION_MIN, RUN_WEEK_GROWTH_CAP,
 };

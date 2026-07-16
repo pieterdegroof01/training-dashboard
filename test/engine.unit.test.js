@@ -357,3 +357,26 @@ describe('rollingFtp — hoogste measured waarde ipv mediaan', () => {
     assert.strictEqual(r, null);
   });
 });
+
+// ── runMinutesInWeek — weekgrens UTC, alleen loopactiviteiten ────────────────
+
+describe('runMinutesInWeek', () => {
+  test('run op de zondag telt mee, run op de maandag erna niet (weekgrens)', () => {
+    const activities = [
+      makeRun({ date: '2026-07-19', durationSec: 1800 }), // zondag, laatste dag van het venster
+      makeRun({ date: '2026-07-20', durationSec: 3600 }), // maandag erna, buiten het venster
+    ];
+    assert.strictEqual(engine.runMinutesInWeek(activities, '2026-07-13'), 30);
+  });
+
+  test('niet-loopactiviteit telt niet mee', () => {
+    const activities = [
+      makeRide({ date: '2026-07-14', durationSec: 3600, watts: 200 }),
+    ];
+    assert.strictEqual(engine.runMinutesInWeek(activities, '2026-07-13'), 0);
+  });
+
+  test('geen treffers geeft 0', () => {
+    assert.strictEqual(engine.runMinutesInWeek([], '2026-07-13'), 0);
+  });
+});
