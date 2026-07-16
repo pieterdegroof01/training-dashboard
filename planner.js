@@ -1,7 +1,7 @@
 'use strict';
 // Eenrichtingsafhankelijkheid: planner.js mag engine.js importeren, nooit andersom.
 // engine.js mag planner.js nooit importeren.
-const { RUN_ZONE_IF, RUN_ZONE_BOUNDS } = require('./engine');
+const { RUN_ZONE_IF, RUN_ZONE_BOUNDS, RUN_SPIKE_BAND, RUN_ACWR_BAND, classifyRunSpike } = require('./engine');
 // planner.js — Deterministische planningsmodule. Geen I/O, geen netwerkverzoeken.
 
 // ─── Zone-constanten ──────────────────────────────────────────────────────────
@@ -1103,10 +1103,546 @@ function buildMacrocycle(goalSet, startDateISO, baseline, params, nowMs) {
       running_minutes_cap: runningMinutesCap,
       distribution_model: weekProfile.distributionModel,
       dominant_modality: dominantModality,
+      dominant_type: dominantType,
     });
   }
 
   return rows;
+}
+
+// ─── C5a Multimodale weeksolver ───────────────────────────────────────────────
+
+// Aanname, geen bron. Slots en bestaande sessies zonder time_of_day vallen
+// hierop terug, zodat de interferentierekening in uren altijd een anker
+// heeft. Deze aanname komt in C5b uit echte slot-uren zodra alle slots een
+// uur dragen.
+const DEFAULT_SLOT_HOUR = 18;
+
+// Canon docs/PeakForm_Trainingstheorie.md, sectie "Concurrent training:
+// fietsen en krachttraining combineren": sweetspot kan pas vanaf 48 uur na
+// de beensessie.
+const LEGS_QUALITY_BLOCK_HOURS = 48;
+
+// Zelfde sectie: de beendag en de dag erna zijn alleen geschikt voor Z1/Z2.
+const LEGS_BLOCKED_MAX_ZONE = 2;
+
+// Temporele voorkeur binnen de week, geen selectievolgorde.
+const STRENGTH_SPLIT_ORDER = ['push', 'pull', 'legs'];
+
+// Aanname, analoog aan de bestaande RUNNING_SESSION_MIN; sectie 5 geeft geen
+// minuten.
+const STRENGTH_SESSION_MIN = 60;
+
+// Maximaal tien procent weekstijging loopvolume.
+const RUN_WEEK_GROWTH_CAP = 1.10;
+
+function todayISO(nowMs) {
+  return new Date(nowMs).toISOString().split('T')[0];
+}
+
+function hoursBetweenMs(aMs, bMs) {
+  return Math.abs(aMs - bMs) / 3600000;
+}
+
+// Date.UTC op de datumcomponenten plus het uur uit time_of_day ('HH:MM',
+// zoals HOUR_OPTIONS in public/js/app.js het schrijft). Bij null of
+// onparsebaar: DEFAULT_SLOT_HOUR. Geen lokale-tijd-Date-objecten.
+function slotStartMs(slotDate, timeOfDay) {
+  const [y, m, d] = slotDate.split('-').map(Number);
+  let hour = DEFAULT_SLOT_HOUR;
+  if (typeof timeOfDay === 'string') {
+    const match = timeOfDay.match(/^(\d{1,2}):\d{2}$/);
+    if (match) {
+      const h = Number(match[1]);
+      if (h >= 0 && h <= 23) hour = h;
+    }
+  }
+  return Date.UTC(y, m - 1, d, hour);
+}
+
+function sessionModality(session) {
+  const t = session.type;
+  if (t === 'cycling') return 'cycling';
+  if (t === 'running' || t === 'Run' || t === 'TrailRun') return 'running';
+  return 'strength';
+}
+
+// Bij lopen ís RUN_ZONE_IF de snelheidsfractie van drempelsnelheid, en dat is
+// precies waarom deze afleiding mag en de fiets-ZONE_IF niet zo gebruikt mag
+// worden.
+function plannedRunDistanceM(blokken, thresholdPace) {
+  if (!(thresholdPace > 0)) return null;
+  const speedMps = zone => (1000 / thresholdPace) * RUN_ZONE_IF[zone];
+  return blokken.reduce((sum, b) => {
+    const n = b.herhalingen || 1;
+    let d = b.duration * 60 * speedMps(b.zone) * n;
+    if (b.herstelBlok) d += b.herstelBlok.duration * 60 * speedMps(b.herstelBlok.zone) * n;
+    return sum + d;
+  }, 0);
+}
+
+// requiredSeparationHours sluit fiets-legs bewust uit, want Wilson 2012 vindt
+// bij fietsen geen krachtdecrementen; dit is de aparte, wél fiets-gerichte
+// 48-uursregel uit canon "Concurrent training: fietsen en krachttraining
+// combineren". Legs-events ná het slot leggen geen plafond op.
+function legsZoneCeiling(slotMs, legsEvents) {
+  const blocked = (legsEvents || []).some(ev => {
+    const delta = slotMs - ev.startMs;
+    return delta >= 0 && delta < LEGS_QUALITY_BLOCK_HOURS * 3600000;
+  });
+  return blocked ? LEGS_BLOCKED_MAX_ZONE : 5;
+}
+
+// Rønnestad en Mujika bouwen hun protocol op zwaar beenwerk, dus bij één of
+// twee krachtsessies per week is legs de sessie die je niet mag laten
+// vallen; STRENGTH_SPLIT_ORDER is de temporele voorkeur, geen prioritering
+// van de pool. Legs gaat daarom eerst, zolang legsBudget het toelaat.
+function selectStrengthSplits(n, legsBudget) {
+  const budget = Math.max(0, legsBudget);
+  const splits = [];
+  let legsUsed = 0;
+  while (legsUsed < budget && splits.length < n) {
+    splits.push('legs');
+    legsUsed++;
+  }
+  let ri = 0;
+  while (splits.length < n) {
+    const candidate = STRENGTH_SPLIT_ORDER[ri % STRENGTH_SPLIT_ORDER.length];
+    ri++;
+    if (candidate === 'legs') {
+      if (legsUsed >= budget) continue;
+      legsUsed++;
+    }
+    splits.push(candidate);
+  }
+  return splits;
+}
+
+const STRENGTH_SPLIT_TITLES = { push: 'Kracht push', pull: 'Kracht pull', legs: 'Kracht benen' };
+
+function buildStrengthSession(date, split, durationMin, timeOfDay) {
+  return {
+    date,
+    type: 'strength',
+    split,
+    timeOfDay,
+    aiGenerated: true,
+    source: 'planner',
+    title: STRENGTH_SPLIT_TITLES[split] || `Kracht ${split}`,
+    duration: durationMin,
+    // Coggan-TSS en het Foster sRPE-krachtkanaal zijn incommensurabel en
+    // worden nooit gesommeerd; kracht telt in de solver mee als bezetting en
+    // als interferentiebron, nooit als aftrek op endurance_tss_target.
+    targetTSS: null,
+  };
+}
+
+function cyclingRationale(sessionType, mesocycle) {
+  const sLabel = { recovery: 'herstelrit', endurance: 'duurrit Z2', tempo: 'temporit Z3', sweetspot: 'sweet spot Z3-4', threshold: 'drempelintervals Z4', vo2max: 'VO2max-intervals Z5' };
+  return `${sLabel[sessionType] || sessionType} — ${mesocycle.phase}`;
+}
+
+// Groot genoeg zodat de sessieduur nooit TSS-gebonden is: alleen maxDur (het
+// toegewezen minutenbudget) begrenst de gebouwde loopsessie.
+const RUN_TSS_SENTINEL = 9999;
+
+// Puur. mesocycle is één rij uit buildMacrocycle. slots is
+// [{ slot_date, minutes, modalities, time_of_day }]. state is { ftp,
+// thresholdPace, runBaseline, runAcwr, lastWeekRunMinutes }. existingSessions
+// is { 'YYYY-MM-DD': [session] } in week_plan-vorm. Retourneert
+// { sessions, prescriptions, diagnostics }.
+function solveWeek(mesocycle, slots, state, existingSessions, params, nowMs) {
+  const weekStart = mesocycle.week_start;
+  const weekEnd = new Date(dateToUTCms(weekStart) + 6 * 86400000).toISOString().split('T')[0];
+  const today = todayISO(nowMs);
+  const inWindow = date => date >= weekStart && date <= weekEnd;
+
+  // Stap 1: venster.
+  const windowSlots = (slots || [])
+    .filter(s => inWindow(s.slot_date) && s.slot_date >= today)
+    .slice()
+    .sort((a, b) => a.slot_date === b.slot_date
+      ? (a.time_of_day || '').localeCompare(b.time_of_day || '')
+      : a.slot_date.localeCompare(b.slot_date));
+
+  const diagnostics = { zoneCeilings: {}, placed: [], skipped: [], constraints: [], unplacedTSS: 0, budget: {} };
+  const sessions = {};
+  const prescriptions = [];
+  const addSession = (date, session, modality) => {
+    if (!sessions[date]) sessions[date] = [];
+    sessions[date].push(session);
+    diagnostics.placed.push({ date, modality });
+  };
+
+  // Stap 2: bezetting. Bestaande sessies blijven ongewijzigd, tellen als
+  // bezetting van hun datum plus modaliteit en als interferentiebron met hun
+  // eigen tijd (timeOfDay als aanwezig, anders DEFAULT_SLOT_HOUR).
+  const occupiedByDate = {};
+  const legsEvents = []; // alle bestaande legs-sessies, ongeacht venster
+  let existingStrengthInWindow = 0;
+  let existingLegsInWindow = 0;
+  let existingRunMinutesInWindow = 0;
+  let existingEnduranceTSSInWindow = 0; // fietsen + lopen delen dezelfde PMC-as
+
+  for (const [date, sessOnDate] of Object.entries(existingSessions || {})) {
+    if (!occupiedByDate[date]) occupiedByDate[date] = new Set();
+    for (const s of sessOnDate) {
+      const modality = sessionModality(s);
+      occupiedByDate[date].add(modality);
+
+      if (modality === 'strength' && s.split === 'legs') {
+        legsEvents.push({ startMs: slotStartMs(date, s.timeOfDay) });
+        if (inWindow(date)) existingLegsInWindow++;
+      }
+      if (modality === 'strength' && inWindow(date)) existingStrengthInWindow++;
+      if (modality === 'running' && inWindow(date)) {
+        existingRunMinutesInWindow += s.duration || 0;
+        existingEnduranceTSSInWindow += s.targetTSS || 0;
+      }
+      if (modality === 'cycling' && inWindow(date)) {
+        existingEnduranceTSSInWindow += s.targetTSS || 0;
+      }
+    }
+  }
+
+  // Stap 3: kracht.
+  const strengthTarget = Math.max(0, mesocycle.strength_sessions - existingStrengthInWindow);
+  const legsBudget = Math.max(0, (mesocycle.dominant_modality === 'strength' ? 2 : 1) - existingLegsInWindow);
+
+  const strengthCandidates = windowSlots.filter(s =>
+    (s.modalities || []).includes('strength') && !(occupiedByDate[s.slot_date] || new Set()).has('strength'));
+  const usedStrengthDates = new Set();
+
+  const placedStrengthMs = [];
+  for (const [date, sessOnDate] of Object.entries(existingSessions || {})) {
+    if (!inWindow(date)) continue;
+    for (const s of sessOnDate) {
+      if (sessionModality(s) === 'strength') placedStrengthMs.push(slotStartMs(date, s.timeOfDay));
+    }
+  }
+
+  const cyclingSlotsForHitDamage = windowSlots.filter(s => (s.modalities || []).includes('cycling'));
+  const splits = selectStrengthSplits(strengthTarget, legsBudget);
+
+  for (const split of splits) {
+    const available = strengthCandidates.filter(s => !usedStrengthDates.has(s.slot_date));
+    if (!available.length) {
+      diagnostics.constraints.push({ kind: 'strength_no_slot', date: null, detail: `Geen kandidaat-slot meer voor split ${split}` });
+      continue;
+    }
+
+    let chosen = null;
+    if (split === 'legs') {
+      // Legs stuurt de zoneplafonds, dus een legs-slot dat twee HIT-eligible
+      // fietsslots doodt is objectief slechter dan een dat er nul doodt.
+      let bestDamage = Infinity;
+      for (const cand of available) {
+        const candMs = slotStartMs(cand.slot_date, cand.time_of_day);
+        const damage = cyclingSlotsForHitDamage.reduce((sum, c) => {
+          const delta = slotStartMs(c.slot_date, c.time_of_day) - candMs;
+          return (delta >= 0 && delta < LEGS_QUALITY_BLOCK_HOURS * 3600000) ? sum + (c.minutes || 0) : sum;
+        }, 0);
+        if (!chosen || damage < bestDamage ||
+            (damage === bestDamage && candMs < slotStartMs(chosen.slot_date, chosen.time_of_day))) {
+          bestDamage = damage;
+          chosen = cand;
+        }
+      }
+    } else {
+      let bestDist = -Infinity;
+      for (const cand of available) {
+        const candMs = slotStartMs(cand.slot_date, cand.time_of_day);
+        const dist = placedStrengthMs.length
+          ? Math.min(...placedStrengthMs.map(ms => Math.abs(candMs - ms)))
+          : Infinity;
+        if (!chosen || dist > bestDist ||
+            (dist === bestDist && candMs < slotStartMs(chosen.slot_date, chosen.time_of_day))) {
+          bestDist = dist;
+          chosen = cand;
+        }
+      }
+    }
+
+    if (!chosen) continue;
+    usedStrengthDates.add(chosen.slot_date);
+    placedStrengthMs.push(slotStartMs(chosen.slot_date, chosen.time_of_day));
+    const session = buildStrengthSession(chosen.slot_date, split, STRENGTH_SESSION_MIN, chosen.time_of_day);
+    addSession(chosen.slot_date, session, 'strength');
+    if (split === 'legs') legsEvents.push({ startMs: slotStartMs(chosen.slot_date, chosen.time_of_day) });
+
+    prescriptions.push({
+      prescribed_date: chosen.slot_date,
+      session_type: split,
+      target_duration_min: STRENGTH_SESSION_MIN,
+      target_tss: null,
+      target_if: null,
+      blocks: [],
+      mesocycle: { phase: mesocycle.phase, mesocycleWeek: mesocycle.week_index, isRecoveryWeek: mesocycle.is_deload, weeksToEvent: null },
+      distribution_model: mesocycle.distribution_model,
+      rationale: `Kracht ${split}`,
+      modality: 'strength',
+    });
+  }
+
+  // Stap 4: zoneplafonds. Vervangt maxZoneForDate.
+  const remainingCyclingSlots = windowSlots
+    .filter(s => (s.modalities || []).includes('cycling')
+      && !usedStrengthDates.has(s.slot_date)
+      && !(occupiedByDate[s.slot_date] || new Set()).has('cycling'))
+    .map(s => {
+      const slotMs = slotStartMs(s.slot_date, s.time_of_day);
+      const maxZone = legsZoneCeiling(slotMs, legsEvents);
+      diagnostics.zoneCeilings[s.slot_date] = maxZone;
+      return Object.assign({}, s, { maxZone });
+    });
+
+  // Stap 5: lopen.
+  const growthCap = state.lastWeekRunMinutes > 0 ? state.lastWeekRunMinutes * RUN_WEEK_GROWTH_CAP : Infinity;
+  let runBudget = Math.max(0, Math.min(mesocycle.running_minutes_cap, growthCap) - existingRunMinutesInWindow);
+
+  if (state.runAcwr && state.runAcwr.status === 'high') {
+    diagnostics.constraints.push({ kind: 'acwr_blocked', date: null, detail: `runAcwr=${state.runAcwr.acwr} > crit ${RUN_ACWR_BAND.crit}` });
+    runBudget = 0;
+  } else if (state.runAcwr && state.runAcwr.status === 'warn') {
+    // De 10%-cap (RUN_WEEK_GROWTH_CAP) dekt de groei al af; een tweede rem op
+    // dezelfde as zou dubbeltellen, dus warn blokkeert niet.
+    diagnostics.constraints.push({ kind: 'acwr_warn', date: null, detail: `runAcwr=${state.runAcwr.acwr}` });
+  }
+  diagnostics.budget.running = { budgetMinutes: runBudget };
+
+  const runCandidatesRaw = windowSlots.filter(s =>
+    (s.modalities || []).includes('running')
+    && !(occupiedByDate[s.slot_date] || new Set()).has('running')
+    && !usedStrengthDates.has(s.slot_date));
+
+  const runnableCandidates = [];
+  for (const cand of runCandidatesRaw) {
+    const candMs = slotStartMs(cand.slot_date, cand.time_of_day);
+    let conflict = false;
+    let suboptimal = false;
+    for (const legs of legsEvents) {
+      // eimdFlag van een gepláánde loop is altijd false: een geplande sessie
+      // heeft geen hoogteprofiel, en gokken is hier niet toegestaan.
+      const runDesc = { modality: 'running', isLegs: false, eimdFlag: false };
+      const legsDesc = { modality: 'strength', isLegs: true, eimdFlag: false };
+      const prev = candMs <= legs.startMs ? runDesc : legsDesc;
+      const next = candMs <= legs.startMs ? legsDesc : runDesc;
+      const required = requiredSeparationHours(prev, next, params).hours;
+      const level = separationLevel(hoursBetweenMs(candMs, legs.startMs), required, params);
+      if (level === 'conflict') { conflict = true; break; }
+      if (level === 'suboptimaal') suboptimal = true;
+    }
+    if (conflict) {
+      diagnostics.constraints.push({ kind: 'run_legs_conflict', date: cand.slot_date, detail: 'separationLevel conflict' });
+      continue;
+    }
+    if (suboptimal) {
+      diagnostics.constraints.push({ kind: 'run_legs_suboptimaal', date: cand.slot_date, detail: 'separationLevel suboptimaal' });
+    }
+    runnableCandidates.push(cand);
+  }
+
+  if (!(state.thresholdPace > 0)) {
+    diagnostics.constraints.push({ kind: 'no_threshold_pace', date: null, detail: 'Geen thresholdPace: geen loopsessies geplaatst' });
+  } else if (runBudget > 0 && runnableCandidates.length) {
+    // Verdeling: de langste kandidaat krijgt de lange duurloop, de rest
+    // krijgt easy runs.
+    const sortedCands = [...runnableCandidates].sort((a, b) =>
+      b.minutes - a.minutes || a.slot_date.localeCompare(b.slot_date));
+    const longCand = sortedCands[0];
+    const restCands = sortedCands.slice(1).sort((a, b) => a.slot_date.localeCompare(b.slot_date));
+
+    let remaining = runBudget;
+    const placements = [];
+    const longDur = Math.min(longCand.minutes, remaining);
+    if (longDur > 0) { placements.push({ cand: longCand, sessionType: 'endurance', duration: longDur, isLong: true }); remaining -= longDur; }
+    for (const cand of restCands) {
+      if (remaining <= 0) break;
+      const dur = Math.min(cand.minutes, remaining);
+      if (dur > 0) { placements.push({ cand, sessionType: 'recovery', duration: dur, isLong: false }); remaining -= dur; }
+    }
+
+    for (const p of placements) {
+      let duration = p.duration;
+      let session = buildRunSession(p.cand.slot_date, p.sessionType, RUN_TSS_SENTINEL, duration, state.thresholdPace);
+      if (!session) continue;
+
+      if (p.isLong) {
+        // Spike-guard op de lange duurloop, en alleen daar.
+        const distanceM = plannedRunDistanceM(session.blokken, state.thresholdPace);
+        const spike = classifyRunSpike(distanceM, state.runBaseline);
+        if (spike.reliability === 'insufficient') {
+          diagnostics.constraints.push({ kind: 'spike_baseline_insufficient', date: p.cand.slot_date, detail: 'onvoldoende loophistorie voor spike-cap' });
+        } else if (spike.severity !== 'none') {
+          const speedZ1 = (1000 / state.thresholdPace) * RUN_ZONE_IF.Z1;
+          const speedZ2 = (1000 / state.thresholdPace) * RUN_ZONE_IF.Z2;
+          const capM = (1 + RUN_SPIKE_BAND.small) * state.runBaseline.longestM;
+          const warmupDist = 10 * 60 * speedZ1;
+          const workDurTarget = Math.max(0, capM - warmupDist) / (60 * speedZ2);
+          duration = Math.floor(10 + workDurTarget);
+          diagnostics.constraints.push({ kind: 'run_spike_capped', date: p.cand.slot_date, detail: `severity=${spike.severity}` });
+          session = duration < 20 ? null : buildRunSession(p.cand.slot_date, p.sessionType, RUN_TSS_SENTINEL, duration, state.thresholdPace);
+          if (!session) {
+            diagnostics.constraints.push({ kind: 'run_spike_dropped', date: p.cand.slot_date, detail: 'sessie geschrapt: ingekorte duur < 20min' });
+          }
+        }
+      }
+
+      if (session) {
+        addSession(p.cand.slot_date, session, 'running');
+        prescriptions.push({
+          prescribed_date: p.cand.slot_date,
+          session_type: p.sessionType,
+          target_duration_min: session.duration,
+          target_tss: session.targetTSS,
+          target_if: session.duration > 0 ? +Math.sqrt(session.targetTSS / (session.duration / 60 * 100)).toFixed(3) : 0,
+          blocks: session.blokken,
+          mesocycle: { phase: mesocycle.phase, mesocycleWeek: mesocycle.week_index, isRecoveryWeek: mesocycle.is_deload, weeksToEvent: null },
+          distribution_model: mesocycle.distribution_model,
+          rationale: p.isLong ? 'lange duurloop' : 'herstelloop',
+          modality: 'running',
+        });
+      }
+    }
+  }
+
+  // Stap 6: fiets-TSS-budget. Hardlopen zit in enduranceDailyETL en deelt dus
+  // dezelfde PMC-as als fietsen; dit is één budget, en dat is het enige punt
+  // waar de twee kanalen wél optellen. Kracht doet hier niet aan mee.
+  const placedRunningTSS = prescriptions
+    .filter(p => p.modality === 'running')
+    .reduce((s, p) => s + (p.target_tss || 0), 0);
+  const restTSS = Math.max(0, mesocycle.endurance_tss_target - placedRunningTSS - existingEnduranceTSSInWindow);
+  diagnostics.budget.cycling = { restTSS };
+
+  // Stap 7: distributie. Analoog aan buildPlan stap 7 en 8a-10; buildPlan
+  // blijft ongewijzigd en blijft de solver die productie draait tot C5b.
+  const isDeload = !!mesocycle.is_deload;
+  const dominantType = mesocycle.dominant_type || 'base';
+  const profile = GOAL_PROFILES[dominantType] || GOAL_PROFILES.base;
+
+  let distribution;
+  if (isDeload) {
+    distribution = { low: 1, mid: 0, high: 0 };
+  } else {
+    const base = DIST_BASE[mesocycle.distribution_model] || DIST_BASE.pyramidal;
+    const shift = profile.distShift;
+    const raw = {
+      low:  Math.max(0, Math.min(1, base.low  + shift.low)),
+      mid:  Math.max(0, Math.min(1, base.mid  + shift.mid)),
+      high: Math.max(0, Math.min(1, base.high + shift.high)),
+    };
+    const sum = raw.low + raw.mid + raw.high || 1;
+    distribution = { low: raw.low / sum, mid: raw.mid / sum, high: raw.high / sum };
+  }
+
+  // GOAL_PROFILES kent geen 'strength'/'running'/'composition'-sleutel; als
+  // dominant_type daarop uitkomt is er geen HIT-regel gedefinieerd en valt
+  // hitType terug op null (geen HIT), conservatiever dan crashen.
+  const hitType = (isDeload || !GOAL_PROFILES[dominantType]) ? null : resolveHitType(dominantType, mesocycle.phase);
+  const hitMinZone = hitType === 'vo2max' ? 5 : 4;
+  const minDaysBetweenHIT = (params.minHoursBetweenHit || 48) / 24;
+
+  const cyclingDays = remainingCyclingSlots
+    .map(s => ({ date: s.slot_date, maxDuration: s.minutes, maxZone: s.maxZone, timeOfDay: s.time_of_day }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let hitCount = 0;
+  if (!isDeload) {
+    if (dominantType === 'maintenance') {
+      hitCount = Math.min(2, params.maxHitSessionsPerWeek);
+    } else if (hitType !== null) {
+      hitCount = Math.min(Math.max(1, Math.round(restTSS * distribution.high / 70)), params.maxHitSessionsPerWeek);
+    }
+  }
+
+  const eligibleHIT = cyclingDays.filter(d => d.maxZone >= hitMinZone);
+  const hitDays = selectSpreadDays(eligibleHIT, hitCount, minDaysBetweenHIT);
+  const hitDateSet = new Set(hitDays.map(d => d.date));
+
+  const nonHitDays = cyclingDays.filter(d => !hitDateSet.has(d.date));
+  const longestDay = nonHitDays.reduce((best, d) => (!best || d.maxDuration > best.maxDuration) ? d : best, null);
+  const longestDayTSS = longestDay ? Math.round(restTSS * 0.35) : 0;
+
+  const otherNonHit = longestDay ? nonHitDays.filter(d => d.date !== longestDay.date) : nonHitDays;
+  const allOther = [...hitDays, ...otherNonHit];
+  const totalOtherDur = allOther.reduce((s, d) => s + d.maxDuration, 0) || 1;
+  const remainingRestTSS = Math.max(0, restTSS - longestDayTSS);
+
+  const dayAssignment = {};
+  const dayTargetTSS = {};
+
+  if (longestDay) {
+    dayAssignment[longestDay.date] = 'endurance';
+    const capZ2 = Math.round((longestDay.maxDuration / 60) * ZONE_IF['Z2'] ** 2 * 100);
+    dayTargetTSS[longestDay.date] = Math.min(longestDayTSS, capZ2);
+  }
+
+  for (const d of hitDays) {
+    dayAssignment[d.date] = hitType || 'endurance';
+    const prop = d.maxDuration / totalOtherDur;
+    const feasible = Math.round((d.maxDuration / 60) * ZONE_IF['Z' + Math.min(d.maxZone, 4)] ** 2 * 100);
+    const tss = Math.min(Math.round(remainingRestTSS * prop), feasible, Math.round(restTSS * 0.20));
+    dayTargetTSS[d.date] = Math.max(20, tss);
+  }
+
+  const sortedOtherNonHit = [...otherNonHit].sort((a, b) => {
+    if (b.maxZone !== a.maxZone) return b.maxZone - a.maxZone;
+    return b.maxDuration - a.maxDuration;
+  });
+  const totalOtherMin = otherNonHit.reduce((s, d) => s + d.maxDuration, 0);
+  const midBudgetMin = Math.round(totalOtherMin * distribution.mid);
+  let midUsedMin = 0;
+
+  for (const d of sortedOtherNonHit) {
+    let sType;
+    if (d.maxZone <= 2) {
+      sType = 'endurance';
+    } else if (midUsedMin < midBudgetMin) {
+      sType = d.maxZone >= 4 ? 'sweetspot' : 'tempo';
+      midUsedMin += Math.round(d.maxDuration * 0.7);
+    } else {
+      sType = 'endurance';
+    }
+    dayAssignment[d.date] = sType;
+    const prop = d.maxDuration / totalOtherDur;
+    const tssIfKey = sType === 'sweetspot' ? 'SS' : sType === 'tempo' ? 'Z3' : 'Z2';
+    const ifv = ZONE_IF[tssIfKey];
+    const feasible = Math.round((d.maxDuration / 60) * ifv * ifv * 100);
+    const tss = Math.min(Math.round(remainingRestTSS * prop), feasible, Math.round(restTSS * 0.20));
+    dayTargetTSS[d.date] = Math.max(15, tss);
+  }
+
+  let assignedTSSSum = 0;
+  for (const d of cyclingDays) {
+    if (!dayAssignment[d.date]) continue;
+    const sType = dayAssignment[d.date];
+    const tTSS = dayTargetTSS[d.date] || 30;
+    const session = buildSession(d.date, sType, tTSS, d.maxDuration, state.ftp);
+    addSession(d.date, session, 'cycling');
+    assignedTSSSum += session.targetTSS;
+
+    const targetIf = session.duration > 0
+      ? +Math.sqrt(session.targetTSS / (session.duration / 60 * 100)).toFixed(3)
+      : 0;
+
+    prescriptions.push({
+      prescribed_date: d.date,
+      session_type: sType,
+      target_duration_min: session.duration,
+      target_tss: session.targetTSS,
+      target_if: targetIf,
+      blocks: session.blokken,
+      mesocycle: { phase: mesocycle.phase, mesocycleWeek: mesocycle.week_index, isRecoveryWeek: mesocycle.is_deload, weeksToEvent: null },
+      distribution_model: mesocycle.distribution_model,
+      rationale: cyclingRationale(sType, mesocycle),
+      modality: 'cycling',
+    });
+  }
+
+  diagnostics.unplacedTSS = Math.max(0, restTSS - assignedTSSSum);
+
+  return { sessions, prescriptions, diagnostics };
 }
 
 module.exports = {
@@ -1121,6 +1657,10 @@ module.exports = {
   requiredSeparationHours, separationLevel,
   deriveLevel, selectPeriodizationProfile, clampProfileParams,
   LEVEL_CTL_BOUNDS, LEVEL_MIN_HISTORY_DAYS,
+  solveWeek, buildStrengthSession, slotStartMs, sessionModality,
+  plannedRunDistanceM, legsZoneCeiling, selectStrengthSplits,
+  DEFAULT_SLOT_HOUR, LEGS_QUALITY_BLOCK_HOURS, LEGS_BLOCKED_MAX_ZONE,
+  STRENGTH_SPLIT_ORDER, STRENGTH_SESSION_MIN, RUN_WEEK_GROWTH_CAP,
 };
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────

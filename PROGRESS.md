@@ -7,7 +7,7 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4, R7, klaar). Ontgrendelt C6.
+1. C5b Slot-adapter + solveWeek aansluiten (na: C5a, klaar). Ontgrendelt C5c en C8.
 2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
 3. R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0, klaar). Ontgrendelt niets, vult de derde plek.
 
@@ -47,10 +47,12 @@ Regels voor wie dit bestand bijwerkt:
 - [x] C2b Datamodel (na: C0, C2a; staging als eerste stap) (2026-07-13)
 - [x] C3 Backward planner (na: C1, C2b) (2026-07-13)
 - [x] C4 Tweetraps beschikbaarheid (na: C2b) (2026-07-13) (volledig: brug, grid, Doelen-overhaul met weekcapaciteit 2026-07-13)
-- [ ] C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4, R7)
-- [ ] C6 Prognose (na: C5)
+- [x] C5a solveWeek puur in planner.js + constraint-tests (na: C3, C4, R0, R1, R3, R4, R7) (2026-07-16)
+- [ ] C5b Slot-adapter + runWeekplanGeneration op buildMacrocycle/solveWeek; buildAvailDays en maxZoneForDate weg, legacy-spiegel vervalt (na: C5a)
+- [ ] C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (na: C5b)
+- [ ] C6 Prognose (na: C5c)
 - [ ] C7 Reviewcadans (na: C2b)
-- [ ] C8 Onboarding (na: C4, C5; loopt samen met frontend-overhaul Doelen-tab; levert doelafstand hardlopen voor de R7-matrix)
+- [ ] C8 Onboarding (na: C4, C5b; loopt samen met frontend-overhaul Doelen-tab; levert doelafstand hardlopen voor de R7-matrix)
 - [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
 
 ## Handoff 13: Hardlopen gestructureerd (actief traject, onderzoek 2026-07-15)
@@ -144,6 +146,12 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | C5a | Blok 9-zelftest (node planner.js) toont TEST 2 INCONSISTENT (gerealiseerde mid 0,11 tegen doel 0,20); bevestigd pre-existing via git stash tegen ongewijzigde staging, dus geen regressie door C5a | commit gaat door zonder herstel: buildPlan blijft dit commit onaangeraakt (expliciete C5a-scope-grens), een fix hoort bij een apart aangewezen item
+- 2026-07-16 | C5 | C5 was één cluster over drie code paths: een pure solver, een schrijfpad dat voorschriften muteert, en de reconcile-lus; dat is precies de bundeling waar de split-per-code-path-regel tegen beschermt | gesplitst in C5a (puur, nul consumenten), C5b (adapter + omschakeling schrijfpad) en C5c (reconcile op modality); C6 naar (na: C5c), C8 naar (na: C4, C5b)
+- 2026-07-16 | C5a | buildMacrocycle, goalsToGoalSet en resolveGoalPriority uit C3 hebben nul consumenten: server.js importeert alleen buildPlan en computePlanWindow, dus productie draait nog volledig op de oude fiets-only solver en de hele C3/C4/R3/R4/R5/R7-laag is nog niet aangesloten | C5b is de commit die dat aansluit; buildPlan blijft tot dat moment ongewijzigd en wordt in C5a niet aangeraakt
+- 2026-07-16 | C5a | het zoneplafond ging van dagen naar uren: maxZoneForDate gaf de beendag en dag+1 zone 2 en dag+2 zone 3, terwijl canon sectie "Concurrent training: fietsen en krachttraining combineren" sweetspot vrijgeeft vanaf 48 uur na de beensessie; de dag+2-Z3-cap was strenger dan de canon en de dagrekening kan een slot van 37 uur na legs als vrij aanmerken | legsZoneCeiling rekent in uren, tweetraps: onder 48 uur maxZone 2, daarboven 5; dit is de reden dat C4 uur-slots introduceerde
+- 2026-07-16 | C5a | plan_mesocycles heeft dominant_modality maar geen dominant_type, terwijl solveWeek het doeltype nodig heeft voor GOAL_PROFILES[...].distShift | buildMacrocycle zet dominant_type nu in de rij; de ADD COLUMN IF NOT EXISTS dominant_type hoort bij C5b, want daar wordt de rij pas weggeschreven
+- 2026-07-16 | C5a | selectStrengthSplits kiest legs vóór push en pull, tegen de leesrichting van de zachte voorkeur push→pull→legs in | die voorkeur is temporeel, geen selectievolgorde: Rønnestad en Mujika bouwen hun protocol op zwaar beenwerk, dus bij strength_sessions 1 of 2 is legs de sessie die blijft; laat je legs vallen dan valt de fietswinst weg en houd je een bovenlichaamsplit over die alleen fatigue kost
 - 2026-07-16 | R7 | de uren-as stond op availDays (weekgrid) i.p.v. op een structurele capaciteit, waardoor het periodiseringsmodel per week omklapte zodra er minder slots stonden; en distributionPolarizedMinHours stond op 8 terwijl canon sectie 217 twaalf uur noemt plus een fase-eis (pyramidaal in base, polarized in build) die de code niet kon uitdrukken | as verlegd naar settings.weekCapacity.hours met availDays-som als fallback; knoppen hernoemd naar timeBudgetModerateMinHours/timeBudgetHighMinHours (6/12) met clampProfileParams als canon-bodem conform het R4-precedent; buildMacrocycle bepaalt distribution_model nu per week i.p.v. één constante over de hele macrocyclus, de kolom bestond al
 - 2026-07-16 | R7 | canon sectie 217 spreekt zichzelf tegen: de regel dat 4-6u zich niet kan veroorloven te polariseren staat drie alinea's na Muñoz & Seiler, waar precies die groep (recreatieve lopers, laag volume) juist meer won met polarized dan met drempel (7% vs 1,6% in de compliante subgroep) | uren-as disciplinespecifiek gemaakt: cycling low → sweetspot, running low → polarized; dat is de reden dat één universele urendrempel niet houdbaar was en R7 per discipline kiest; opgelost in de R-doc-b-tekst
 - 2026-07-16 | R7 | de loopafstand-as uit canon sectie 217 (Z4/Z5-accent bij 5-10km, matige band bij halve/hele marathon) is niet geïmplementeerd: er is geen veld dat de afstand draagt en geen consument die hem leest, dus hij zou een derde dode knop worden naast de opgeruimde interferenceFactor | as verplaatst naar C8, dat het doelveld levert; annotatie C8 uitgebreid

@@ -81,9 +81,31 @@ function planParams() {
   };
 }
 
+function slot({ date, minutes = 60, modalities = ['cycling'], hour = '18:00' }) {
+  return { slot_date: date, minutes, modalities, time_of_day: hour };
+}
+
+// Volledige buildMacrocycle-rij met sensible defaults, voor solveWeek-tests
+// die geen echte buildMacrocycle-aanroep willen doen.
+function mesoRow(overrides) {
+  return Object.assign({
+    week_start: '2026-07-13',
+    phase: 'build',
+    week_index: 1,
+    is_deload: false,
+    endurance_tss_target: 300,
+    strength_sessions: 2,
+    running_minutes_cap: 90,
+    distribution_model: 'polarized',
+    dominant_modality: 'cycling',
+    dominant_type: 'base',
+  }, overrides);
+}
+
 module.exports = {
   makeRide, makeRun,
   constantDailyETL, impulseDailyETL,
   makePowerTimeline,
   availDay, planParams,
+  slot, mesoRow,
 };
