@@ -76,8 +76,8 @@ function planParams() {
     eimdRecoveryHours:             48,
     maxHitSessionsPerWeek:         3,
     minHoursBetweenHit:           48,
-    distributionPolarizedMinHours: 8,
-    distributionPyramidalMinHours: 6,
+    timeBudgetHighMinHours:       12,
+    timeBudgetModerateMinHours:    6,
   };
 }
 

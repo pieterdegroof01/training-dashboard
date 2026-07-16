@@ -7,8 +7,8 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
-2. R7 Periodiseringsprofielen per atleetsituatie (na: R3, R5, R-doc-a, klaar). Ontgrendelt C5.
+1. C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4, R7, klaar). Ontgrendelt C6.
+2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
 3. R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0, klaar). Ontgrendelt niets, vult de derde plek.
 
 ## Legenda
@@ -50,7 +50,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4, R7)
 - [ ] C6 Prognose (na: C5)
 - [ ] C7 Reviewcadans (na: C2b)
-- [ ] C8 Onboarding (na: C4, C5; loopt samen met frontend-overhaul Doelen-tab)
+- [ ] C8 Onboarding (na: C4, C5; loopt samen met frontend-overhaul Doelen-tab; levert doelafstand hardlopen voor de R7-matrix)
 - [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
 
 ## Handoff 13: Hardlopen gestructureerd (actief traject, onderzoek 2026-07-15)
@@ -61,10 +61,10 @@ Regels voor wie dit bestand bijwerkt:
 - [x] R4 Interferentieparameters: loopweging 1.5-2x fiets, 6u ondergrens, 24u voorkeur, EIMD 48u (na: R1) (2026-07-15)
 - [x] R5 ACWR-loopband 0.8-1.3 + single-run-spike-guard t.o.v. langste run 30 dagen (na: R1) (2026-07-16)
 - [ ] R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0)
-- [ ] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3, R5, R-doc-a)
+- [x] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3, R5, R-doc-a) (2026-07-16)
 - [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (na: R3)
 - [x] R-doc-a Trainingstheorie geversioneerd onder docs/ (herziene versie, 343 regels, zes hardloopsecties + Robineau-correctie) + citeerregel in CLAUDE.md (2026-07-16)
-- [ ] R-doc-b Dubbele intensiteitssectie harmoniseren: sectie Trainingsintensiteitsverdeling spreekt de sectie Intensiteitsverdeling en periodisering per atleetsituatie tegen (na: R-doc-a; landt in de R7-commit)
+- [x] R-doc-b Dubbele intensiteitssectie harmoniseren: sectie Trainingsintensiteitsverdeling spreekt de sectie Intensiteitsverdeling en periodisering per atleetsituatie tegen (na: R-doc-a; landt in de R7-commit) (2026-07-16)
 
 ## Handoff 11: Bugs, UX, features
 - [x] Cluster 1 Read-path performance: analytics-memo met ?force=1 bypass (geverifieerd 2026-07-10)
@@ -144,6 +144,9 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | R7 | de uren-as stond op availDays (weekgrid) i.p.v. op een structurele capaciteit, waardoor het periodiseringsmodel per week omklapte zodra er minder slots stonden; en distributionPolarizedMinHours stond op 8 terwijl canon sectie 217 twaalf uur noemt plus een fase-eis (pyramidaal in base, polarized in build) die de code niet kon uitdrukken | as verlegd naar settings.weekCapacity.hours met availDays-som als fallback; knoppen hernoemd naar timeBudgetModerateMinHours/timeBudgetHighMinHours (6/12) met clampProfileParams als canon-bodem conform het R4-precedent; buildMacrocycle bepaalt distribution_model nu per week i.p.v. één constante over de hele macrocyclus, de kolom bestond al
+- 2026-07-16 | R7 | canon sectie 217 spreekt zichzelf tegen: de regel dat 4-6u zich niet kan veroorloven te polariseren staat drie alinea's na Muñoz & Seiler, waar precies die groep (recreatieve lopers, laag volume) juist meer won met polarized dan met drempel (7% vs 1,6% in de compliante subgroep) | uren-as disciplinespecifiek gemaakt: cycling low → sweetspot, running low → polarized; dat is de reden dat één universele urendrempel niet houdbaar was en R7 per discipline kiest; opgelost in de R-doc-b-tekst
+- 2026-07-16 | R7 | de loopafstand-as uit canon sectie 217 (Z4/Z5-accent bij 5-10km, matige band bij halve/hele marathon) is niet geïmplementeerd: er is geen veld dat de afstand draagt en geen consument die hem leest, dus hij zou een derde dode knop worden naast de opgeruimde interferenceFactor | as verplaatst naar C8, dat het doelveld levert; annotatie C8 uitgebreid
 - 2026-07-16 | C8 | annotatie miste C5: de blokkerende velden van de wizard zijn doeltype en gewicht per doel, en gewicht per doel bestaat alleen in de goals-tabel, die nul consumenten heeft (insertGoal/getActiveGoals/setGoalStatus ongebruikt, buildPlan draait via goalsToGoalSet op het legacy users.goals-JSONB en POST /api/goals merget daarin); C8 nu bouwen betekent of schrijven naar een tabel die de planner niet leest, of een tweede doelformulier naast de C4b-2-Doelen-tab dat bij C5 opnieuw moet, hetzelfde patroon als C5/R7 | annotatie C8 naar (na: C4, C5); het optionele veld trainingservaring per modaliteit valt daarmee transitief achter R7, conform de C8-als-override-regel uit de R7-besluitlogregel; C8 uit Nu, R6 vult de derde plek (nul ontgrendelingen, gelijkstand met R8 op cluster-ID beslist, R-doc-b telt niet mee want gebonden aan de R7-commit)
 - 2026-07-16 | R-doc-a | de commit beschrijft zichzelf onjuist: er landde geen kopie maar een herziene canon (343 tegen 217 regels, zes nieuwe hardloopsecties, twee herschreven alinea's waaronder de intrekking van de drie-uursregel ten gunste van Robineau 6u/24u), en de oude sectie Trainingsintensiteitsverdeling spreekt de nieuwe sectie per atleetsituatie tegen binnen hetzelfde bestand | statusregel R-doc-a gecorrigeerd, R-doc-b geherformuleerd van "matrix schrijven" naar "dubbele sectie harmoniseren" want de matrix bestaat al; de canon ondersteunt de R5-drempels 10/30/100 nu expliciet, die afwijking uit de R5-besluitlog is daarmee vervallen
 - 2026-07-16 | werkregel | de projectkennis-kopie die een sessie op schijf krijgt kan verouderd zijn (217 regels tegen de 344 die in de UI staan), waardoor een diff tegen die kopie een verschil laat zien dat er niet is | inhoudelijke claims over een projectdocument altijd tegen de actuele bron toetsen, niet tegen de meegeleverde kopie; verificatie van de canon tegen engine.js/athleteParams.js bevestigde acht alinea's uit vier secties en alle constanten (RUN_ZONE_BOUNDS, RUN_ZONE_IF, rTSS-kolom, RUN_ACWR_BAND, RUN_SPIKE_BAND, interferentieparameters) byte-identiek

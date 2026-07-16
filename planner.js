@@ -56,6 +56,93 @@ const DIST_BASE = {
   sweetspot:  { low: 0.55, mid: 0.35, high: 0.10 },
 };
 
+// ─── Periodisering per atleetsituatie (R7, canon sectie 217) ─────────────────
+
+const LEVEL_CTL_BOUNDS = {
+  cycling: { novice: 40, intermediate: 70, advanced: 100 },
+  running: { novice: 20, intermediate: 40, advanced: 60 },
+};
+// cycling: bestaande niveaudrempels, ongewijzigd overgenomen.
+// running: afgeleide synthese, GEEN gepubliceerde tabel. Geijkt op
+// rTSS-equivalenten: rCTL 40 ≈ 280 rTSS/week ≈ 4-5u lopen rond drempel-IF.
+// Zelfde status als RUN_ZONE_IF (zie R1-besluitlog).
+
+const LEVEL_MIN_HISTORY_DAYS = 84;
+// 2× ctlTimeConstantDays (42). Onder deze historielengte is CTL nog niet
+// verzadigd en is 'novice' de veilige aanname, ongeacht de gemeten waarde.
+// Canon sectie 217: voor een beginner is de verdeling ondergeschikt aan
+// consistentie en geleidelijke volumeopbouw.
+
+function deriveLevel({ ctl, historyDays = null }, discipline = 'cycling') {
+  if (historyDays !== null && historyDays < LEVEL_MIN_HISTORY_DAYS) return 'novice';
+  const b = LEVEL_CTL_BOUNDS[discipline] || LEVEL_CTL_BOUNDS.cycling;
+  return ctl < b.novice ? 'novice' : ctl <= b.intermediate ? 'intermediate' : ctl <= b.advanced ? 'advanced' : 'elite';
+}
+
+// Puur, muteert params niet. Analoog aan clampInterferenceParams (R4-precedent):
+// de leerlaag mag deze knoppen verschuiven, maar niet onder de canon-bodem.
+function clampProfileParams(params) {
+  const timeBudgetHighMinHours = Math.max(10, params.timeBudgetHighMinHours);
+  const timeBudgetModerateMinHours = Math.min(
+    Math.max(4, params.timeBudgetModerateMinHours),
+    timeBudgetHighMinHours - 1e-9
+  );
+  return { ...params, timeBudgetHighMinHours, timeBudgetModerateMinHours };
+}
+
+// situation: { weeklyHours, level, discipline = 'cycling', phase = 'build',
+//              role = 'primary' }. Retourneert { distributionModel, timeBudget,
+// rationale }. rationale is een korte Nederlandse string; geen AI, geen schatting.
+function selectPeriodizationProfile(situation, params) {
+  const { weeklyHours, level, discipline = 'cycling', phase = 'build', role = 'primary' } = situation;
+  const p = clampProfileParams(params);
+  const timeBudget = weeklyHours >= p.timeBudgetHighMinHours ? 'high'
+    : weeklyHours >= p.timeBudgetModerateMinHours ? 'moderate' : 'low';
+  // Bosquet-taper verlaagt volume, niet intensiteit: de taper erft het profiel
+  // van de piekfase i.p.v. terug te vallen naar een lager model.
+  const effPhase = (phase === 'taper' || phase === 'race_week') ? 'peak' : phase;
+
+  let distributionModel, rationale;
+
+  if (level === 'novice') {
+    distributionModel = 'pyramidal';
+    rationale = 'Beginner: verdeling ondergeschikt aan consistentie en geleidelijke volumeopbouw.';
+  } else if (discipline === 'running' && role === 'secondary') {
+    distributionModel = 'pyramidal';
+    rationale = 'Lopen als tweede sport: laag loopvolume, hoog aandeel lage band, beperkt EIMD en interferentie.';
+  } else if (discipline === 'cycling') {
+    if (timeBudget === 'low') {
+      distributionModel = 'sweetspot';
+      rationale = '4-6u levert te weinig absolute uren in de lage band; licht drempelgericht is efficiënter.';
+    } else if (timeBudget === 'moderate') {
+      distributionModel = 'pyramidal';
+      rationale = 'Gematigd tijdsbudget: pyramidale verdeling.';
+    } else {
+      distributionModel = effPhase === 'base' ? 'pyramidal' : 'polarized';
+      rationale = effPhase === 'base'
+        ? 'Hoog tijdsbudget, basisfase: pyramidaal bouwen.'
+        : 'Hoog tijdsbudget, build/piek: polariseren.';
+    }
+  } else {
+    if (timeBudget === 'low') {
+      distributionModel = 'polarized';
+      rationale = 'Recreatieve lopers op laag volume winnen meer met polarized dan drempeltraining (Muñoz & Seiler).';
+    } else if (timeBudget === 'moderate') {
+      distributionModel = effPhase === 'peak' ? 'polarized' : 'pyramidal';
+      rationale = effPhase === 'peak'
+        ? 'Richting wedstrijd: polariseren (Kenneally).'
+        : 'Overwegend pyramidaal, polariseert richting wedstrijd (Kenneally).';
+    } else {
+      distributionModel = effPhase === 'base' ? 'pyramidal' : 'polarized';
+      rationale = effPhase === 'base'
+        ? 'Hoog tijdsbudget, basisfase: pyramidaal bouwen.'
+        : 'Hoog tijdsbudget, build/piek: polariseren.';
+    }
+  }
+
+  return { distributionModel, timeBudget, rationale };
+}
+
 // ─── Hulpfuncties ─────────────────────────────────────────────────────────────
 
 function blockTSS(durationMin, ifKey) {
@@ -459,7 +546,7 @@ function buildPlan(input, params) {
   const {
     rampCapCtlPerWeek, loadWeeksBeforeRecovery,
     maxHitSessionsPerWeek, minHoursBetweenHit,
-    distributionPolarizedMinHours, distributionPyramidalMinHours,
+    timeBudgetModerateMinHours, timeBudgetHighMinHours,
   } = params;
   const { ctl } = metrics;
 
@@ -472,10 +559,13 @@ function buildPlan(input, params) {
   const weekStart = getMondayOf(sortedDays[0].date);
   const weeklyHours = sortedDays.reduce((s, d) => s + d.maxDuration / 60, 0);
 
-  // 3. distributionModel & niveau
-  const distributionModel = weeklyHours >= distributionPolarizedMinHours ? 'polarized'
-    : weeklyHours >= distributionPyramidalMinHours ? 'pyramidal' : 'sweetspot';
-  const level = ctl < 40 ? 'novice' : ctl <= 70 ? 'intermediate' : ctl <= 100 ? 'advanced' : 'elite';
+  // 3. tijdsbudget & niveau
+  // Tijdsbudget is een structurele atleeteigenschap, geen weekgrid-uitkomst.
+  // Zonder deze fallback klapt het model om zodra één week minder slots heeft.
+  const budgetHours = Number(settings.weekCapacity?.hours) > 0
+    ? Number(settings.weekCapacity.hours)
+    : weeklyHours;
+  const level = deriveLevel({ ctl, historyDays: metrics.history?.length ?? null }, 'cycling');
   const masters = (settings.age || 0) >= 50;
 
   // 4. rampCap & cadence
@@ -500,7 +590,12 @@ function buildPlan(input, params) {
   }
   const isRecoveryWeek = mesocycleWeek === cadence;
 
-  // 5.5. hitType vooraf bepalen — nodig voor distributie-gewogen cap (FIX 1)
+  // 5.5. Periodiseringsprofiel — heeft phase nodig, dus pas na stap 5
+  const prof = selectPeriodizationProfile(
+    { weeklyHours: budgetHours, level, discipline: 'cycling', phase }, params);
+  const distributionModel = prof.distributionModel;
+
+  // 5.6. hitType vooraf bepalen — nodig voor distributie-gewogen cap (FIX 1)
   const hitType = isRecoveryWeek ? null : resolveHitType(mode, phase);
   const hitMinZone = hitType === 'vo2max' ? 5 : 4;
 
@@ -705,6 +800,11 @@ function buildPlan(input, params) {
     eventDate:  goals.eventDate  || null,
     eventName:  goals.eventName  || null,
     rationale:  buildRationale(null, mode, phase, isRecoveryWeek, ctl),
+    athleteSituation: {
+      timeBudget: prof.timeBudget, level, budgetHours,
+      budgetSource: settings.weekCapacity?.hours > 0 ? 'weekCapacity' : 'availDays',
+      rationale: prof.rationale,
+    },
   };
 
   return { skeleton, sessions, prescriptions };
@@ -882,15 +982,6 @@ function resolveGoalPriority(goalSet, weekStartISO, nowMs) {
   return { dominant, sessionBudget };
 }
 
-function levelForCtl(ctl) {
-  return ctl < 40 ? 'novice' : ctl <= 70 ? 'intermediate' : ctl <= 100 ? 'advanced' : 'elite';
-}
-
-function distributionModelFor(weeklyHours, params) {
-  return weeklyHours >= params.distributionPolarizedMinHours ? 'polarized'
-    : weeklyHours >= params.distributionPyramidalMinHours ? 'pyramidal' : 'sweetspot';
-}
-
 function addWeeksISO(dateISO, n) {
   return new Date(dateToUTCms(dateISO) + n * 7 * 86400000).toISOString().split('T')[0];
 }
@@ -937,8 +1028,6 @@ function buildMacrocycle(goalSet, startDateISO, baseline, params, nowMs) {
   const masters = !!(params && params.masters) || !!(baseline.settings && baseline.settings.age >= 50);
   const cadence = masters ? 3 : 4; // 2+1 masters, anders 3+1
 
-  const distributionModel = distributionModelFor(baseline.weeklyHours, params);
-
   let phasePlan;
   if (eventGoal) {
     const weeksToEvent = Math.max(1, Math.ceil(daysBetweenUTC(weekStart0, eventGoal.target_date) / 7));
@@ -968,6 +1057,10 @@ function buildMacrocycle(goalSet, startDateISO, baseline, params, nowMs) {
     const dominantType = priority.dominant ? priority.dominant.type : 'base';
     const dominantModality = priority.dominant ? goalModality(priority.dominant.type) : 'cycling';
 
+    const level = deriveLevel({ ctl: ctlProjected }, 'cycling');
+    const weekProfile = selectPeriodizationProfile(
+      { weeklyHours: baseline.weeklyHours, level, discipline: 'cycling', phase }, params);
+
     let enduranceTarget;
     if (phase === 'taper') {
       // STEP-TAPER, NIET PROGRESSIEF. Bewuste afwijking van de
@@ -975,12 +1068,12 @@ function buildMacrocycle(goalSet, startDateISO, baseline, params, nowMs) {
       // regel 95 (Bosquet): het volume gaat in de eerste taperweek in één stap
       // naar ~50% (binnen de 41-60% reductieband) van de laatste build/peak-
       // week en blijft op dat niveau tot de eventdag. Intensiteit
-      // (distribution_model, zoneverdeling) verandert niet in de taper.
+      // (distribution_model, zoneverdeling) verandert niet in de taper: de
+      // taper erft het profiel van de piekfase via selectPeriodizationProfile.
       enduranceTarget = Math.round(lastLoadTSS * 0.5);
     } else if (isDeload) {
       enduranceTarget = Math.round(ctlProjected * 7 * 0.55);
     } else {
-      const level = levelForCtl(ctlProjected);
       let rampCap = params.rampCapCtlPerWeek;
       if (level === 'novice' || masters) rampCap = Math.min(rampCap, 4);
       const profile = profileForType(dominantType);
@@ -1008,7 +1101,7 @@ function buildMacrocycle(goalSet, startDateISO, baseline, params, nowMs) {
       endurance_tss_target: enduranceTarget,
       strength_sessions: strengthSessions,
       running_minutes_cap: runningMinutesCap,
-      distribution_model: distributionModel,
+      distribution_model: weekProfile.distributionModel,
       dominant_modality: dominantModality,
     });
   }
@@ -1026,6 +1119,8 @@ module.exports = {
   buildSession,
   modalityInterferenceWeight, clampInterferenceParams,
   requiredSeparationHours, separationLevel,
+  deriveLevel, selectPeriodizationProfile, clampProfileParams,
+  LEVEL_CTL_BOUNDS, LEVEL_MIN_HISTORY_DAYS,
 };
 
 // ─── Zelftest ────────────────────────────────────────────────────────────────
@@ -1043,8 +1138,8 @@ if (require.main === module) {
     eimdRecoveryHours:             48,
     maxHitSessionsPerWeek:         2,
     minHoursBetweenHit:           48,
-    distributionPolarizedMinHours: 8,
-    distributionPyramidalMinHours: 5,
+    timeBudgetHighMinHours:       12,
+    timeBudgetModerateMinHours:    5,
   };
 
   // FIX 4: consistentiecheck per testcase

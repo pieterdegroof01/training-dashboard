@@ -14,6 +14,7 @@ const {
   runPaceZones, runBlockTSS, buildRunSession, buildSession,
   modalityInterferenceWeight, clampInterferenceParams,
   requiredSeparationHours, separationLevel,
+  deriveLevel, selectPeriodizationProfile, clampProfileParams,
 } = require('../planner');
 const { availDay, planParams } = require('./helpers');
 
@@ -117,9 +118,11 @@ describe('buildPlan: TSS-targeting', () => {
   });
 });
 
-describe('buildPlan: distributionModel', () => {
-  test('weeklyHours >= 8 → distributionModel "polarized"', () => {
-    // 4 × 120 min = 8 uur >= distributionPolarizedMinHours (8)
+describe('buildPlan: distributionModel (R7, per atleetsituatie — cluster R7)', () => {
+  test('weeklyHours = 8 (moderate, cycling, build) → distributionModel "pyramidal"', () => {
+    // 4 × 120 min = 8 uur: >= timeBudgetModerateMinHours (6), < timeBudgetHighMinHours (12) → moderate
+    // BASE_INPUT (mode 'base') loopt altijd via phase 'build'; cycling/moderate is
+    // fase-onafhankelijk pyramidal.
     const adPolarized = [
       availDay('2026-01-26', 120, 5),
       availDay('2026-01-27', 120, 5),
@@ -127,11 +130,11 @@ describe('buildPlan: distributionModel', () => {
       availDay('2026-01-29', 120, 5),
     ];
     const p = buildPlan({ ...BASE_INPUT, availDays: adPolarized }, planParams());
-    assert.strictEqual(p.skeleton.distributionModel, 'polarized');
+    assert.strictEqual(p.skeleton.distributionModel, 'pyramidal');
   });
 
-  test('weeklyHours < 6 → distributionModel "sweetspot"', () => {
-    // 3 × 60 min = 3 uur < distributionPyramidalMinHours (6)
+  test('weeklyHours < 6 (low, cycling) → distributionModel "sweetspot"', () => {
+    // 3 × 60 min = 3 uur < timeBudgetModerateMinHours (6)
     const adSweet = [
       availDay('2026-01-26', 60, 5),
       availDay('2026-01-27', 60, 5),
@@ -139,6 +142,112 @@ describe('buildPlan: distributionModel', () => {
     ];
     const p = buildPlan({ ...BASE_INPUT, availDays: adSweet }, planParams());
     assert.strictEqual(p.skeleton.distributionModel, 'sweetspot');
+  });
+});
+
+// ── R7: periodisering per atleetsituatie (canon sectie 217) ─────────────────
+
+describe('deriveLevel', () => {
+  test('historyDays 60 (< 84) met ctl 90 → "novice" (historie wint van ctl)', () => {
+    assert.strictEqual(deriveLevel({ ctl: 90, historyDays: 60 }, 'cycling'), 'novice');
+  });
+
+  test('historyDays null met ctl 90 → "advanced" (cycling: 70 < ctl <= 100)', () => {
+    assert.strictEqual(deriveLevel({ ctl: 90, historyDays: null }, 'cycling'), 'advanced');
+  });
+
+  test('running-drempels wijken af van cycling: ctl 50 → "advanced" bij running, "intermediate" bij cycling', () => {
+    assert.strictEqual(deriveLevel({ ctl: 50, historyDays: null }, 'running'), 'advanced');
+    assert.strictEqual(deriveLevel({ ctl: 50, historyDays: null }, 'cycling'), 'intermediate');
+  });
+});
+
+describe('selectPeriodizationProfile — cycling', () => {
+  const p = planParams();
+
+  test('5u (low) → "sweetspot"', () => {
+    const r = selectPeriodizationProfile({ weeklyHours: 5, level: 'intermediate', discipline: 'cycling', phase: 'build' }, p);
+    assert.strictEqual(r.distributionModel, 'sweetspot');
+  });
+
+  test('8u (moderate) → "pyramidal"', () => {
+    const r = selectPeriodizationProfile({ weeklyHours: 8, level: 'intermediate', discipline: 'cycling', phase: 'build' }, p);
+    assert.strictEqual(r.distributionModel, 'pyramidal');
+  });
+
+  test('13u (high) + phase "base" → "pyramidal"', () => {
+    const r = selectPeriodizationProfile({ weeklyHours: 13, level: 'intermediate', discipline: 'cycling', phase: 'base' }, p);
+    assert.strictEqual(r.distributionModel, 'pyramidal');
+  });
+
+  test('13u (high) + phase "build" → "polarized"', () => {
+    const r = selectPeriodizationProfile({ weeklyHours: 13, level: 'intermediate', discipline: 'cycling', phase: 'build' }, p);
+    assert.strictEqual(r.distributionModel, 'polarized');
+  });
+
+  test('13u (high) + phase "taper" → "polarized" (erft peak)', () => {
+    const r = selectPeriodizationProfile({ weeklyHours: 13, level: 'intermediate', discipline: 'cycling', phase: 'taper' }, p);
+    assert.strictEqual(r.distributionModel, 'polarized');
+  });
+});
+
+describe('selectPeriodizationProfile — running', () => {
+  const p = planParams();
+
+  test('5u + intermediate → "polarized" (afwijking van de cycling-tak, Muñoz & Seiler)', () => {
+    const r = selectPeriodizationProfile({ weeklyHours: 5, level: 'intermediate', discipline: 'running', phase: 'build' }, p);
+    assert.strictEqual(r.distributionModel, 'polarized');
+  });
+
+  test('role "secondary" → "pyramidal" ongeacht uren', () => {
+    const r = selectPeriodizationProfile({ weeklyHours: 13, level: 'advanced', discipline: 'running', phase: 'build', role: 'secondary' }, p);
+    assert.strictEqual(r.distributionModel, 'pyramidal');
+  });
+});
+
+describe('selectPeriodizationProfile — novice overschrijft alles', () => {
+  test('13u + novice + build → "pyramidal"', () => {
+    const p = planParams();
+    const r = selectPeriodizationProfile({ weeklyHours: 13, level: 'novice', discipline: 'cycling', phase: 'build' }, p);
+    assert.strictEqual(r.distributionModel, 'pyramidal');
+  });
+});
+
+describe('clampProfileParams', () => {
+  test('timeBudgetHighMinHours 6 uit de leerlaag wordt geclampt op 10', () => {
+    const clamped = clampProfileParams({ ...planParams(), timeBudgetHighMinHours: 6 });
+    assert.strictEqual(clamped.timeBudgetHighMinHours, 10);
+  });
+});
+
+describe('buildPlan: athleteSituation / settings.weekCapacity', () => {
+  const adThirteen = [
+    availDay('2026-01-26', 195, 5),
+    availDay('2026-01-27', 195, 5),
+    availDay('2026-01-28', 195, 5),
+    availDay('2026-01-29', 195, 5),
+  ]; // 4 × 195min = 13u
+
+  test('settings.weekCapacity.hours = 13 (build) → "polarized"', () => {
+    const p = buildPlan({
+      ...BASE_INPUT,
+      settings: { weekCapacity: { hours: 13 } },
+      availDays: [
+        availDay('2026-01-26', 60, 5),
+        availDay('2026-01-27', 60, 5),
+        availDay('2026-01-28', 60, 5),
+      ], // 3u aan availDays, genegeerd door weekCapacity
+    }, planParams());
+    assert.strictEqual(p.skeleton.distributionModel, 'polarized');
+    assert.strictEqual(p.skeleton.athleteSituation.budgetSource, 'weekCapacity');
+    assert.strictEqual(p.skeleton.athleteSituation.budgetHours, 13);
+  });
+
+  test('zonder weekCapacity valt hij terug op de availDays-som', () => {
+    const p = buildPlan({ ...BASE_INPUT, availDays: adThirteen }, planParams());
+    assert.strictEqual(p.skeleton.distributionModel, 'polarized');
+    assert.strictEqual(p.skeleton.athleteSituation.budgetSource, 'availDays');
+    assert.strictEqual(p.skeleton.athleteSituation.budgetHours, 13);
   });
 });
 
@@ -330,8 +439,8 @@ function isoPlusDays(iso, days) {
 
 const MACRO_PARAMS = {
   rampCapCtlPerWeek: 6,
-  distributionPolarizedMinHours: 8,
-  distributionPyramidalMinHours: 6,
+  timeBudgetHighMinHours: 12,
+  timeBudgetModerateMinHours: 6,
 };
 
 describe('goalsToGoalSet — legacy-adapter', () => {
@@ -443,6 +552,27 @@ describe('buildMacrocycle — step-taper (regel 95, Bosquet)', () => {
     assert.ok(reduction >= 0.40 && reduction <= 0.60,
       `reductie ${(reduction * 100).toFixed(1)}% buiten 40-60% band`);
     assert.strictEqual(firstTaper.distribution_model, lastPeak.distribution_model);
+  });
+});
+
+describe('buildMacrocycle — distribution_model per week (R7, canon sectie 217)', () => {
+  test('13u: "pyramidal" in de basisweken, "polarized" in build/peak, taperweek erft "polarized"', () => {
+    const start = '2026-06-17';
+    const monday = getMondayOf(start);
+    const targetDate = isoPlusDays(monday, 16 * 7);
+    const goalSet = [{ type: 'event', weight: 2, target_date: targetDate, status: 'active' }];
+    const rows = buildMacrocycle(goalSet, start, { ctl: 55, weeklyHours: 13 }, MACRO_PARAMS, Date.UTC(2026, 5, 1));
+
+    const baseRows  = rows.filter(r => r.phase === 'base');
+    const buildRows = rows.filter(r => r.phase === 'build');
+    const taperRows = rows.filter(r => r.phase === 'taper');
+
+    assert.ok(baseRows.length > 0 && buildRows.length > 0 && taperRows.length > 0);
+    assert.ok(baseRows.every(r => r.distribution_model === 'pyramidal'),
+      `basisweken: ${baseRows.map(r => r.distribution_model)}`);
+    assert.ok(buildRows.every(r => r.distribution_model === 'polarized'),
+      `buildweken: ${buildRows.map(r => r.distribution_model)}`);
+    assert.strictEqual(taperRows[0].distribution_model, 'polarized');
   });
 });
 

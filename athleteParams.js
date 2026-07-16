@@ -26,8 +26,8 @@ const POPULATION_PRIORS = {
   eimdRecoveryHours:         48,   // na loop met eccentricFlag, vóór zware legs
   maxHitSessionsPerWeek: 3,
   minHoursBetweenHit: 48,
-  distributionPolarizedMinHours: 8,
-  distributionPyramidalMinHours: 6,
+  timeBudgetHighMinHours: 12,
+  timeBudgetModerateMinHours: 6,
 };
 
 // Shrinkage: blended = prior + (learned - prior) * w, met w = n / (n + K).
