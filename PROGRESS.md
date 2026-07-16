@@ -7,9 +7,8 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4; allemaal klaar).
-   Ontgrendelt C6.
-2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
+1. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
+2. R7 Periodiseringsprofielen per atleetsituatie (na: R3, klaar). Ontgrendelt C5.
 3. C8 Onboarding (na: C4, klaar); loopt samen met frontend-overhaul Doelen-tab.
 
 ## Legenda
@@ -48,7 +47,7 @@ Regels voor wie dit bestand bijwerkt:
 - [x] C2b Datamodel (na: C0, C2a; staging als eerste stap) (2026-07-13)
 - [x] C3 Backward planner (na: C1, C2b) (2026-07-13)
 - [x] C4 Tweetraps beschikbaarheid (na: C2b) (2026-07-13) (volledig: brug, grid, Doelen-overhaul met weekcapaciteit 2026-07-13)
-- [ ] C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4)
+- [ ] C5 Multimodale weeksolver (na: C3, C4, R0, R1, R3, R4, R7)
 - [ ] C6 Prognose (na: C5)
 - [ ] C7 Reviewcadans (na: C2b)
 - [ ] C8 Onboarding (na: C4; loopt samen met frontend-overhaul Doelen-tab)
@@ -144,6 +143,7 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | C5 | annotatie miste R7: de weeksolver kiest zijn zoneverdeling via GOAL_PROFILES/DIST_BASE en R7 vervangt precies die selectie door een keuze op atleetsituatie (tijdsbudget, niveau, doeltype), dus C5 vóór R7 bouwen betekent solveWeek twee keer schrijven, hetzelfde patroon als C4/C8 op de Doelen-tab | annotatie C5 uitgebreid naar (na: C3, C4, R0, R1, R3, R4, R7); C5 valt daarmee uit Nu tot R7 klaar is; R5 blijft bewust géén (na:) van C5, want de guard is een volgorde-voorkeur (goedkoper om te consumeren dan achteraf in te weven) en geen afhankelijkheid
 - 2026-07-16 | R5 | drempels op 10/30/100% terwijl de implementeerbaar-regel in het onderzoeksdoc 30/100 noemde | de 10-30%-band had in de studie de hoogste hazard rate ratio (+64%), de hoogste gemeten risicoband; een guard die daar niet aanslaat mist de zwaarste band; gevolg: classifyRunSpike is de primaire guard en computeRunAcwr de secundaire, C5 consumeert classifyRunSpike bij het plaatsen van de lange duurloop
 - 2026-07-16 | R5 | single-run-spike-guard rekent op afstand, niet op rTSS | Frandsen 2025 mat afstandsverhoudingen t.o.v. de langste run, geen rTSS; longestRunDistance en classifyRunSpike zijn daarom op activity.distance gebouwd
 - 2026-07-15 | R4 | interferenceFactor had drie definities (athleteParams.js prior 1.0, planner.js-zelftest 0.8, test/helpers.js-mirror 1.0) en nul consumenten, met twee onderling tegenstrijdige waarden 1.0/0.8 die niemand opmerkte | dode knop verwijderd, vervangen door vier benoemde knoppen; weging (runInterferenceWeight) blijft atleet-variabel in athleteParams.js/POPULATION_PRIORS voor de leerlaag (C9), maar de 6-uursbodem (minHoursRunToLegs, Wilson 2012) is universeel en wordt door clampInterferenceParams in planner.js afgedwongen ongeacht wat de leerlaag aanlevert; buildPlan roept deze helpers nog niet aan, dat is C5
