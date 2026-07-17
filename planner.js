@@ -1,7 +1,8 @@
 'use strict';
 // Eenrichtingsafhankelijkheid: planner.js mag engine.js importeren, nooit andersom.
 // engine.js mag planner.js nooit importeren.
-const { RUN_ZONE_IF, RUN_ZONE_BOUNDS, RUN_SPIKE_BAND, RUN_ACWR_BAND, classifyRunSpike } = require('./engine');
+const { RUN_ZONE_IF, RUN_ZONE_BOUNDS, RUN_SPIKE_BAND, RUN_ACWR_BAND, classifyRunSpike,
+        runZoneFromActivity, computeRunningLoad, activityZoneClassification } = require('./engine');
 // planner.js — Deterministische planningsmodule. Geen I/O, geen netwerkverzoeken.
 
 // ─── Zone-constanten ──────────────────────────────────────────────────────────
@@ -1164,7 +1165,110 @@ function sessionModality(session) {
   const t = session.type;
   if (t === 'cycling') return 'cycling';
   if (t === 'running' || t === 'Run' || t === 'TrailRun') return 'running';
+  if (t === 'other') return 'other';
   return 'strength';
+}
+
+// Strava-activiteitstype naar modaliteit. Bewust geen hergebruik van
+// sessionModality: die leest een weekPlan-sessie en geeft alles wat geen fiets
+// of loop is 'strength', wat voor een Swim onjuist is.
+function stravaModality(type) {
+  if (type === 'Ride' || type === 'VirtualRide') return 'cycling';
+  if (type === 'Run' || type === 'TrailRun') return 'running';
+  return 'other';
+}
+
+// Verplaatst uit server.js (was computeSessionScore): scoringslogica hoort in de
+// pure laag, niet in server.js waar geen enkele test hem raakte. Fietsuitkomst
+// blijft byte-identiek t.o.v. de oude computeSessionScore.
+function scoreEnduranceSession(planned, actual, settings) {
+  const ftp      = settings?.ftp || 280;
+  const modality = stravaModality(actual.type);
+  const hasPower = !!(actual.weighted_average_watts || actual.average_watts);
+
+  // plannedMin
+  let plannedMin;
+  if (planned.duration) {
+    plannedMin = planned.duration;
+  } else if (planned.blokken?.length) {
+    plannedMin = planned.blokken.reduce((sum, b) => {
+      const reps = b.herhalingen || 1;
+      return sum + (b.duration || 0) * reps + (b.herstelBlok?.duration || 0) * reps;
+    }, 0);
+  }
+  if (!plannedMin) plannedMin = 60;
+
+  const actualMin = (actual.moving_time || 0) / 60;
+
+  // Component 1 — Duration
+  const durRatio = actualMin / plannedMin;
+  const durScore = durRatio >= 0.90 ? 10 : durRatio >= 0.75 ? 7 : durRatio >= 0.50 ? 4 : 1;
+
+  // Component 2 — Intensity
+  let intScore = null;
+  if (planned.targetTSS && plannedMin > 0) {
+    let actualIF = null;
+    if (modality === 'running') {
+      actualIF = computeRunningLoad(actual.moving_time || 0,
+        actual.average_speed > 0 ? actual.average_speed : 0, actual, settings).IF;
+    } else if (hasPower) {
+      actualIF = (actual.weighted_average_watts || actual.average_watts) / ftp;
+    }
+    if (actualIF !== null) {
+      const plannedIF = Math.sqrt(planned.targetTSS / ((plannedMin / 60) * 100));
+      if (plannedIF > 0) {
+        const diff = Math.abs(actualIF / plannedIF - 1);
+        intScore = diff < 0.05 ? 10 : diff < 0.10 ? 8 : diff < 0.20 ? 5 : 2;
+      }
+    }
+  }
+
+  // Component 3 — Zone alignment
+  let plannedPrimaryZone;
+  if (planned.blokken?.length) {
+    const zoneMins = {};
+    planned.blokken.forEach(b => {
+      const reps = b.herhalingen || 1;
+      const z    = b.zone || 'Z2';
+      zoneMins[z] = (zoneMins[z] || 0) + (b.duration || 0) * reps;
+      if (b.herstelBlok) zoneMins['Z1'] = (zoneMins['Z1'] || 0) + (b.herstelBlok.duration || 0) * reps;
+    });
+    plannedPrimaryZone = Object.entries(zoneMins).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Z3';
+  } else {
+    plannedPrimaryZone = planned.zone || 'Z3';
+  }
+
+  const zoneAnchor = modality === 'running'
+    ? !!(runZoneFromActivity(actual, settings) || actual.average_heartrate)
+    : !!(hasPower || actual.average_heartrate);
+
+  let zoneScore;
+  if (!zoneAnchor) {
+    zoneScore = 5;
+  } else {
+    const zNum = { Z1:1, Z2:2, Z3:3, Z4:4, Z5:5, Z6:6 };
+    const actualZone = activityZoneClassification(actual, ftp, settings?.hrMax || 197, settings).zone;
+    const diff = Math.abs((zNum[actualZone] || 3) - (zNum[plannedPrimaryZone] || 3));
+    zoneScore = diff === 0 ? 10 : diff === 1 ? 7 : diff === 2 ? 4 : 1;
+  }
+
+  const score = (intScore !== null)
+    ? 0.40 * durScore + 0.35 * intScore + 0.25 * zoneScore
+    : 0.55 * durScore + 0.45 * zoneScore;
+
+  return Math.min(10.0, Math.max(1.0, Math.round(score * 10) / 10));
+}
+
+// Kracht heeft geen zones en geen TSS: alleen de duurcomponent. Splitverificatie
+// (push/pull/legs tegen de gelogde oefeningen) gebeurt hier bewust niet — dat
+// vereist oefeningclassificatie en valt buiten C5g.
+function scoreStrengthSession(planned, workout) {
+  if (!workout.end_time) return 5;
+  const plannedMin = planned.duration || 60;
+  const actualMin  = (new Date(workout.end_time) - new Date(workout.start_time)) / 60000;
+  const durRatio   = actualMin / plannedMin;
+  const durScore   = durRatio >= 0.90 ? 10 : durRatio >= 0.75 ? 7 : durRatio >= 0.50 ? 4 : 1;
+  return Math.min(10, Math.max(1, Math.round(durScore * 10) / 10));
 }
 
 // Bij lopen ís RUN_ZONE_IF de snelheidsfractie van drempelsnelheid, en dat is
@@ -1702,6 +1806,7 @@ module.exports = {
   deriveLevel, selectPeriodizationProfile, clampProfileParams,
   LEVEL_CTL_BOUNDS, LEVEL_MIN_HISTORY_DAYS,
   solveWeek, buildStrengthSession, slotStartMs, sessionModality,
+  stravaModality, scoreEnduranceSession, scoreStrengthSession,
   plannedRunDistanceM, legsZoneCeiling, selectStrengthSplits, summarizeWeek,
   DEFAULT_SLOT_HOUR, LEGS_QUALITY_BLOCK_HOURS, LEGS_BLOCKED_MAX_ZONE,
   STRENGTH_SPLIT_ORDER, STRENGTH_SESSION_MIN, RUN_WEEK_GROWTH_CAP,

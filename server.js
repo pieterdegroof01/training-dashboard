@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
-const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow } = require('./planner');
+const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
 const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate } = require('./db');
@@ -353,71 +353,6 @@ function buildHistorySummary(activities, settings) {
 
 // ── Session completion matching ───────────────────────────────────────────────
 
-function computeSessionScore(planned, actual, settings) {
-  const ftp      = settings?.ftp || 280;
-  const hasPower = !!(actual.weighted_average_watts || actual.average_watts);
-
-  // plannedMin
-  let plannedMin;
-  if (planned.duration) {
-    plannedMin = planned.duration;
-  } else if (planned.blokken?.length) {
-    plannedMin = planned.blokken.reduce((sum, b) => {
-      const reps = b.herhalingen || 1;
-      return sum + (b.duration || 0) * reps + (b.herstelBlok?.duration || 0) * reps;
-    }, 0);
-  }
-  if (!plannedMin) plannedMin = 60;
-
-  const actualMin = (actual.moving_time || 0) / 60;
-
-  // Component 1 — Duration
-  const durRatio = actualMin / plannedMin;
-  const durScore = durRatio >= 0.90 ? 10 : durRatio >= 0.75 ? 7 : durRatio >= 0.50 ? 4 : 1;
-
-  // Component 2 — Intensity (power only)
-  let intScore = null;
-  if (hasPower && planned.targetTSS && plannedMin > 0) {
-    const actualIF   = (actual.weighted_average_watts || actual.average_watts) / ftp;
-    const plannedIF  = Math.sqrt(planned.targetTSS / ((plannedMin / 60) * 100));
-    if (plannedIF > 0) {
-      const diff = Math.abs(actualIF / plannedIF - 1);
-      intScore = diff < 0.05 ? 10 : diff < 0.10 ? 8 : diff < 0.20 ? 5 : 2;
-    }
-  }
-
-  // Component 3 — Zone alignment
-  let plannedPrimaryZone;
-  if (planned.blokken?.length) {
-    const zoneMins = {};
-    planned.blokken.forEach(b => {
-      const reps = b.herhalingen || 1;
-      const z    = b.zone || 'Z2';
-      zoneMins[z] = (zoneMins[z] || 0) + (b.duration || 0) * reps;
-      if (b.herstelBlok) zoneMins['Z1'] = (zoneMins['Z1'] || 0) + (b.herstelBlok.duration || 0) * reps;
-    });
-    plannedPrimaryZone = Object.entries(zoneMins).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Z3';
-  } else {
-    plannedPrimaryZone = planned.zone || 'Z3';
-  }
-
-  let zoneScore;
-  if (!hasPower && !actual.average_heartrate) {
-    zoneScore = 5;
-  } else {
-    const zNum = { Z1:1, Z2:2, Z3:3, Z4:4, Z5:5 };
-    const actualZone = engine.activityZoneClassification(actual, ftp, settings?.hrMax || 197, settings).zone;
-    const diff = Math.abs((zNum[actualZone] || 3) - (zNum[plannedPrimaryZone] || 3));
-    zoneScore = diff === 0 ? 10 : diff === 1 ? 7 : diff === 2 ? 4 : 1;
-  }
-
-  const score = (hasPower && intScore !== null)
-    ? 0.40 * durScore + 0.35 * intScore + 0.25 * zoneScore
-    : 0.55 * durScore + 0.45 * zoneScore;
-
-  return Math.min(10.0, Math.max(1.0, Math.round(score * 10) / 10));
-}
-
 function getISOWeekBounds() {
   const now = new Date();
   const dow = now.getDay(); // 0=Sun
@@ -464,14 +399,27 @@ async function matchPlannedToActual(data) {
   const cutoffDate = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const { monday, today } = getISOWeekBounds();
 
-  // Index rides by date
-  const ridesByDate = {};
+  // Index activiteiten per (datum, modaliteit); 'other' (Swim/Hike/Walk) wordt
+  // hier overgeslagen want die matchen nooit tegen een weekPlan-voorschrift.
+  const actsByDateByModality = {};
   activities.forEach(a => {
-    if (a.type !== 'Ride' && a.type !== 'VirtualRide') return;
+    const mod = stravaModality(a.type);
+    if (mod === 'other') return;
     const d = a.start_date?.split('T')[0];
     if (!d) return;
-    if (!ridesByDate[d]) ridesByDate[d] = [];
-    ridesByDate[d].push(a);
+    if (!actsByDateByModality[d]) actsByDateByModality[d] = {};
+    if (!actsByDateByModality[d][mod]) actsByDateByModality[d][mod] = [];
+    actsByDateByModality[d][mod].push(a);
+  });
+
+  // Hevy-workouts per datum; ontbreekt hevyWorkouts, dan slaat de krachttak
+  // hieronder stil over.
+  const hevyByDate = {};
+  (data.hevyWorkouts || []).forEach(w => {
+    const d = w.start_time?.split('T')[0];
+    if (!d) return;
+    if (!hevyByDate[d]) hevyByDate[d] = [];
+    hevyByDate[d].push(w);
   });
 
   let changed = false;
@@ -480,13 +428,42 @@ async function matchPlannedToActual(data) {
   for (const [date, sessions] of Object.entries(data.weekPlan || {})) {
     if (date < cutoffDate) continue;
     for (const session of sessions) {
-      if (session.type !== 'cycling') continue;
+      const mod = sessionModality(session);
+      if (mod === 'other') continue;
       if (session.completionScore !== undefined || session.missed) continue;
 
-      const rides = ridesByDate[date] || [];
-      if (rides.length > 0) {
-        const actual = rides.reduce((best, a) => (a.moving_time || 0) > (best.moving_time || 0) ? a : best);
-        session.completionScore   = computeSessionScore(session, actual, settings);
+      if (mod === 'strength') {
+        const workouts = hevyByDate[date] || [];
+        if (workouts.length > 0) {
+          const workout = workouts.reduce((best, w) => {
+            const dur     = w.end_time    ? new Date(w.end_time)    - new Date(w.start_time)    : 0;
+            const bestDur = best.end_time ? new Date(best.end_time) - new Date(best.start_time) : 0;
+            return dur > bestDur ? w : best;
+          });
+          // Coggan-TSS en het Foster sRPE-krachtkanaal zijn incommensurabel; de
+          // krachtbelasting staat al in strengthDailyETL en wordt in de
+          // weekgrafiek apart gestapeld. Geen actualTSS hier.
+          session.completionScore  = scoreStrengthSession(session, workout);
+          session.actualDuration   = workout.end_time
+            ? Math.round((new Date(workout.end_time) - new Date(workout.start_time)) / 60000)
+            : null;
+          session.matchedWorkoutId = workout.id;
+          changed = true;
+        } else {
+          // End of day (UTC midnight next day) + 2 h grace period
+          const endOfDay = new Date(date).getTime() + 24 * 60 * 60 * 1000;
+          if (now - endOfDay > 2 * 60 * 60 * 1000) {
+            session.missed = true;
+            changed = true;
+          }
+        }
+        continue;
+      }
+
+      const candidates = (actsByDateByModality[date] || {})[mod] || [];
+      if (candidates.length > 0) {
+        const actual = candidates.reduce((best, a) => (a.moving_time || 0) > (best.moving_time || 0) ? a : best);
+        session.completionScore   = scoreEnduranceSession(session, actual, settings);
         session.actualTSS         = engine.computeETLForActivity(actual, settings,
           engine.ftpForDate(activities, settings, actual.start_date?.split('T')[0] || '')).etl;
         session.actualDuration    = Math.round((actual.moving_time || 0) / 60);
@@ -511,6 +488,9 @@ async function matchPlannedToActual(data) {
 
   if (token) {
     // Zone fetch for matched planned sessions in current week
+    // Fiets-only, bewust ongewijzigd: Strava zet op loopjes een geschat
+    // hardloopvermogen, en dat door FTP delen is de R2-bug. Die hoort niet
+    // opnieuw in week_plan.
     for (const [date, sessions] of Object.entries(data.weekPlan || {})) {
       if (date < monday || date > today) continue;
       for (const session of sessions) {
@@ -553,17 +533,20 @@ async function matchPlannedToActual(data) {
       return d && d >= monday && d <= today;
     });
 
+    // Ongeplande krachtsessies uit Hevy vallen buiten C5g (Hevy levert geen
+    // Strava-activiteit en zit dus nooit in weekEnduranceActs); niet toegevoegd.
     for (const act of weekEnduranceActs) {
       const date = act.start_date?.split('T')[0];
       if (!date) continue;
+      const mod = stravaModality(act.type);
       const daySessions = data.weekPlan[date] || [];
-      const hasPlannedCycling = daySessions.some(s => s.type === 'cycling' && !s.unplanned);
-      if (hasPlannedCycling) continue;
+      const hasPlannedSameModality = daySessions.some(s => sessionModality(s) === mod && !s.unplanned);
+      if (hasPlannedSameModality) continue;
       const alreadyTracked = daySessions.some(s => s.unplanned && s.stravaId === act.id);
       if (alreadyTracked) continue;
 
       const unplanned = {
-        type: 'cycling', unplanned: true, stravaId: act.id,
+        type: mod, unplanned: true, stravaId: act.id,
         actualTSS: engine.computeETLForActivity(act, settings,
           engine.ftpForDate(activities, settings, act.start_date?.split('T')[0] || '')).etl,
         duration: Math.round((act.moving_time || 0) / 60),
@@ -573,27 +556,40 @@ async function matchPlannedToActual(data) {
       data.weekPlan[date].push(unplanned);
       changed = true;
 
-      const inUnreliable = date >= (settings.unreliablePowerStart || '2020-01-01') &&
-                           date <= (settings.unreliablePowerEnd   || '2020-12-31');
-      try {
-        const streamResp = await axios.get(
-          `https://www.strava.com/api/v3/activities/${act.id}/streams?keys=watts,time&series_type=time`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const wattsStream = streamResp.data.find(s => s.type === 'watts');
-        const timeStream  = streamResp.data.find(s => s.type === 'time');
-        if (wattsStream && timeStream && !inUnreliable) {
-          unplanned.actualZoneBreakdown = calcZoneBreakdown(timeStream.data, wattsStream.data, ftp);
-          unplanned.actualZoneFetched   = true;
-        } else {
-          const avgW = act.weighted_average_watts || act.average_watts || 0;
-          const IF   = avgW > 0 ? avgW / ftp : 0;
-          unplanned.actualZoneBreakdown = { estimated: true, dominantZone: IF < 0.75 ? 'low' : IF < 0.90 ? 'mid' : 'high' };
-          unplanned.actualZoneEstimated = true;
+      if (mod === 'cycling') {
+        const inUnreliable = date >= (settings.unreliablePowerStart || '2020-01-01') &&
+                             date <= (settings.unreliablePowerEnd   || '2020-12-31');
+        try {
+          const streamResp = await axios.get(
+            `https://www.strava.com/api/v3/activities/${act.id}/streams?keys=watts,time&series_type=time`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          const wattsStream = streamResp.data.find(s => s.type === 'watts');
+          const timeStream  = streamResp.data.find(s => s.type === 'time');
+          if (wattsStream && timeStream && !inUnreliable) {
+            unplanned.actualZoneBreakdown = calcZoneBreakdown(timeStream.data, wattsStream.data, ftp);
+            unplanned.actualZoneFetched   = true;
+          } else {
+            const avgW = act.weighted_average_watts || act.average_watts || 0;
+            const IF   = avgW > 0 ? avgW / ftp : 0;
+            unplanned.actualZoneBreakdown = { estimated: true, dominantZone: IF < 0.75 ? 'low' : IF < 0.90 ? 'mid' : 'high' };
+            unplanned.actualZoneEstimated = true;
+          }
+        } catch(e) {
+          console.warn(`Stream fetch mislukt voor unplanned activiteit ${act.id}:`, e.message);
         }
-      } catch(e) {
-        console.warn(`Stream fetch mislukt voor unplanned activiteit ${act.id}:`, e.message);
+      } else if (mod === 'running') {
+        // Strava zet op loopjes een geschat hardloopvermogen; dat door FTP delen
+        // is de R2-bug en die hoort niet opnieuw in week_plan. Geen streamfetch,
+        // classificatie via de pace-/HR-tak van activityZoneClassification.
+        unplanned.actualZoneBreakdown = {
+          estimated: true,
+          dominantZone: engine.zoneToCategory(
+            engine.activityZoneClassification(act, ftp, settings.hrMax || 197, settings).zone)
+        };
+        unplanned.actualZoneEstimated = true;
       }
+      // 'other' (Swim/Hike/Walk): geen zonebreakdown.
     }
   }
 

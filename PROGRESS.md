@@ -7,7 +7,7 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide (na: R9, klaar). Ontgrendelt C5c, C5h.
+1. C5h session_outcomes multimodaal: strava_id is BIGINT, geen Hevy-workout-id (na: C5g, klaar). Ontgrendelt C5c.
 2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
 3. R10 Drempeltempo-historisering (na: R9, klaar). Ontgrendelt C6.
 
@@ -53,7 +53,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen, waardoor het mid-doel onhaalbaar is zodra HIT en de lange duurrit de meeste minuten opeisen (na: C5b)
 - [ ] C5e AI-planblok multimodaal: buildPrescriptionBlock filtert op type==='cycling' en meldt een rustdag terwijl er een loop- of krachtsessie gepland staat (na: C5b)
 - [ ] C5f adjustCurrentWeek: AI-bijstelling op dag-granulariteit gaat over de urenplafonds van solveWeek heen; legacy-spiegel week_availability vervalt in dezelfde commit (na: C5b)
-- [ ] C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide, dus loop- en krachtvoorschriften krijgen nooit een completionScore; unplanned-detectie labelt elke Run/Swim/Hike als type 'cycling' met zoneschatting op geschatte watts gedeeld door FTP (na: R9)
+- [x] C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide, dus loop- en krachtvoorschriften krijgen nooit een completionScore; unplanned-detectie labelt elke Run/Swim/Hike als type 'cycling' met zoneschatting op geschatte watts gedeeld door FTP (na: R9) (2026-07-17)
 - [ ] C5h session_outcomes multimodaal: strava_id is BIGINT en kan geen Hevy-workout-id dragen, dus een krachtoutcome zonder voorschrift dedupliceert op geen enkele uniq-index (na: C5g)
 - [ ] C6 Prognose (na: C5c, R10)
 - [ ] C7 Reviewcadans (na: C2b)
@@ -155,6 +155,10 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-17 | C5g | scoringslogica stond in server.js, dat niets exporteert, dus geen enkele test raakte hem terwijl C5c dezelfde scoring nodig heeft in de reconcile-lus | verplaatst naar planner.js als scoreEnduranceSession/scoreStrengthSession, fietsuitkomst byte-identiek geborgd met een regressietest, zelfde patroon als C5a
+- 2026-07-17 | C5g | kracht krijgt geen actualTSS: de weekgrafiek in public/js/app.js telt op regel 1031 elke sessie met actualTSS op in de fietsbalk en stapelt daar strengthDailyETL bovenop, dus een Foster-sRPE-waarde in weekPlan zou dubbel tellen en het Coggan-kanaal vervuilen | alleen completionScore, actualDuration en matchedWorkoutId; matchedWorkoutId is bewust een apart veld naast matchedActivityId zodat de Hevy-string nooit in het BIGINT-pad van C5h komt
+- 2026-07-17 | C5g | scoreEnduranceSession ankert op de platte settings.ftp terwijl actualTSS in dezelfde lus via ftpForDate per datum ankert; dezelfde rit kan dus tegen twee FTP's gemeten worden | niet gerepareerd in deze commit, want dat verschuift historische fietsscores; geregistreerd als bevinding, hoort thuis bij de sectie Historische consistentie
+- 2026-07-17 | C5g | de weekbelastingsgrafiek heet Fietsbelasting maar somt elke sessie met TSS, inclusief loopsessies met rTSS; dat was al zo voor deze commit omdat ongeplande loopjes als type cycling werden weggeschreven | labelprobleem, geen incommensurabiliteit; niet aangeraakt, hoort bij de frontend-overhaul
 - 2026-07-16 | R9 | correctie op de R9-besluitlogregel over de verschuivingsrichting: die noemt suffer_score×1.2 als referentie, maar dat gold voor 34 van de 72 runs; de andere 38 hadden geen suffer score en geen hartslag en vielen door naar de platte duurfallback durH×75×1.2, oftewel 90 per uur ongeacht tempo | de werkelijke referentie was voor de meerderheid van de loophistorie een platte 90/uur; de regel blijft staan (append-only) maar is hiermee gecorrigeerd
 - 2026-07-16 | R9 | de platte loopfallback van 90 per uur impliceert IF 0,95 (90 = IF²×100), dus elke loop zonder hartslagdata werd geboekt alsof hij op 95% van drempeltempo liep; de fietsfallback staat op 50 per uur, oftewel IF 0,71, dus lopen lag tachtig procent hoger zonder onderbouwing | geregistreerd als R11 (na: R9); met een gezet drempeltempo raakt Pieters data die tak nooit meer, dus lage prioriteit, maar 90/uur mag niet als stille aanname blijven staan
 - 2026-07-16 | R9 | staging-meting op identieke data (1436 activiteiten, zelfde datumbereik in beide omgevingen, dus de code is de enige variabele): CTL 26,1→24,1, ATL 27,0→21,1, TSB -0,9→+3,0 op 2026-07-13; de duurloop van 8 juli (61 min op 8:41/km, IF 0,52) ging van 92 naar 27, factor 3,4 | richting en orde van grootte bevestigd; het venster was 14 dagen en meet dus vooral de ATL-kant, want CTL heeft een tijdconstante van 42 dagen, de CTL-impact op de loopblokken van najaar 2024 is niet gemeten
