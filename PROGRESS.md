@@ -9,7 +9,7 @@ zijn statusinventaris en zeggen niets over volgorde.
 
 1. C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide (na: R9, klaar). Ontgrendelt C5c, C5h.
 2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
-3. C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen (na: C5b, klaar). Ontgrendelt niets, vult de derde plek.
+3. R10 Drempeltempo-historisering (na: R9, klaar). Ontgrendelt C6.
 
 ## Legenda
 
@@ -55,7 +55,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] C5f adjustCurrentWeek: AI-bijstelling op dag-granulariteit gaat over de urenplafonds van solveWeek heen; legacy-spiegel week_availability vervalt in dezelfde commit (na: C5b)
 - [ ] C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide, dus loop- en krachtvoorschriften krijgen nooit een completionScore; unplanned-detectie labelt elke Run/Swim/Hike als type 'cycling' met zoneschatting op geschatte watts gedeeld door FTP (na: R9)
 - [ ] C5h session_outcomes multimodaal: strava_id is BIGINT en kan geen Hevy-workout-id dragen, dus een krachtoutcome zonder voorschrift dedupliceert op geen enkele uniq-index (na: C5g)
-- [ ] C6 Prognose (na: C5c)
+- [ ] C6 Prognose (na: C5c, R10)
 - [ ] C7 Reviewcadans (na: C2b)
 - [ ] C8 Onboarding (na: C4, C5b; loopt samen met frontend-overhaul Doelen-tab; levert doelafstand hardlopen voor de R7-matrix)
 - [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
@@ -71,6 +71,9 @@ Regels voor wie dit bestand bijwerkt:
 - [x] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3, R5, R-doc-a) (2026-07-16)
 - [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (na: R3)
 - [x] R9 computeETLForActivity looptak op computeRunningLoad: rTSS met average_speed als NGP-proxy i.p.v. suffer_score/TRIMP (na: R0) (2026-07-16)
+- [ ] R10 Drempeltempo-historisering: thresholdPaceForDate analoog aan ftpForDate; computeETLForActivity leest settings.thresholdPace nu plat over de hele historie (na: R9)
+- [ ] R11 Loop-fallbackhygiëne: platte duurfallback staat op 90/uur (IF 0,95) tegen 50/uur (IF 0,71) bij de fiets, en suffer_score is uit de keten verdwenen (na: R9)
+- [!] Verificatie: settings.thresholdPace op productie zetten via het R0-veld; zonder anker vuurt de rTSS-tak daar niet en is R9 op main netto verlies. Blokkeert de merge van R9 naar main.
 - [x] R-doc-a Trainingstheorie geversioneerd onder docs/ (herziene versie, 343 regels, zes hardloopsecties + Robineau-correctie) + citeerregel in CLAUDE.md (2026-07-16)
 - [x] R-doc-b Dubbele intensiteitssectie harmoniseren: sectie Trainingsintensiteitsverdeling spreekt de sectie Intensiteitsverdeling en periodisering per atleetsituatie tegen (na: R-doc-a; landt in de R7-commit) (2026-07-16)
 
@@ -152,6 +155,11 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | R9 | correctie op de R9-besluitlogregel over de verschuivingsrichting: die noemt suffer_score×1.2 als referentie, maar dat gold voor 34 van de 72 runs; de andere 38 hadden geen suffer score en geen hartslag en vielen door naar de platte duurfallback durH×75×1.2, oftewel 90 per uur ongeacht tempo | de werkelijke referentie was voor de meerderheid van de loophistorie een platte 90/uur; de regel blijft staan (append-only) maar is hiermee gecorrigeerd
+- 2026-07-16 | R9 | de platte loopfallback van 90 per uur impliceert IF 0,95 (90 = IF²×100), dus elke loop zonder hartslagdata werd geboekt alsof hij op 95% van drempeltempo liep; de fietsfallback staat op 50 per uur, oftewel IF 0,71, dus lopen lag tachtig procent hoger zonder onderbouwing | geregistreerd als R11 (na: R9); met een gezet drempeltempo raakt Pieters data die tak nooit meer, dus lage prioriteit, maar 90/uur mag niet als stille aanname blijven staan
+- 2026-07-16 | R9 | staging-meting op identieke data (1436 activiteiten, zelfde datumbereik in beide omgevingen, dus de code is de enige variabele): CTL 26,1→24,1, ATL 27,0→21,1, TSB -0,9→+3,0 op 2026-07-13; de duurloop van 8 juli (61 min op 8:41/km, IF 0,52) ging van 92 naar 27, factor 3,4 | richting en orde van grootte bevestigd; het venster was 14 dagen en meet dus vooral de ATL-kant, want CTL heeft een tijdconstante van 42 dagen, de CTL-impact op de loopblokken van najaar 2024 is niet gemeten
+- 2026-07-16 | R9 | productie heeft geen thresholdPace en geen lthr, dus daar zou R9 de 34 runs mét suffer score van suffer_score×1.2 naar TRIMP verschuiven en verder niets winnen: een gedragswijziging zonder opbrengst | merge naar main geblokkeerd tot het R0-veld op productie gevuld is, als [!] geregistreerd; alle 72 runs hebben average_speed, dus zodra het anker staat vuurt de rTSS-tak universeel en raakt de fallbackketen deze data nooit meer
+- 2026-07-16 | R10 | thresholdPace wordt plat over de hele historie gelezen terwijl computeETLForActivity zijn FTP wél per datum via ftpAsOf/ftpForDate krijgt; bewijs: de marathon van 2024-10-13 (12174s op 279,9 s/km) komt tegen het huidige tempo van 270 uit op IF 0,96 en rTSS 315, en een marathon op 96% van drempelsnelheid bestaat niet (88-92% is de band voor een goed getrainde loper), dus het drempeltempo van 2024 lag rond 4:10 en niet 4:30 | thresholdPaceForDate als R10 (na: R9); geplaatst in Handoff 13 en niet in de sectie Historische consistentie waar het naast cluster 3 (gewicht) en cluster 4 (LTHR) hoort, want die sectie is geen actief traject en telt niet mee in de Nu-afleiding; C6 naar (na: C5c, R10) want prognose projecteert op de historische reeks
 - 2026-07-16 | R9 | computeETLForActivity riep computeRunningLoad nooit aan: de looptak ging rechtstreeks naar suffer_score×1.2 of TRIMP, dus de hele belastingspijplijn kende het drempeltempo niet en R0 heeft in de praktijk niets geactiveerd; runningDailyETL was een suffer-score-reeks, computeRunAcwr (R5) rekende daar een ratio over en solveWeek blokkeert sinds C5b loopvolume op basis daarvan | looptak op computeRunningLoad met average_speed als NGP-proxy; de R0-besluitlogregel "engine.js ongewijzigd want computeRunningLoad las thresholdPace al" was waar maar onvolledig: niemand controleerde of die functie ook werd aangeroepen
 - 2026-07-16 | R9 | de asymmetrie was intern aantoonbaar: runZoneFromActivity gebruikt average_speed wél als anker voor de loopzone, terwijl de belastingtak dezelfde waarde op dezelfde activity negeerde | proxy-keuze volgt de zonetak; gradiëntcorrectie via echte NGP blijft voorbehouden aan het activity-detail-pad, want engine.js is een pure rekenlaag zonder I/O en mag geen streams ophalen
 - 2026-07-16 | R9 | historische PMC verschuift voor elke week met hardlopen, net als R2 dat deed voor de TID: rTSS zit structureel hoger dan suffer_score×1.2 zodra er rond of boven drempeltempo gelopen is, en lager bij rustige lange duurlopen met hoge HR-drift | geen migratie nodig want de reeks wordt bij elke computeFullState opnieuw gerekend; wel eerst op staging meten wat CTL/ATL/TSB doen voordat main hem krijgt
