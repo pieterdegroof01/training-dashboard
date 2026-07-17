@@ -7,7 +7,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { stravaModality, scoreEnduranceSession, scoreStrengthSession } = require('../planner');
+const { stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession } = require('../planner');
 
 describe('scoreEnduranceSession — fiets (regressie t.o.v. de oude computeSessionScore)', () => {
   test('rit met vermogen tegen sessie met targetTSS: durScore 7, intScore 2, zoneScore 7 -> 5.3', () => {
@@ -104,5 +104,29 @@ describe('stravaModality', () => {
   test('Swim en Hike -> other', () => {
     assert.strictEqual(stravaModality('Swim'), 'other');
     assert.strictEqual(stravaModality('Hike'), 'other');
+  });
+});
+
+describe('matchSourceForSession', () => {
+  test('geen bron voor custom, rest en een ongetypeerde sessie zonder split', () => {
+    assert.strictEqual(matchSourceForSession({ type: 'custom' }), null);
+    assert.strictEqual(matchSourceForSession({ type: 'rest' }), null);
+    assert.strictEqual(matchSourceForSession({ type: undefined }), null);
+  });
+
+  test('hevy voor gym/strength met split, en voor gym zonder split (legacy)', () => {
+    assert.strictEqual(matchSourceForSession({ type: 'gym', split: 'Push' }), 'hevy');
+    assert.strictEqual(matchSourceForSession({ type: 'strength', split: 'legs' }), 'hevy');
+    assert.strictEqual(matchSourceForSession({ type: 'gym' }), 'hevy');
+  });
+
+  test('strava-cycling voor cycling, strava-running voor running', () => {
+    assert.strictEqual(matchSourceForSession({ type: 'cycling' }), 'strava-cycling');
+    assert.strictEqual(matchSourceForSession({ type: 'running' }), 'strava-running');
+  });
+
+  test('regressie: een custom-sessie (knop Overig) levert geen bron, dus de matchlus kan hem niet als kracht behandelen', () => {
+    const session = { type: 'custom', duration: 45 };
+    assert.strictEqual(matchSourceForSession(session), null);
   });
 });

@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
-const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession } = require('./planner');
+const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
 const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate } = require('./db');
@@ -428,11 +428,11 @@ async function matchPlannedToActual(data) {
   for (const [date, sessions] of Object.entries(data.weekPlan || {})) {
     if (date < cutoffDate) continue;
     for (const session of sessions) {
-      const mod = sessionModality(session);
-      if (mod === 'other') continue;
+      const src = matchSourceForSession(session);
+      if (!src) continue;
       if (session.completionScore !== undefined || session.missed) continue;
 
-      if (mod === 'strength') {
+      if (src === 'hevy') {
         const workouts = hevyByDate[date] || [];
         if (workouts.length > 0) {
           const workout = workouts.reduce((best, w) => {
@@ -460,6 +460,7 @@ async function matchPlannedToActual(data) {
         continue;
       }
 
+      const mod = src === 'strava-cycling' ? 'cycling' : 'running';
       const candidates = (actsByDateByModality[date] || {})[mod] || [];
       if (candidates.length > 0) {
         const actual = candidates.reduce((best, a) => (a.moving_time || 0) > (best.moving_time || 0) ? a : best);

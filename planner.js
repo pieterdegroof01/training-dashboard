@@ -1169,6 +1169,22 @@ function sessionModality(session) {
   return 'strength';
 }
 
+// De matchlus vraagt niet naar de modaliteit maar naar de bron waartegen een
+// voorschrift gematcht wordt. Dat zijn twee dingen: sessionModality bedient
+// solveWeek en geeft bewust 'strength' als default zodat legacy-sessies een
+// dag bezetten, maar een 'custom'-sessie (knop Overig: zwemmen, yoga) heeft
+// geen bron en mag dus niet tegen Hevy gematcht of gemist verklaard worden.
+// Geeft null als er geen bron is: de aanroeper slaat de sessie dan over.
+function matchSourceForSession(session) {
+  const mod = sessionModality(session);
+  if (mod === 'cycling') return 'strava-cycling';
+  if (mod === 'running') return 'strava-running';
+  // Split-check ná fiets/loop: een loopsessie heeft geen split, maar een
+  // legacy gym-sessie wel.
+  if (session.type === 'strength' || session.type === 'gym' || session.split) return 'hevy';
+  return null;
+}
+
 // Strava-activiteitstype naar modaliteit. Bewust geen hergebruik van
 // sessionModality: die leest een weekPlan-sessie en geeft alles wat geen fiets
 // of loop is 'strength', wat voor een Swim onjuist is.
@@ -1806,7 +1822,7 @@ module.exports = {
   deriveLevel, selectPeriodizationProfile, clampProfileParams,
   LEVEL_CTL_BOUNDS, LEVEL_MIN_HISTORY_DAYS,
   solveWeek, buildStrengthSession, slotStartMs, sessionModality,
-  stravaModality, scoreEnduranceSession, scoreStrengthSession,
+  stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession,
   plannedRunDistanceM, legsZoneCeiling, selectStrengthSplits, summarizeWeek,
   DEFAULT_SLOT_HOUR, LEGS_QUALITY_BLOCK_HOURS, LEGS_BLOCKED_MAX_ZONE,
   STRENGTH_SPLIT_ORDER, STRENGTH_SESSION_MIN, RUN_WEEK_GROWTH_CAP,
