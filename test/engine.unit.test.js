@@ -8,6 +8,7 @@ const {
   readinessScore, detectOverreaching,
   computeMMP, computeMMPFull,
   powerProfileLevel, classifyRiderType,
+  buildDailyETLSeries,
 } = engine;
 const { makeRide, makeRun, constantDailyETL, makePowerTimeline } = require('./helpers');
 
@@ -65,6 +66,18 @@ describe('computeETLForActivity cap en unreliable venster', () => {
     });
     assert.strictEqual(r.tssSource, 'fallback');
     assert.strictEqual(r.etl, 80); // suffer_score * sufferFactor(1.0)
+  });
+});
+
+// ── buildDailyETLSeries — looprTSS deelt de endurance-PMC-as (R9) ───────────
+
+describe('buildDailyETLSeries met een loop op drempeltempo', () => {
+  test('week met één loop op drempeltempo → runningDailyETL en enduranceDailyETL beide 100 op die dag', () => {
+    const thresholdPace = 300;
+    const run = makeRun({ date: '2026-07-08', durationSec: 3600, avgSpeed: 1000 / thresholdPace });
+    const { runningDailyETL, enduranceDailyETL } = buildDailyETLSeries([run], [], { thresholdPace });
+    assert.strictEqual(runningDailyETL['2026-07-08'], 100);
+    assert.strictEqual(enduranceDailyETL['2026-07-08'], 100);
   });
 });
 

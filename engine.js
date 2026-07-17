@@ -255,15 +255,19 @@ function computeETLForActivity(activity, settings, ftpOverride = null) {
     return { etl: Math.round(durH * 50), tssSource: 'fallback' };
   }
 
-  // Running
+  // Running — rTSS bij drempeltempo, dan hrTSS/TRIMP-fallback via computeRunningLoad.
+  // Canon: docs/PeakForm_Trainingstheorie.md, sectie "Hardloopbelasting: rTSS, NGP en decoupling".
+  // average_speed is een NGP-proxy zonder gradiëntcorrectie, dezelfde proxy die
+  // runZoneFromActivity al gebruikt op dezelfde activity om de loopzone te bepalen —
+  // zone- en belastingtak hanteren zo hetzelfde snelheidsanker. Echte NGP uit streams
+  // blijft voorbehouden aan het activity-detail-pad; engine.js is een pure rekenlaag
+  // zonder I/O en haalt geen streams op.
+  // Correctie t.o.v. de oude tak: die begon met suffer_score (een hartslag-afgeleide),
+  // terwijl drempeltempo daarboven hoort te gaan, niet eronder.
   if (activity.type === 'Run' || activity.type === 'TrailRun') {
-    if (activity.suffer_score > 0) return { etl: Math.round(activity.suffer_score * 1.2), tssSource: 'fallback' };
-    if (activity.average_heartrate) {
-      const hrR = (activity.average_heartrate - 60) / (hrMax - 60);
-      const trimp = durH * 60 * hrR * (0.64 * Math.exp(1.92 * hrR));
-      return { etl: Math.min(Math.round(trimp * 1.2), 400), tssSource: 'fallback' };
-    }
-    return { etl: Math.round(durH * 75 * 1.2), tssSource: 'fallback' };
+    const ngpProxySpeed = activity.average_speed > 0 ? activity.average_speed : 0;
+    const { load, source } = computeRunningLoad(activity.moving_time || 0, ngpProxySpeed, activity, settings);
+    return { etl: load, tssSource: source };
   }
 
   if (activity.type === 'Swim') return { etl: Math.round(durH * 65), tssSource: 'fallback' };

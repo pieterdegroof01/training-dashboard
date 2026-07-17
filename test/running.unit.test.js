@@ -98,6 +98,58 @@ describe('computeRunningLoad', () => {
   });
 });
 
+// ── computeETLForActivity — looptak op computeRunningLoad (R9) ─────────────
+
+describe('computeETLForActivity looptak', () => {
+  test('1 uur op exact drempeltempo → etl 100, tssSource rtss', () => {
+    const thresholdPace = 300; // 5:00 min/km
+    const a = makeRun({ date: '2026-07-06', durationSec: 3600, avgSpeed: 1000 / thresholdPace });
+    const r = computeETLForActivity(a, { thresholdPace });
+    assert.strictEqual(r.etl, 100);
+    assert.strictEqual(r.tssSource, 'rtss');
+  });
+
+  test('1 uur op 80% van drempelsnelheid → etl 64, want IF kwadrateert', () => {
+    const thresholdPace = 300;
+    const a = makeRun({ date: '2026-07-06', durationSec: 3600, avgSpeed: 0.8 * (1000 / thresholdPace) });
+    const r = computeETLForActivity(a, { thresholdPace });
+    assert.strictEqual(r.etl, 64);
+  });
+
+  test('suffer_score én average_speed én thresholdPace → kiest rTSS, niet de suffer score (regressietest op de correctie)', () => {
+    const thresholdPace = 300;
+    const a = { ...makeRun({ date: '2026-07-06', durationSec: 3600, avgSpeed: 1000 / thresholdPace }), suffer_score: 999 };
+    const r = computeETLForActivity(a, { thresholdPace });
+    assert.strictEqual(r.tssSource, 'rtss');
+    assert.strictEqual(r.etl, 100);
+  });
+
+  test('zonder thresholdPace maar met LTHR en hartslag → valt terug op hr', () => {
+    const a = makeRun({ date: '2026-07-06', durationSec: 3600, avgHr: 155 });
+    const r = computeETLForActivity(a, { lthr: 160 });
+    assert.strictEqual(r.tssSource, 'hr');
+  });
+
+  test('zonder thresholdPace, zonder LTHR, met hartslag → fallback, zelfde TRIMP-waarde als vóór deze wijziging', () => {
+    // Waarde 102 onafhankelijk overgenomen uit test/engine.validation.test.js,
+    // describe('Banister TRIMP (mannelijk) — Run-pad'): avgHr=150, hrMax=200,
+    // durationSec=3600 → trimp×1.2 afgerond = 102. Die test blijft ongewijzigd
+    // slagen na R9 omdat de TRIMP-fallbackketen zelf niet is aangeraakt.
+    const a = makeRun({ date: '2026-07-06', durationSec: 3600, avgHr: 150 });
+    const r = computeETLForActivity(a, { hrMax: 200 });
+    assert.strictEqual(r.tssSource, 'fallback');
+    assert.strictEqual(r.etl, 102);
+  });
+
+  test('TrailRun volgt dezelfde tak als Run', () => {
+    const thresholdPace = 300;
+    const a = makeRun({ date: '2026-07-06', durationSec: 3600, avgSpeed: 1000 / thresholdPace, type: 'TrailRun' });
+    const r = computeETLForActivity(a, { thresholdPace });
+    assert.strictEqual(r.etl, 100);
+    assert.strictEqual(r.tssSource, 'rtss');
+  });
+});
+
 // ── computeRunningEF ─────────────────────────────────────────────────────────
 
 describe('computeRunningEF', () => {

@@ -7,7 +7,7 @@ Statusoverzicht van alle handoff-clusters.
 Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
 zijn statusinventaris en zeggen niets over volgorde.
 
-1. C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (na: C5b, klaar). Ontgrendelt C6.
+1. C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide (na: R9, klaar). Ontgrendelt C5c, C5h.
 2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
 3. C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen (na: C5b, klaar). Ontgrendelt niets, vult de derde plek.
 
@@ -49,10 +49,12 @@ Regels voor wie dit bestand bijwerkt:
 - [x] C4 Tweetraps beschikbaarheid (na: C2b) (2026-07-13) (volledig: brug, grid, Doelen-overhaul met weekcapaciteit 2026-07-13)
 - [x] C5a solveWeek puur in planner.js + constraint-tests (na: C3, C4, R0, R1, R3, R4, R7) (2026-07-16)
 - [x] C5b runWeekplanGeneration op buildMacrocycle/solveWeek; buildAvailDays en maxZoneForDate weg (na: C5a) (2026-07-16)
-- [ ] C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (na: C5b)
+- [ ] C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (na: C5b, R9, C5g, C5h)
 - [ ] C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen, waardoor het mid-doel onhaalbaar is zodra HIT en de lange duurrit de meeste minuten opeisen (na: C5b)
 - [ ] C5e AI-planblok multimodaal: buildPrescriptionBlock filtert op type==='cycling' en meldt een rustdag terwijl er een loop- of krachtsessie gepland staat (na: C5b)
 - [ ] C5f adjustCurrentWeek: AI-bijstelling op dag-granulariteit gaat over de urenplafonds van solveWeek heen; legacy-spiegel week_availability vervalt in dezelfde commit (na: C5b)
+- [ ] C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide, dus loop- en krachtvoorschriften krijgen nooit een completionScore; unplanned-detectie labelt elke Run/Swim/Hike als type 'cycling' met zoneschatting op geschatte watts gedeeld door FTP (na: R9)
+- [ ] C5h session_outcomes multimodaal: strava_id is BIGINT en kan geen Hevy-workout-id dragen, dus een krachtoutcome zonder voorschrift dedupliceert op geen enkele uniq-index (na: C5g)
 - [ ] C6 Prognose (na: C5c)
 - [ ] C7 Reviewcadans (na: C2b)
 - [ ] C8 Onboarding (na: C4, C5b; loopt samen met frontend-overhaul Doelen-tab; levert doelafstand hardlopen voor de R7-matrix)
@@ -68,6 +70,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0)
 - [x] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3, R5, R-doc-a) (2026-07-16)
 - [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (na: R3)
+- [x] R9 computeETLForActivity looptak op computeRunningLoad: rTSS met average_speed als NGP-proxy i.p.v. suffer_score/TRIMP (na: R0) (2026-07-16)
 - [x] R-doc-a Trainingstheorie geversioneerd onder docs/ (herziene versie, 343 regels, zes hardloopsecties + Robineau-correctie) + citeerregel in CLAUDE.md (2026-07-16)
 - [x] R-doc-b Dubbele intensiteitssectie harmoniseren: sectie Trainingsintensiteitsverdeling spreekt de sectie Intensiteitsverdeling en periodisering per atleetsituatie tegen (na: R-doc-a; landt in de R7-commit) (2026-07-16)
 
@@ -149,6 +152,10 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-07-16 | R9 | computeETLForActivity riep computeRunningLoad nooit aan: de looptak ging rechtstreeks naar suffer_score×1.2 of TRIMP, dus de hele belastingspijplijn kende het drempeltempo niet en R0 heeft in de praktijk niets geactiveerd; runningDailyETL was een suffer-score-reeks, computeRunAcwr (R5) rekende daar een ratio over en solveWeek blokkeert sinds C5b loopvolume op basis daarvan | looptak op computeRunningLoad met average_speed als NGP-proxy; de R0-besluitlogregel "engine.js ongewijzigd want computeRunningLoad las thresholdPace al" was waar maar onvolledig: niemand controleerde of die functie ook werd aangeroepen
+- 2026-07-16 | R9 | de asymmetrie was intern aantoonbaar: runZoneFromActivity gebruikt average_speed wél als anker voor de loopzone, terwijl de belastingtak dezelfde waarde op dezelfde activity negeerde | proxy-keuze volgt de zonetak; gradiëntcorrectie via echte NGP blijft voorbehouden aan het activity-detail-pad, want engine.js is een pure rekenlaag zonder I/O en mag geen streams ophalen
+- 2026-07-16 | R9 | historische PMC verschuift voor elke week met hardlopen, net als R2 dat deed voor de TID: rTSS zit structureel hoger dan suffer_score×1.2 zodra er rond of boven drempeltempo gelopen is, en lager bij rustige lange duurlopen met hoge HR-drift | geen migratie nodig want de reeks wordt bij elke computeFullState opnieuw gerekend; wel eerst op staging meten wat CTL/ATL/TSB doen voordat main hem krijgt
+- 2026-07-16 | C5c | geblokkeerd op drie vondsten in het sync-pad: matchPlannedToActual matcht alleen Ride/VirtualRide en zet dus nooit een completionScore op loop- of krachtsessies, waardoor reconcile niets te matchen heeft; de unplanned-detectie filtert op ENDURANCE_TYPES maar labelt elke Run/Swim/Hike als type 'cycling' met een zoneschatting op Strava's geschatte hardloopwatts gedeeld door FTP (de R2-bug, nu in week_plan); en session_outcomes.strava_id is BIGINT terwijl een Hevy-workout-id een string is | C5c geannoteerd naar (na: C5b, R9, C5g, C5h); C5c nu bouwen zou deltas.tss schrijven die rTSS-doel tegen TRIMP-werkelijkheid afzetten en C9 laten regresseren op stille rommel, hetzelfde incommensurabiliteitspatroon dat bij Coggan-TSS vs Foster-sRPE wél is afgevangen
 - 2026-07-16 | C5b | de legacy-spiegel kan niet vervallen zoals de C4a-besluitlog aannam: adjustCurrentWeek leest week_availability plus de dag-gebaseerde cyclingRestrictions uit engine.js en draait op elke sync en webhook een AI-bijstelling van het weekplan, dus die AI gaat na C5b over de urenplafonds van solveWeek heen | spiegel blijft staan; de verwijdering plus het botsingsprobleem samen als C5f (na: C5b); de C4a-annotatie "spiegel vervalt in C5" is daarmee achterhaald
 - 2026-07-16 | C5b | plan_mesocycles niet gevuld: macrocycle_id heeft geen stabiele semantiek (bij een doorlopend doel schuift het 12-weeksvenster elke week op) en getMesocycleForWeek filtert niet op macrocycle_id, dus twee overlappende macrocycli maken die query niet-deterministisch | macrocyclus blijft in het geheugen, deterministisch herrekend per generate; persistentie krijgt pas een consument bij C7 en wordt daar beslist; de C5a-besluitlogregel die de ADD COLUMN dominant_type bij C5b legde is daarmee vervallen
 - 2026-07-16 | C5b | solveWeek genereert per (datum, modaliteit) niets zodra er al een sessie staat, dus zijn eigen vorige output als existingSessions voeren maakt opnieuw genereren een no-op en kan een gebruiker zijn plan nooit herzien | vervangbaarheid ligt bij de aanroeper: server.js houdt planner-sessies zonder uitkomst binnen het venster buiten existingSessions; solveWeek blijft ongewijzigd en de C5a-idempotentietest blijft geldig
