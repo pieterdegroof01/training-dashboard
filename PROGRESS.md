@@ -140,7 +140,7 @@ Regels voor wie dit bestand bijwerkt:
 
 ## UI-audit 2026-08-10
 - [x] U1 Sessie-TSS uit de frontend naar planner.recomputeSessionLoad (2026-08-10)
-- [ ] U2 Tokensplitsing --subtle/--text-subtle, --z1 dark, --red op login (style.css, theme.css, login.html)
+- [x] U2 Tokensplitsing --subtle/--text-subtle, --z1 dark, --red op login (style.css, theme.css, login.html) (2026-08-10)
 - [ ] U3 Grafiekseries uit tokens ipv vaste hex in _chartTheme (na: U2)
 - [ ] U4 Labelkoppeling for/id op 72 formuliervelden
 - [ ] U5 Globale :focus-visible + prefers-reduced-motion, drie stylesheets
