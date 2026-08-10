@@ -140,13 +140,15 @@ Regels voor wie dit bestand bijwerkt:
 
 ## UI-audit 2026-08-10
 - [x] U1 Sessie-TSS uit de frontend naar planner.recomputeSessionLoad (2026-08-10)
-- [ ] U2 Tokensplitsing --subtle/--text-subtle + --z1 dark (style.css en activity-detail/theme.css)
+- [ ] U2 Tokensplitsing --subtle/--text-subtle, --z1 dark, --red op login (style.css, theme.css, login.html)
 - [ ] U3 Grafiekseries uit tokens ipv vaste hex in _chartTheme (na: U2)
 - [ ] U4 Labelkoppeling for/id op 72 formuliervelden
-- [ ] U5 Globale :focus-visible + prefers-reduced-motion, beide stylesheets
+- [ ] U5 Globale :focus-visible + prefers-reduced-motion, drie stylesheets
 - [ ] U6 Verwijderknoppen 24px, aria-label, bevestiging op removeSlot/removePattern
 - [ ] U7 Toetsenbordpad en aria-label op AdMmpChart, AdDualChart, AdRunChart
-- [ ] U8 Koppenstructuur, main-landmark, skiplink, aria-current in showTab
+- [ ] U8 Koppenstructuur, main-landmark, skiplink, aria-current (index, login, 404)
+- [ ] U9 Login: statusgebaseerde foutmeldingen, role=alert, form-element
+- [ ] U10 Detailpagina-shell: dynamische title, themascript, role=alert/status
 
 ## Openstaand-lijst 2026-06-23 (restpunten)
 - [x] Info-tooltips stat-labels: PF_TIPS + initInfoTooltips live (geverifieerd 2026-07-10)
@@ -165,6 +167,10 @@ Regels voor wie dit bestand bijwerkt:
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-08-10 | U2 | --subtle stond op #bdb6a3/#2a3358 en droeg drie onverenigbare rollen: tekstkleur op acht selectors in style.css (SC 1.4.3, 4,5:1), randkleur van invoervelden en icoonknoppen (SC 1.4.11, 3:1) en kleur van de 90-dagen-bestcurve, de hoogtereeks en de referentielijnen in de activity-detail-subapp (ook 3:1); als tekst haalde hij 1,69:1 in light en 1,28:1 in dark | gesplitst in --subtle (#8a8371/#6470a4, overal boven 3:1) en --text-subtle (#6b6455/#8890b5, overal boven 4,5:1); de referentiecurve blijft daarmee volgbaar maar secundair aan --accent op 12,15:1 respectievelijk 5,12:1
+- 2026-08-10 | U2 | de nieuwe --subtle-waarden zijn identiek aan wat de audit als apart --border-strong voorstelde voor invoervelden en icoonknoppen | dat extra token vervalt; de bevindingen F5, F11, A1 en A2 uit het auditrapport zijn hiermee samen één wijziging in drie bestanden
+- 2026-08-10 | U2 | het donkere blok in activity-detail/src/theme.css hermapte --z2 t/m --z5 wel maar --z1 niet, waardoor Z1 op 2,39:1 tegen --surface stond tegenover 5,12 tot 11,45 voor de vier zones erboven | --z1 dark op #7d86ab (5,03:1); dit is geen contrastdetail maar een afleesfout, want Z1 is bij polarized en pyramidal de band met het meeste volume en de zonebalk suggereerde in dark een verdeling die zwaarder in Z2-Z5 ligt dan de data zegt
+- 2026-08-10 | U2 | public/login.html bleek de derde kopie van het tokenstelsel, als inline style met tien van de drieëntwintig tokens, dus een tokenfix in style.css raakte het inlogscherm niet en de invoerrand bleef daar op 1,33:1 | login.html meegenomen in deze commit; --red toegevoegd zodat de letterlijke #8a2615 en de losse dark-override konden vervallen, en de ongebruikte --border2 verwijderd
 - 2026-08-10 | U1 | public/js/app.js had een eigen ZONE_TSS_PER_H met 30/50/70/90/110 per uur naast de canonieke ZONE_IF in planner.js, die IF²×100 rekent en dus 25/42,25/68,89/96,04/125,44 geeft; de kopie negeerde bovendien herhalingen, herstelBlok en _tssZone, waardoor een 4×8min Z4-sessie met 3min herstel op 12 TSS uitkwam in plaats van 56, en saveAiSession schreef die waarde terug in weekPlan | herrekening naar planner.recomputeSessionLoad op het schrijfpad van POST /api/data; de client stuurt geen tss meer mee en de modal toont tijdens bewerken bewust geen TSS
 - 2026-08-10 | U1 | recomputeSessionLoad slaat kracht en 'other' over in plaats van er een TSS op te rekenen | krachtbelasting is Foster-sRPE en dus een ander kanaal dan Coggan-TSS; één tss-veld voor beide zou het PMC vervuilen, zelfde redenering als de C5g-regel over actualTSS
 - 2026-08-10 | U1 | de UI-auditsectie is niet als actief traject gemarkeerd | acht nieuwe onafhankelijke items zouden anders C5h, C7 en R10 uit de mechanisch afgeleide Nu-sectie verdringen zonder besluit van Pieter

@@ -17,9 +17,9 @@
   --surface2: #f4efe2;
   --text: #06112e;
   --muted: #4a5375;
-  --subtle: #bdb6a3;
+  --subtle: #8a8371;
+  --red: #8a2615;
   --border: #d8d1bf;
-  --border2: #d0c8b6;
   --accent: #012296;
   --accent2: #0838c2;
 }
@@ -30,9 +30,9 @@
   --surface2: #16204a;
   --text: #f6f2e6;
   --muted: #aab3d0;
-  --subtle: #2a3358;
+  --subtle: #6470a4;
+  --red: #ff8a8a;
   --border: #1f2a52;
-  --border2: #243056;
   --accent: #5b80ff;
   --accent2: #9cb1ff;
 }
@@ -115,7 +115,7 @@ label {
 
 input {
   background: var(--surface2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--subtle);
   border-radius: 10px;
   color: var(--text);
   font-family: inherit;
@@ -149,11 +149,9 @@ input:focus { border-color: var(--accent); }
 .login-error {
   margin-top: 12px;
   font-size: 13px;
-  color: #8a2615;
+  color: var(--red);
   min-height: 18px;
 }
-
-[data-theme="dark"] .login-error { color: #ff8a8a; }
 </style>
 </head>
 <body>
