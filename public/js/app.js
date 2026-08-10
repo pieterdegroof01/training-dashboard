@@ -1210,7 +1210,6 @@ async function generateCyclingPlan() {
 
 // ── AI session modal ──────────────────────────────────────────────────────────
 const ZONE_COLORS = { Z1:'#93C5FD', Z2:'#3B82F6', Z3:'#F59E0B', Z4:'#EF4444', Z5:'#7C3AED' };
-const ZONE_TSS_PER_H = { Z1:30, Z2:50, Z3:70, Z4:90, Z5:110 };
 
 function isNewFormatBlock(b) { return b.duration !== undefined || b.wattMin !== undefined; }
 
@@ -1219,13 +1218,6 @@ function blockTotalDuration(b) {
   const reps    = b.herhalingen || 1;
   const recovDur = b.herstelBlok?.duration || 0;
   return reps * (workDur + recovDur);
-}
-
-function calcSessionTSS(blocks) {
-  return Math.round(blocks.reduce((sum, b) => {
-    const dur = b.duur || b.duration || 0;
-    return sum + (ZONE_TSS_PER_H[b.zone] || 50) * (dur / 60);
-  }, 0));
 }
 
 function blockColor(zone) { return ZONE_COLORS[zone] || '#888888'; }
@@ -1243,12 +1235,12 @@ function renderAiModal() {
   if (newFormat) {
     // ── New-format detail view ────────────────────────────────────────────────
     const totalMin = blocks.reduce((sum, b) => sum + blockTotalDuration(b), 0);
-    const tss  = s.targetTSS || s.tss || calcSessionTSS(blocks);
+    const tss  = s.targetTSS || s.tss || null;
     const date = S.editingAiSession.date || '';
 
     document.getElementById('aiSessTitle').textContent = s.title || s.titel || 'Fietssessie';
     document.getElementById('aiSessMeta').textContent  =
-      `${date ? fmtD(date, true) : ''} · ${totalMin}min · ~${tss} TSS`;
+      `${date ? fmtD(date, true) : ''} · ${totalMin}min${typeof tss === 'number' ? ` · ${tss} TSS` : ''}`;
     document.getElementById('aiSessTotals').textContent = '';
     document.getElementById('aiSessReden').innerHTML = s.adjustedReason
       ? `<span class="adjusted-reason-banner">↻ Bijgestuurd: ${s.adjustedReason}</span>` : '';
@@ -1337,11 +1329,10 @@ function renderAiModal() {
   } else {
     // ── Old-format editor ─────────────────────────────────────────────────────
     const totalMin = blocks.reduce((sum, b) => sum + (b.duur || 0), 0);
-    const tss = calcSessionTSS(blocks);
 
     document.getElementById('aiSessTitle').textContent = s.titel || 'AI Sessie';
-    document.getElementById('aiSessMeta').textContent  = `${s.zone||'–'} · ${totalMin}min · ~${tss} TSS`;
-    document.getElementById('aiSessTotals').textContent = `Totaal: ${totalMin} min / ~${tss} TSS`;
+    document.getElementById('aiSessMeta').textContent  = `${s.zone||'–'} · ${totalMin}min`;
+    document.getElementById('aiSessTotals').textContent = `Totaal: ${totalMin} min`;
     document.getElementById('aiSessReden').textContent  = s.reden ? `ℹ️ ${s.reden}` : '';
 
     const bar = document.getElementById('aiBlockBar');
@@ -1408,13 +1399,13 @@ function openAiSession(date, idx) {
 
 async function saveAiSession() {
   const { date, idx, session, blocks } = S.editingAiSession;
-  const updated = { ...session, blokken: blocks, duur_min: blocks.reduce((s,b)=>s+(b.duur||b.duration||0),0), tss: calcSessionTSS(blocks) };
+  const updated = { ...session, blokken: blocks, duur_min: blocks.reduce((s,b)=>s+(b.duur||b.duration||0),0) };
   const weekPlan = { ...(S.data.weekPlan||{}) };
   const daySessions = [...(weekPlan[date]||[])];
   daySessions[idx] = updated;
   weekPlan[date] = daySessions;
-  await saveDataPartial({ weekPlan });
-  S.data.weekPlan = weekPlan;
+  const res = await saveDataPartial({ weekPlan });
+  S.data.weekPlan = res?.weekPlan || weekPlan;
   renderWeekGrid();
   document.getElementById('aiSessionOverlay').classList.add('hidden');
   S.editingAiSession = null;
@@ -1497,8 +1488,9 @@ function closeModal(e) {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 async function saveDataPartial(partial) {
-  await api('/api/data', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(partial) });
+  const res = await api('/api/data', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(partial) });
   S.data = { ...S.data, ...partial };
+  return res;
 }
 
 // ── Slaap invoer ─────────────────────────────────────────────────────────────

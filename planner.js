@@ -245,6 +245,21 @@ function calcRunSessionTSS(blokken) {
   return blokken.reduce((s, b) => s + calcRunBlockTSS(b), 0);
 }
 
+// Herrekent de belasting van één geplande sessie uit haar blokken. Pure functie:
+// geen I/O, geen datum, geen settings. De frontend mag TSS nooit zelf schatten,
+// dus dit is de enige plek waar een bewerkte sessie zijn tss terugkrijgt.
+// Kracht en 'other' krijgen géén tss: krachtbelasting is Foster-sRPE en dus een
+// ander kanaal dan Coggan-TSS; die twee mogen niet in hetzelfde veld landen.
+function recomputeSessionLoad(session) {
+  if (!session || !Array.isArray(session.blokken) || session.blokken.length === 0) return session;
+  const mod = sessionModality(session);
+  if (mod !== 'cycling' && mod !== 'running') return session;
+  const tss = mod === 'running'
+    ? calcRunSessionTSS(session.blokken)
+    : calcSessionTSS(session.blokken);
+  return { ...session, tss: Math.round(tss), duur_min: Math.round(calcSessionDuration(session.blokken)) };
+}
+
 // ─── Blok-bouwers ────────────────────────────────────────────────────────────
 
 function buildRecoveryBlocks(targetTSS, maxDur, zones) {
@@ -1816,6 +1831,7 @@ module.exports = {
   dateToUTCms, daysBetweenUTC, getMondayOf, computePlanWindow,
   goalsToGoalSet, resolveGoalPriority, buildMacrocycle,
   buildRunSession, runPaceZones, runBlockTSS, buildRunSessionBlocks,
+  calcRunBlockTSS, calcRunSessionTSS, recomputeSessionLoad,
   buildSession,
   modalityInterferenceWeight, clampInterferenceParams,
   requiredSeparationHours, separationLevel,

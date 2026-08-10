@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const crypto = require('crypto');
 const engine = require('./engine');
-const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession } = require('./planner');
+const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession, recomputeSessionLoad } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
 const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate } = require('./db');
@@ -3079,7 +3079,13 @@ app.post('/api/data', async (req, res) => {
     }
     if (body.settings  !== undefined) fields.settings  = { ...(user.settings  || {}), ...body.settings };
     if (body.patterns  !== undefined) fields.patterns  = body.patterns;
-    if (body.weekPlan  !== undefined) fields.week_plan = body.weekPlan;
+    if (body.weekPlan  !== undefined) {
+      const wp = {};
+      for (const [date, sessions] of Object.entries(body.weekPlan || {})) {
+        wp[date] = Array.isArray(sessions) ? sessions.map(s => recomputeSessionLoad(s)) : sessions;
+      }
+      fields.week_plan = wp;
+    }
     if (Object.keys(fields).length > 0) await saveUserFields(user.id, fields);
 
     // Gewicht woont in de aparte weights-tabel, niet als JSONB op de user-rij.
@@ -3092,7 +3098,9 @@ app.post('/api/data', async (req, res) => {
       }
     }
 
-    res.json({ ok: true });
+    const out = { ok: true };
+    if (fields.week_plan) out.weekPlan = fields.week_plan;
+    res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

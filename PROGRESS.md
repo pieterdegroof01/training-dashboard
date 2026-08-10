@@ -138,6 +138,16 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] Doelen (loopt samen met: C4, C8)
 - [ ] Coach + chat (na: H11 cluster 14 SSE)
 
+## UI-audit 2026-08-10
+- [x] U1 Sessie-TSS uit de frontend naar planner.recomputeSessionLoad (2026-08-10)
+- [ ] U2 Tokensplitsing --subtle/--text-subtle + --z1 dark (style.css en activity-detail/theme.css)
+- [ ] U3 Grafiekseries uit tokens ipv vaste hex in _chartTheme (na: U2)
+- [ ] U4 Labelkoppeling for/id op 72 formuliervelden
+- [ ] U5 Globale :focus-visible + prefers-reduced-motion, beide stylesheets
+- [ ] U6 Verwijderknoppen 24px, aria-label, bevestiging op removeSlot/removePattern
+- [ ] U7 Toetsenbordpad en aria-label op AdMmpChart, AdDualChart, AdRunChart
+- [ ] U8 Koppenstructuur, main-landmark, skiplink, aria-current in showTab
+
 ## Openstaand-lijst 2026-06-23 (restpunten)
 - [x] Info-tooltips stat-labels: PF_TIPS + initInfoTooltips live (geverifieerd 2026-07-10)
 - [x] Power-profile radar gebouwd (Coggan-categorieën, alleen gemeten vermogen)
@@ -154,6 +164,10 @@ Regels voor wie dit bestand bijwerkt:
 
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
+
+- 2026-08-10 | U1 | public/js/app.js had een eigen ZONE_TSS_PER_H met 30/50/70/90/110 per uur naast de canonieke ZONE_IF in planner.js, die IF²×100 rekent en dus 25/42,25/68,89/96,04/125,44 geeft; de kopie negeerde bovendien herhalingen, herstelBlok en _tssZone, waardoor een 4×8min Z4-sessie met 3min herstel op 12 TSS uitkwam in plaats van 56, en saveAiSession schreef die waarde terug in weekPlan | herrekening naar planner.recomputeSessionLoad op het schrijfpad van POST /api/data; de client stuurt geen tss meer mee en de modal toont tijdens bewerken bewust geen TSS
+- 2026-08-10 | U1 | recomputeSessionLoad slaat kracht en 'other' over in plaats van er een TSS op te rekenen | krachtbelasting is Foster-sRPE en dus een ander kanaal dan Coggan-TSS; één tss-veld voor beide zou het PMC vervuilen, zelfde redenering als de C5g-regel over actualTSS
+- 2026-08-10 | U1 | de UI-auditsectie is niet als actief traject gemarkeerd | acht nieuwe onafhankelijke items zouden anders C5h, C7 en R10 uit de mechanisch afgeleide Nu-sectie verdringen zonder besluit van Pieter
 
 - 2026-07-17 | C5g | de matchlus leunde op de default van sessionModality, die alles wat geen fiets, loop of other is 'strength' geeft; de frontend schrijft de knop Overig weg als type 'custom', dus die kreeg missed=true of werd tegen een Hevy-krachttraining gescoord | matchbron losgetrokken van modaliteit in matchSourceForSession: sessionModality bedient solveWeek en houdt zijn default, de matchlus vraagt om een bron en krijgt null als die er niet is
 - 2026-07-17 | C5g | scoringslogica stond in server.js, dat niets exporteert, dus geen enkele test raakte hem terwijl C5c dezelfde scoring nodig heeft in de reconcile-lus | verplaatst naar planner.js als scoreEnduranceSession/scoreStrengthSession, fietsuitkomst byte-identiek geborgd met een regressietest, zelfde patroon als C5a
