@@ -113,3 +113,27 @@ describe('computeStrengthTrends — e1RM', () => {
     assert.equal(e1rmSeries.find(e => e.exercise === 'Pull Up'), undefined);
   });
 });
+
+describe('computeStrengthTrends — compound-classificatie (default-zichtbaarheid)', () => {
+  function oneLift(title) {
+    return [{ start_time: isoDaysAgo(4) + 'T18:00:00Z', exercises: [{ title, sets: [{ reps: 6, weight_kg: 80 }] }] }];
+  }
+  function compoundOf(title) {
+    const { e1rmSeries } = computeStrengthTrends(oneLift(title), { minSessions: 1, repCeiling: 12 });
+    const e = e1rmSeries.find(x => x.exercise === title);
+    assert.ok(e, title + ' moet in de reeks staan');
+    return e.compound;
+  }
+
+  test('multi-joint liften krijgen compound=true', () => {
+    ['Romanian Deadlift (Barbell)', 'Iso-Lateral Row (Machine)', 'Incline Chest Press (Machine)',
+     'Shoulder Press (Machine Plates)', 'Single Arm Lat Pulldown', 'Single Leg Press (Machine)']
+      .forEach(t => assert.equal(compoundOf(t), true, t + ' hoort compound te zijn'));
+  });
+
+  test('single-joint isolatie krijgt compound=false', () => {
+    ['Single Arm Lateral Raise (Cable)', 'Seated Leg Curl (Machine)', 'Single Leg Extensions',
+     'Cable Crunch', 'Hammer Curl (Dumbbell)', 'Seated Calf Raise', 'JM Press (Barbell)']
+      .forEach(t => assert.equal(compoundOf(t), false, t + ' hoort isolatie te zijn'));
+  });
+});
