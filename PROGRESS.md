@@ -1,24 +1,43 @@
 # PeakForm voortgang
 
-Statusoverzicht van alle handoff-clusters.
+Statusoverzicht van alle werk, geordend op code-pad. De handoff waar een item uit
+voortkomt staat als tag in de regel en zegt niets over volgorde.
 
 ## Nu
 
-Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere secties
-zijn statusinventaris en zeggen niets over volgorde.
+Maximaal drie items. Dit is de enige plek waar prioriteit staat; alle andere
+secties zijn statusinventaris.
 
-1. C5h session_outcomes multimodaal: strava_id is BIGINT, geen Hevy-workout-id (na: C5g, klaar). Ontgrendelt C5c.
-2. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9.
-3. R10 Drempeltempo-historisering (na: R9, klaar). Ontgrendelt C6.
+1. [vast] V1 Verificatiesessie: nul code, ruimt zes losse verificatiepunten op in
+   één browsersessie en zet het drempeltempo op productie aan, waar R9 nu zonder
+   anker op de platte fallback draait.
+2. C5h session_outcomes multimodaal (na: C5g, klaar). Ontgrendelt C5c en is een
+   klok-item: elke week zonder is een week krachtuitkomsten die niet dedupliceren.
+3. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9, dat aanlooptijd nodig heeft
+   omdat het op voldoende session_outcomes wacht.
+
+Eerstvolgende in de afleiding, beide met één ontgrendeling en zonder klok: D1 en
+R10, in die volgorde op cluster-ID.
 
 ## Legenda
 
 Statussen: `[ ]` open, `[~]` deels, `[x]` klaar, `[!]` wacht op beslissing of
 verificatie door Pieter. Datum achter elke statuswijziging.
 
-`(na: X)` betekent dat X afgerond moet zijn voordat dit item start. De omgekeerde
-richting wordt bewust niet geannoteerd: gebruik `grep "na:.*C2b" PROGRESS.md` om te
-zien wat een item vrijspeelt. Twee richtingen onderhouden loopt uit de pas.
+`(na: X)` betekent dat X afgerond moet zijn voordat dit item start. `(na: -)`
+betekent dat het item vrij is en dat dat een vastgesteld feit is, geen omissie.
+Elk open item draagt een van beide. De omgekeerde richting wordt bewust niet
+geannoteerd: gebruik `grep "na:.*C2b" PROGRESS.md` om te zien wat een item
+vrijspeelt.
+
+`[klok]` markeert een item dat een dataklok start: het werk levert pas waarde op
+nadat er kalendertijd overheen is gegaan. Uitstellen kost meetdata die je niet
+kunt inhalen. Pieter zet deze markering; hij is geen oordeel bij de afleiding maar
+een eigenschap van het item.
+
+`(omvat: X, Y)` betekent dat de items X en Y in dit item zijn opgegaan. ID's
+worden nooit hernummerd of hergebruikt: de Besluitlog verwijst naar ze en die is
+append-only. Een opgegaan ID blijft daarom vindbaar via `grep`.
 
 Regels voor wie dit bestand bijwerkt:
 - Elke commit die een item (deels) uitvoert werkt de bijbehorende regel bij in
@@ -27,146 +46,159 @@ Regels voor wie dit bestand bijwerkt:
   naar de Besluitlog, niet achter de statusregel.
 - Blijkt tijdens uitvoering dat een `(na: ...)` niet klopt of dat een nieuw item
   nodig is: schrijf een besluitlogregel, pas de annotatie aan, en STOP.
+- Items samenvoegen mag alleen als ze hetzelfde code-pad raken én dezelfde
+  verificatie- of meetkosten delen, of als het alternatief is dat dezelfde UI
+  twee keer gebouwd wordt. Nabijheid op het scherm of in dezelfde handoff is geen
+  grond. Samenvoegen gebeurt met `(omvat: ...)` en een besluitlogregel.
 - De sectie "Nu" is een afgeleide weergave, geen oordeel, en loopt mee in dezelfde
   commit als elke statuswijziging. Afleiding, in deze volgorde: verwijder items die
-  op `[x]` staan; vul aan tot maximaal drie met open items (`[ ]` of `[~]`) uit de
-  secties gemarkeerd als "actief traject" waarvan elke `(na: ...)` op `[x]` staat;
-  sorteer aflopend op het aantal items dat ze vrijspelen
-  (`grep -c "na:.*<id>" PROGRESS.md`), bij gelijkstand op cluster-ID. Eén regel
-  motivering per item; bevindingen gaan naar de Besluitlog. Items op `[!]` tellen
-  niet mee. Een item met de markering `[vast]` blijft ongemoeid op zijn plek. Is de
-  uitkomst niet eenduidig af te leiden: schrijf een besluitlogregel, laat "Nu"
-  ongewijzigd, en STOP.
+  op `[x]` staan; vul aan tot maximaal drie met open items (`[ ]` of `[~]`)
+  waarvan elke `(na: ...)` op `[x]` staat; sorteer aflopend op het aantal items dat
+  ze vrijspelen (`grep -c "na:.*<id>" PROGRESS.md`), bij gelijkstand eerst de items
+  met `[klok]`, daarna op cluster-ID. Eén regel motivering per item. Items op `[!]`
+  tellen niet mee, evenmin als items in de secties Verificatie en Beslispunten. Een
+  item met de markering `[vast]` blijft ongemoeid op zijn plek. Is de uitkomst niet
+  eenduidig af te leiden: schrijf een besluitlogregel, laat "Nu" ongewijzigd, en
+  STOP.
 - Nieuwe clusters uit toekomstige handoffs worden bij hun eerste uitvoering
-  toegevoegd, mét `(na: ...)`.
+  toegevoegd in de sectie van het code-pad dat ze raken, mét `(na: ...)` en een
+  herkomsttag.
 
-## Handoff 12: Planner redesign (actief traject)
-- [x] C0 Backupverificatie pg_dump + restore-diff (2026-07-10, log in CLAUDE.md)
-- [x] C1 Determinisme: nowMs-injectie deriveMode + event-branch buildPlan (= H11 cluster 16, H10 punt C) (2026-07-13)
-- [x] C2a Supersede-bug: atomische replaceActivePrescriptions + computePlanWindow (2026-07-10, zie besluitlog)
-- [x] C2b Datamodel (na: C0, C2a; staging als eerste stap) (2026-07-13)
-- [x] C3 Backward planner (na: C1, C2b) (2026-07-13)
-- [x] C4 Tweetraps beschikbaarheid (na: C2b) (2026-07-13) (volledig: brug, grid, Doelen-overhaul met weekcapaciteit 2026-07-13)
-- [x] C5a solveWeek puur in planner.js + constraint-tests (na: C3, C4, R0, R1, R3, R4, R7) (2026-07-16)
-- [x] C5b runWeekplanGeneration op buildMacrocycle/solveWeek; buildAvailDays en maxZoneForDate weg (na: C5a) (2026-07-16)
-- [ ] C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (na: C5b, R9, C5g, C5h)
-- [ ] C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen, waardoor het mid-doel onhaalbaar is zodra HIT en de lange duurrit de meeste minuten opeisen (na: C5b)
-- [ ] C5e AI-planblok multimodaal: buildPrescriptionBlock filtert op type==='cycling' en meldt een rustdag terwijl er een loop- of krachtsessie gepland staat (na: C5b)
-- [ ] C5f adjustCurrentWeek: AI-bijstelling op dag-granulariteit gaat over de urenplafonds van solveWeek heen; legacy-spiegel week_availability vervalt in dezelfde commit (na: C5b)
-- [x] C5g matchPlannedToActual multimodaal: matcht alleen Ride/VirtualRide, dus loop- en krachtvoorschriften krijgen nooit een completionScore; unplanned-detectie labelt elke Run/Swim/Hike als type 'cycling' met zoneschatting op geschatte watts gedeeld door FTP (na: R9) (2026-07-17)
-- [ ] C5h session_outcomes multimodaal: strava_id is BIGINT en kan geen Hevy-workout-id dragen, dus een krachtoutcome zonder voorschrift dedupliceert op geen enkele uniq-index (na: C5g)
-- [ ] C6 Prognose (na: C5c, R10)
-- [ ] C7 Reviewcadans (na: C2b)
-- [ ] C8 Onboarding (na: C4, C5b; loopt samen met frontend-overhaul Doelen-tab; levert doelafstand hardlopen voor de R7-matrix)
-- [ ] C9 Leerlaag Laag 4 (na: C7; wacht op voldoende session_outcomes)
+## Rekenlaag: engine.js (puur, geen I/O)
 
-## Handoff 13: Hardlopen gestructureerd (actief traject, onderzoek 2026-07-15)
-- [x] R0 Drempeltempo-veld settings.thresholdPace in sec/km + Instellingen-UI + validatie; activeert rTSS/IF in computeRunningLoad (2026-07-15)
-- [x] R1 Loopzones Z1-Z6 op drempelsnelheid + eigen RUN_ZONE_IF-tabel in engine.js, puur (2026-07-15)
-- [x] R2 Seiler-mapping loopzones zodat fiets en loop in één TID-analyse vallen (2026-07-15)
-- [x] R3 Loopblok-builders buildRunSession in planner.js, puur, analoog aan buildSession (na: R1) (2026-07-15)
-- [x] R4 Interferentieparameters: loopweging 1.5-2x fiets, 6u ondergrens, 24u voorkeur, EIMD 48u (na: R1) (2026-07-15)
-- [x] R5 ACWR-loopband 0.8-1.3 + single-run-spike-guard t.o.v. langste run 30 dagen (na: R1) (2026-07-16)
-- [ ] R6 Pa:HR decoupling-drempels 5/10% op running-detail (na: R0)
-- [x] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (na: R3, R5, R-doc-a) (2026-07-16)
-- [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (na: R3)
-- [x] R9 computeETLForActivity looptak op computeRunningLoad: rTSS met average_speed als NGP-proxy i.p.v. suffer_score/TRIMP (na: R0) (2026-07-16)
-- [ ] R10 Drempeltempo-historisering: thresholdPaceForDate analoog aan ftpForDate; computeETLForActivity leest settings.thresholdPace nu plat over de hele historie (na: R9)
-- [ ] R11 Loop-fallbackhygiëne: platte duurfallback staat op 90/uur (IF 0,95) tegen 50/uur (IF 0,71) bij de fiets, en suffer_score is uit de keten verdwenen (na: R9)
-- [!] Verificatie: settings.thresholdPace op productie zetten via het R0-veld; zonder anker vuurt de rTSS-tak daar niet en is R9 op main netto verlies. Blokkeert de merge van R9 naar main.
-- [x] R-doc-a Trainingstheorie geversioneerd onder docs/ (herziene versie, 343 regels, zes hardloopsecties + Robineau-correctie) + citeerregel in CLAUDE.md (2026-07-16)
-- [x] R-doc-b Dubbele intensiteitssectie harmoniseren: sectie Trainingsintensiteitsverdeling spreekt de sectie Intensiteitsverdeling en periodisering per atleetsituatie tegen (na: R-doc-a; landt in de R7-commit) (2026-07-16)
+- [x] HC-1 CP-toekomstlek: bovengrens <= now in computeCriticalPower + regressietest (H-consistentie) (2026-07-10, engine.js ~1342)
+- [x] R0 Drempeltempo-veld settings.thresholdPace in sec/km + Instellingen-UI + validatie (H13) (2026-07-15)
+- [x] R1 Loopzones Z1-Z6 op drempelsnelheid + eigen RUN_ZONE_IF-tabel (H13) (2026-07-15)
+- [x] R2 Seiler-mapping loopzones zodat fiets en loop in één TID-analyse vallen (H13) (2026-07-15)
+- [x] R5 ACWR-loopband 0.8-1.3 + single-run-spike-guard t.o.v. langste run 30 dagen (H13) (na: R1) (2026-07-16)
+- [x] R9 computeETLForActivity looptak op computeRunningLoad: rTSS met average_speed als NGP-proxy (H13) (na: R0) (2026-07-16)
+- [x] H10-w4 Dode w^4 NP-proxy som in classifySession verwijderd (H10) (2026-07-10)
+- [ ] R10 Ankerhistorisering in één commit, want alle vier verschuiven de historische reeks en delen daarmee één staging-meting van CTL/ATL/TSB: thresholdPaceForDate analoog aan ftpForDate; weightAt (server.js ~1415) promoveren naar weightForDate in engine.js; ftpInfo en settings-FTP harmoniseren; scoreEnduranceSession ankeren op ftpForDate in plaats van op platte settings.ftp. Loop-fallbackhygiëne hoort in dezelfde commit omdat het dezelfde functie is: de platte duurfallback staat op 90/uur (IF 0,95) tegen 50/uur (IF 0,71) bij de fiets (omvat: R11, HC-3, HC-5-ftpInfo) (H13, H-consistentie) (na: R9)
 
-## Handoff 11: Bugs, UX, features
-- [x] Cluster 1 Read-path performance: analytics-memo met ?force=1 bypass (geverifieerd 2026-07-10)
-- [ ] Cluster 2 Hash-router en tab-state
-- [x] Cluster 3 Kleine frontend-fixes: alert() weg, coach-markdown via renderMarkdown, buildcomment weg (geverifieerd 2026-07-10)
-- [ ] Cluster 4 Server hardening: AI-timeouts, login-throttle, multer 2.x (nu nog 1.4.5-lts)
-- [ ] Cluster 5 XSS-escaping user-controlled strings, incl. AI-tekst in adm-ai-text (app.js ~5110)
-- [ ] Cluster 6 Toegankelijkheid (keyboard, aria)
-- [ ] Cluster 7a Activiteiten-KPI's volgen filter en venster + lege-week CTA
-- [ ] Cluster 7b Plateau-kaarten klikbaar/dismissbaar + skeletons Vandaag/Week
-- [ ] Cluster 8 PWA-basis, manifest + service worker (na: cluster 2)
-- [ ] Cluster 9 Zoekfunctie activiteiten
-- [ ] Cluster 10 Interval-overlay ritdetail
-- [ ] Cluster 11 Activiteiten vergelijken (na: cluster 2)
-- [ ] Cluster 12 Seizoens- en jaarweergave Trends (na: cluster 9)
-- [ ] Cluster 13 Data-export CSV/JSON
-- [ ] Cluster 14 SSE-streaming Coach, /api/analyse/stream
-- [ ] Cluster 15 Consistentie-tile race + sync-timestamp fmtRelD
-- [ ] Cluster 16 now-injectie deriveMode (= H12 C1, daar uitvoeren, niet dubbel)
-- [!] Verificatie: MODEL-tegel classificeert pyramidale week correct na z3=0,91-fix (browser, bij eerstvolgende smoketest)
-- [x] Verificatie: Railway-backupverificatie (afgedekt door H12 C0, 2026-07-10)
-- [ ] Verificatie: latency-nameting na cluster 1 tegen nulmeting 8 juli (18,1s / 6,5s / 6,2s / 4,3s / 4,2s)
+## Planlaag: planner.js en het planschrijfpad
 
-## Handoff Historische consistentie (FTP/gewicht/zones/CP)
-- [x] Cluster 1 CP-toekomstlek: bovengrens <= now in computeCriticalPower + regressietest (geverifieerd 2026-07-10, engine.js ~1342)
-- [!] Cluster 2 Kalibratiefactor: beslissing vervallen of repareren (computeCalibrationFactor ijkt nog tegen geschat vermogen + globale FTP)
-- [ ] Cluster 3 Gewicht-historisering: weightAt promoveren naar gedeelde weightForDate() in engine.js (nuttig voor: C6)
-- [!] Cluster 4 LTHR-historisering: beslissing rollend geschat vs handmatige tijdlijn (grootste PMC-impact, belasting loopt via hrTSS)
-- [ ] Cluster 5 Opruimen: ftpInfo/settings-FTP harmoniseren, dode hrZones-config (app.js), calcMetrics (server.js) vs computeLoadMetrics (engine.js) consolideren
+- [x] C2a Supersede-bug: atomische replaceActivePrescriptions + computePlanWindow (H12) (2026-07-10)
+- [x] C1 Determinisme: nowMs-injectie deriveMode + event-branch buildPlan (H12; = H11-16, niet dubbel uitvoeren) (2026-07-13)
+- [x] C3 Backward planner (H12) (na: C1, C2b) (2026-07-13)
+- [x] C4 Tweetraps beschikbaarheid: brug, uur-slotgrid, Doelen-overhaul met weekcapaciteit (H12) (na: C2b) (2026-07-13)
+- [x] R3 Loopblok-builders buildRunSession, puur, analoog aan buildSession (H13) (na: R1) (2026-07-15)
+- [x] R4 Interferentieparameters: loopweging 1.5-2x fiets, 6u ondergrens, 24u voorkeur, EIMD 48u (H13) (na: R1) (2026-07-15)
+- [x] R7 Periodiseringsprofielen per atleetsituatie: tijdsbudget, niveau, doeltype (H13) (na: R3, R5, R-doc-a) (2026-07-16)
+- [x] C5a solveWeek puur in planner.js + constraint-tests (H12) (na: C3, C4, R0, R1, R3, R4, R7) (2026-07-16)
+- [x] C5b runWeekplanGeneration op buildMacrocycle/solveWeek; buildAvailDays en maxZoneForDate weg (H12) (na: C5a) (2026-07-16)
+- [x] U1 Sessie-TSS uit de frontend naar planner.recomputeSessionLoad (UI-audit) (2026-08-10)
+- [ ] C5e AI-planblok multimodaal, leespad: buildPrescriptionBlock filtert op type==='cycling' en meldt een rustdag terwijl er een loop- of krachtsessie gepland staat (H12) (na: C5b)
+- [ ] C5f adjustCurrentWeek, schrijfpad: AI-bijstelling op dag-granulariteit gaat over de urenplafonds van solveWeek heen; legacy-spiegel week_availability vervalt in dezelfde commit (H12) (na: C5b)
+- [ ] C5d Mid-band-realisatie: mid komt alleen uit otherNonHit-dagen, waardoor het mid-doel onhaalbaar is zodra HIT en de lange duurrit de meeste minuten opeisen (H12) (na: C5b)
 
-## Handoff Trends herontwerp route 2
-- [x] Prompt 1 Shell + segment-navigatie: switchTrendSeg en pf-trend-nav live (geverifieerd 2026-07-10)
-- [~] Prompt 2 Palet-herbrand plus chrome (status onduidelijk, visueel verifiëren in browser)
-- [x] Prompt 3 Radar, Seiler-band, PR-grid: _renderSeilerBand, power-radar (server.js ~3165), allTimePrContainer live (geverifieerd 2026-07-10)
-- [ ] Prompt 4 (optioneel) Lazy render per segment, skeletons, drill-hints (alleen bij trage Trends-tab)
+## Sync en uitkomsten: Strava, Hevy, matching, session_outcomes
 
-## Handoff Trends grafieken
-- [x] Clusters 1 t/m 5 grotendeels live: chartFtpTrend, chartE1rm, compliance, chartSleep, zone-model/Seiler (geverifieerd 2026-07-10)
-- [!] Sportverdeling naar tijd per discipline in Trends: aanwezigheid visueel verifiëren
+- [x] C5g matchPlannedToActual multimodaal + scoreEnduranceSession/scoreStrengthSession naar planner.js + matchSourceForSession (H12) (na: R9) (2026-07-17)
+- [ ] C5h session_outcomes multimodaal: strava_id is BIGINT en kan geen Hevy-workout-id dragen, dus een krachtoutcome zonder voorschrift dedupliceert op geen enkele uniq-index [klok] (H12) (na: C5g)
+- [ ] C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (H12) (na: C5b, R9, C5g, C5h)
 
-## Handoff 10: Week-tab + sweetspot
-- [x] TSB-projectie backend (projectWeekEndTSB live)
-- [x] Week-tab herbouw
-- [x] Sweetspot-zoning z3-plafond 0,91 systeembreed
-- [ ] Punt A Strength-overlay op fietsbelasting-grafiek
-- [x] Punt B Activiteiten-tab herbouwd en gepusht (renderActivitiesTab live, geverifieerd 2026-07-10)
-- [ ] Punt F Opruimen: /api/admin/migrate-to-postgres + loadData/saveData verwijderen (ontgrendeld door C0)
-- [x] Punt F Dode w^4 NP-proxy som verwijderd (geverifieerd afwezig 2026-07-10)
+## Prognose en leerlaag
 
-## Handoff 9: Delete-knoppen
-- [x] Cluster 1 code (gewicht + nutritie deletes, openConfirm, drie-weg-keuze) live
-- [x] Cluster 2 code (weekplan-sessie delete) live
-- [!] Browser-rooktest beide clusters op productie, daarna definitief afvinken (testdata 6 juni als eerste case)
+- [ ] C7 Reviewcadans [klok] (H12) (na: C2b)
+- [ ] C6 Prognose; projecteert op de historische reeks en hoort daarom na de ankerhistorisering (H12) (na: C5c, R10)
+- [ ] C9 Leerlaag Laag 4; regresseert athlete_model_params, wacht op voldoende session_outcomes (H12) (na: C7)
 
-## Frontend-overhaul Laag 1 (tabs)
-- [x] Shell, Vandaag, Week (MCP-geverifieerd)
-- [x] Activiteiten (herbouwd na verloren lokale versie)
-- [ ] Voeding
-- [~] Trends (loopt via route 2-traject hierboven)
-- [ ] Doelen (loopt samen met: C4, C8)
-- [ ] Coach + chat (na: H11 cluster 14 SSE)
+## Datamodel, persistentie en serveropruiming
 
-## UI-audit 2026-08-10
-- [x] U1 Sessie-TSS uit de frontend naar planner.recomputeSessionLoad (2026-08-10)
-- [x] U2 Tokensplitsing --subtle/--text-subtle, --z1 dark, --red op login (style.css, theme.css, login.html) (2026-08-10)
-- [ ] U3 Grafiekseries uit tokens ipv vaste hex in _chartTheme (na: U2)
-- [ ] U4 Labelkoppeling for/id op 72 formuliervelden
-- [ ] U5 Globale :focus-visible + prefers-reduced-motion, drie stylesheets
-- [ ] U6 Verwijderknoppen 24px, aria-label, bevestiging op removeSlot/removePattern
-- [ ] U7 Toetsenbordpad en aria-label op AdMmpChart, AdDualChart, AdRunChart
-- [ ] U8 Koppenstructuur, main-landmark, skiplink, aria-current (index, login, 404)
-- [ ] U9 Login: statusgebaseerde foutmeldingen, role=alert, form-element
-- [ ] U10 Detailpagina-shell: dynamische title, themascript, role=alert/status
-
-## Openstaand-lijst 2026-06-23 (restpunten)
-- [x] Info-tooltips stat-labels: PF_TIPS + initInfoTooltips live (geverifieerd 2026-07-10)
-- [x] Power-profile radar gebouwd (Coggan-categorieën, alleen gemeten vermogen)
-- [x] dailyETL-architectuuropruiming (gesommeerde serie weg, strengthDailyETL apart)
-- [x] Kracht/cardio eenheidsfork beantwoord: Foster sRPE-kanaal, gescheiden van PMC (verwerkt in H12-ontwerp)
-- [ ] Fase-waarden referentiekaart (ATL/CTL/TSB per trainingsfase) in UI
-
-## Overig
+- [x] C0 Backupverificatie pg_dump + restore-diff (H12) (2026-07-10, log in CLAUDE.md)
 - [x] Staging-omgeving (eerste stap van C2b) (2026-07-13)
-- [ ] Sentry-integratie (lage prioriteit, geen afhankelijkheden)
-- [ ] Laag 2 multi-tenant auth (uitgesteld; triggert KvK-beslissing)
+- [x] C2b Datamodel: vijf tabellen + CRUD-helpers, geverifieerd op staging voor main (H12) (na: C0, C2a) (2026-07-13)
+- [ ] D1 Goals-tabel krijgt een consument of vervalt: insertGoal, getActiveGoals en setGoalStatus hebben nul aanroepers terwijl goalsToGoalSet in server.js op het legacy users.goals-JSONB draait; zolang dat zo is schrijft een wizard naar een tabel die de planner niet leest (na: -)
+- [ ] H10-F Serveropruiming, puur verwijderwerk zonder gedragswijziging: /api/admin/migrate-to-postgres, loadData/saveData en de startup-backfill weg; calcMetrics (server.js ~288) consolideren met computeLoadMetrics (engine.js); dode hrZones-config in app.js weg (omvat: HC-5-opruimdeel) (H10, H-consistentie) (na: C0)
+
+## Frontend hoofd-app: public/
+
+- [x] Shell, Vandaag, Week herbouwd (MCP-geverifieerd)
+- [x] Activiteiten herbouwd, renderActivitiesTab live (H10 punt B) (2026-07-10)
+- [x] H10 TSB-projectie backend, Week-tab-herbouw, sweetspot z3-plafond 0,91 systeembreed
+- [x] H11-1 Read-path performance: analytics-memo met ?force=1 bypass (2026-07-10)
+- [x] H11-3 Kleine frontend-fixes: alert() weg, coach-markdown via renderMarkdown, buildcomment weg (2026-07-10)
+- [x] T2-1 Trends shell + segment-navigatie: switchTrendSeg en pf-trend-nav live (2026-07-10)
+- [x] T2-3 Trends radar, Seiler-band, PR-grid live (2026-07-10)
+- [x] Trends-grafieken clusters 1 t/m 5: chartFtpTrend, chartE1rm, compliance, chartSleep, zone-model (2026-07-10)
+- [x] Info-tooltips stat-labels: PF_TIPS + initInfoTooltips live (2026-07-10)
+- [x] Power-profile radar (Coggan-categorieën, alleen gemeten vermogen)
+- [x] dailyETL-architectuuropruiming: gesommeerde serie weg, strengthDailyETL apart
+- [ ] H11-2 Hash-router en tab-state (na: -)
+- [ ] H11-8 PWA-basis, manifest + service worker (na: H11-2)
+- [ ] H11-7a Activiteiten: KPI's volgen filter en venster, lege-week-CTA, zoekfunctie; alle drie herschrijven hetzelfde filterstatemodel van de tab (omvat: H11-9) (na: -)
+- [ ] H11-11 Activiteiten vergelijken (na: H11-2)
+- [~] T2-2 Trends afmaken in één traject, want de tab is nog niet volledig herbouwd en losse commits zouden hem twee keer aanraken: palet-herbrand en chrome, lazy render per segment, skeletons en drill-hints, seizoens- en jaarweergave (omvat: T2-4, H11-12) (na: V1, H11-7a)
+- [ ] F-Voeding Voeding-tab overhaul (Laag 1) (na: -)
+- [ ] C8 Onboardingwizard samen met de Doelen-tab-overhaul; levert doelafstand hardlopen voor de R7-matrix (omvat: frontend-overhaul Doelen) (H12, Laag 1) (na: C4, C5b, D1)
+- [ ] F-Coach Coach-tab-overhaul met SSE-streaming via /api/analyse/stream; staat na H11-5 zodat de herbouw het escaping-lek op AI-tekst niet opnieuw introduceert (omvat: H11-14) (Laag 1) (na: H11-5)
+- [ ] H10-A Strength-overlay op de weekbelastingsgrafiek, plus het label Fietsbelasting corrigeren: die balk somt elke sessie met TSS, inclusief loopsessies met rTSS (na: -)
+- [ ] H11-7b Plateau-kaarten klikbaar en dismissbaar + skeletons Vandaag/Week (na: -)
+- [ ] H11-15 Consistentie-tile race + sync-timestamp fmtRelD (na: -)
+- [ ] O-fase Fase-waarden referentiekaart ATL/CTL/TSB per trainingsfase in de UI (Openstaand 23 juni) (na: -)
+
+## Activity-detail subapp: activity-detail/src
+
+- [ ] R6 Pa:HR decoupling-drempels 5/10% op running-detail (H13) (na: R0)
+- [ ] R8 CS/D'-model hardlopen als optionele geavanceerde laag (H13) (na: R3)
+- [ ] H11-10 Interval-overlay ritdetail (na: -)
+- [ ] U7 Toetsenbordpad en aria-label op AdMmpChart, AdDualChart en AdRunChart; het AdDualChart-interactiecontract (hoverT, selection, onHover, onSelect) blijft verbatim (UI-audit) (na: -)
+
+## Frontend-breed: tokens, toegankelijkheid, documentshell
+
+- [x] U2 Tokensplitsing --subtle/--text-subtle, --z1 dark, --red op login (style.css, theme.css, login.html) (2026-08-10)
+- [ ] U3 Grafiekseries uit tokens in plaats van vaste hex in _chartTheme en _baseChartOpts; geldt voor alle Chart.js-grafieken, niet alleen Trends (na: U2)
+- [ ] U4 Formulierbesturing in index.html: labelkoppeling for/id op 72 velden, verwijderknoppen op 24px met aria-label en bevestiging op removeSlot en removePattern (omvat: U6) (na: -)
+- [ ] U5 Globale :focus-visible en prefers-reduced-motion in style.css, theme.css en login.html (na: -)
+- [ ] U8 Documentshell over index, login, 404 en de detailpagina: koppenstructuur, main-landmark, skiplink, aria-current, dynamische title en themascript, statusgebaseerde foutmeldingen met role=alert en een echt form-element op login (omvat: U9, U10) (na: -)
+
+## Platform: security, observability, auth
+
+- [ ] H11-4 Server hardening: AI-timeouts, login-throttle, multer 2.x (nu 1.4.5-lts) (na: -)
+- [ ] H11-5 XSS-escaping van user-controlled strings in één pass, inclusief AI-tekst in adm-ai-text (app.js ~5110) (na: -)
+- [ ] H11-13 Data-export CSV/JSON (na: -)
+- [ ] Sentry-integratie (lage prioriteit) (na: -)
+- [ ] Laag 2 multi-tenant auth (uitgesteld; triggert KvK-beslissing) (na: -)
+
+## Verificatie: nul code, buiten de Nu-afleiding
+
+- [ ] V1 Eén sessie op productie en staging: settings.thresholdPace zetten via het R0-veld, want R9 staat op main en draait daar zonder anker door naar hrTSS, TRIMP of de platte 90/uur; MODEL-tegel classificeert een pyramidale week correct na de z3=0,91-fix; rooktest van de delete-knoppen uit H9 cluster 1 en 2 met de testdata van 6 juni; sportverdeling naar tijd per discipline aanwezig in Trends; palet-herbrand T2-2 visueel vaststellen; latency-nameting tegen de nulmeting van 8 juli (18,1 / 6,5 / 6,2 / 4,3 / 4,2 s) (na: -)
+- [x] Railway-backupverificatie (afgedekt door C0) (2026-07-10)
+
+## Beslispunten: wachten op Pieter, buiten de Nu-afleiding
+
+- [!] HC-2 Kalibratiefactor vervallen of repareren; computeCalibrationFactor ijkt nog tegen geschat vermogen en een globale FTP. Bij repareren hoort hij in R10, want het is hetzelfde ankerprobleem.
+- [!] HC-4 LTHR-historisering rollend geschat of als handmatige tijdlijn; grootste PMC-impact van de vier ankers, belasting loopt via hrTSS. Zodra de keuze er is hoort hij in R10, anders kost hij een tweede staging-meting.
+- [!] H11-12-annotatie: seizoens- en jaarweergave Trends stond geannoteerd als (na: H11-9, zoekfunctie Activiteiten). Die afhankelijkheid is niet onderbouwd. Bevestigen of laten vervallen; H11-12 is inmiddels opgegaan in T2-2.
+
+## Canon en documentatie
+
+- [x] R-doc-a Trainingstheorie geversioneerd onder docs/ (343 regels, zes hardloopsecties, Robineau-correctie) + citeerregel in CLAUDE.md (2026-07-16)
+- [x] R-doc-b Dubbele intensiteitssectie geharmoniseerd (na: R-doc-a; geland in de R7-commit) (2026-07-16)
+
+## Gearchiveerde handoffs
+
+Handoff 1 t/m 8, Frontend Overhaul Handoff (origineel), Roadmap Lagen, Tooltip
+Aanbevelingen en de research-rapporten zijn afgerond of vervangen. Alle restpunten
+daaruit zijn doorgeschoven naar de secties hierboven. Niet heropenen.
+
+Vervallen items: H11-6 (Toegankelijkheid keyboard/aria) is geschrapt en niet
+afgevinkt, omdat U4, U5, U7 en U8 exact hetzelfde werk uitgespeld beschrijven;
+afvinken zou suggereren dat er twee trajecten waren.
 
 ## Besluitlog
 
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-08-10 | PROGRESS.md | het bestand was geordend op herkomst (welke handoff), en herkomst is geschiedenis: identiek werk stond daardoor verspreid over secties die elkaar niet kenden, met toegankelijkheid in H11-6 én U4-U8, ankerhistorisering in R10, HC-3, HC-4 en HC-5, en browserverificatie als losse regel in vijf secties | herindeling op code-pad met herkomst als tag; ID's blijven ongewijzigd en samengevoegde items dragen (omvat: ...) zodat elke besluitlogverwijzing vindbaar blijft; samenvoegcriterium vastgelegd als gedeeld code-pad plus gedeelde meetkosten, of het vermijden van dezelfde UI twee keer bouwen
+- 2026-08-10 | PROGRESS.md | van de vijftig open items hadden er tweeëndertig geen (na: ...) omdat alleen H12 en H13 als actief traject golden, dus de Nu-afleiding zag maar achttien items en zou stilvallen zodra die twee trajecten leeglopen | het begrip actief traject vervangen door de eis dat elk open item (na: X) of (na: -) draagt; Verificatie en Beslispunten staan expliciet buiten de afleiding
+- 2026-08-10 | PROGRESS.md | de unlock-telling gaf vier items met precies één ontgrendeling, waardoor de cluster-ID-tiebreak de facto de prioriteit bepaalde terwijl die tiebreak niets meet | [klok]-markering toegevoegd als tweede sorteersleutel voor items die een dataklok starten en waarbij uitstel kalendertijd kost in plaats van werk; de markering is een door Pieter gezette eigenschap, geen oordeel bij de afleiding
+- 2026-08-10 | R9 | de regel dat de merge naar main geblokkeerd was tot thresholdPace op productie staat beschreef een blokkade die niet meer bestond: main en staging zijn byte-identiek op PROGRESS.md, engine.js, planner.js, server.js, app.js en style.css, dus R9 draait op productie en computeRunningLoad valt daar zonder anker door naar hrTSS, TRIMP of de platte durH×75×1,2 oftewel 90 per uur | de blokkaderegel vervalt en het zetten van thresholdPace is verplaatst naar V1 als productieactie; zolang het anker ontbreekt wordt elke loop op productie geboekt alsof hij op 95% van drempelsnelheid ging en loopt de ATL-kant structureel te hoog
+- 2026-08-10 | H11-16 | stond op [ ] terwijl C1 op [x] staat, deriveMode in planner.js zijn nowMs als parameter krijgt en planner.js nul new Date()-aanroepen bevat; de regel had bij de C1-commit mee moeten lopen | H11-16 vervalt als eigen regel en staat nu als kruisverwijzing in de C1-regel
+- 2026-08-10 | C8 | de statusregel zei (na: C4, C5b) en beide staan op [x], terwijl de besluitlog van 16 juli (na: C4, C5) zei; belangrijker is dat geen van beide het werkelijke probleem raakt, want insertGoal, getActiveGoals en setGoalStatus hebben nog steeds nul aanroepers en goalsToGoalSet leest users.goals-JSONB | nieuw item D1 (goals-tabel krijgt een consument of vervalt) en C8 geannoteerd naar (na: C4, C5b, D1); de tegenspraak tussen statusregel en besluitlog is daarmee opgelost in het voordeel van het feit
+- 2026-08-10 | H11-5 | overwogen om de XSS-escaping op te knippen over de tabs die hem raken, zodat elk stuk in de betreffende tab-herbouw zou landen | verworpen: escaping van user-controlled strings hoort één pass te zijn, anders ontstaat hetzelfde patroon als bij de drie kopieën van het tokenstelsel waarvan er twee vergeten werden; H11-5 blijft één item en F-Coach kreeg (na: H11-5) zodat de herbouw het lek niet opnieuw introduceert
+- 2026-08-10 | PROGRESS.md | de nieuwe Legenda eist (na: X) of (na: -) op elk open item, maar V1 werd in dezelfde wijziging zonder annotatie opgeschreven; guard 3 sloeg daarop aan | V1 op (na: -), want de sessie wacht nergens op; de guard is bewust niet versoepeld voor de secties Verificatie en Beslispunten, omdat buiten de Nu-afleiding vallen iets anders is dan vrijgesteld zijn van de annotatieplicht en juist dat gat de aanleiding was om (na: -) in te voeren
 - 2026-08-10 | U2 | --subtle stond op #bdb6a3/#2a3358 en droeg drie onverenigbare rollen: tekstkleur op acht selectors in style.css (SC 1.4.3, 4,5:1), randkleur van invoervelden en icoonknoppen (SC 1.4.11, 3:1) en kleur van de 90-dagen-bestcurve, de hoogtereeks en de referentielijnen in de activity-detail-subapp (ook 3:1); als tekst haalde hij 1,69:1 in light en 1,28:1 in dark | gesplitst in --subtle (#8a8371/#6470a4, overal boven 3:1) en --text-subtle (#6b6455/#8890b5, overal boven 4,5:1); de referentiecurve blijft daarmee volgbaar maar secundair aan --accent op 12,15:1 respectievelijk 5,12:1
 - 2026-08-10 | U2 | de nieuwe --subtle-waarden zijn identiek aan wat de audit als apart --border-strong voorstelde voor invoervelden en icoonknoppen | dat extra token vervalt; de bevindingen F5, F11, A1 en A2 uit het auditrapport zijn hiermee samen één wijziging in drie bestanden
 - 2026-08-10 | U2 | het donkere blok in activity-detail/src/theme.css hermapte --z2 t/m --z5 wel maar --z1 niet, waardoor Z1 op 2,39:1 tegen --surface stond tegenover 5,12 tot 11,45 voor de vier zones erboven | --z1 dark op #7d86ab (5,03:1); dit is geen contrastdetail maar een afleesfout, want Z1 is bij polarized en pyramidal de band met het meeste volume en de zonebalk suggereerde in dark een verdeling die zwaarder in Z2-Z5 ligt dan de data zegt
