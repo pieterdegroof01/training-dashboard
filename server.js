@@ -25,6 +25,14 @@ const INDEX_HTML = _fss.readFileSync(path.join(__dirname, 'public', 'index.html'
   .replace(/\/js\/app\.js(\?[^"]*)?/g,     `/js/app.js?v=${_appHash}`);
 const NOT_FOUND_HTML = _fss.readFileSync(path.join(__dirname, 'public', '404.html'), 'utf8')
   .replace(/\/css\/style\.css(\?[^"]*)?/g, `/css/style.css?v=${_styleHash}`);
+const _landingCssHash = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'css', 'landing.css'))).digest('hex').slice(0, 10);
+const _landingJsHash  = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'js', 'landing.js'))).digest('hex').slice(0, 10);
+const LANDING_HTML = _fss.readFileSync(path.join(__dirname, 'views', 'landing.html'), 'utf8')
+  .replace(/\/css\/landing\.css(\?[^"]*)?/g, `/css/landing.css?v=${_landingCssHash}`)
+  .replace(/\/js\/landing\.js(\?[^"]*)?/g,   `/js/landing.js?v=${_landingJsHash}`);
+const SIGNUP_HTML = _fss.readFileSync(path.join(__dirname, 'views', 'aanmelden.html'), 'utf8')
+  .replace(/\/css\/landing\.css(\?[^"]*)?/g, `/css/landing.css?v=${_landingCssHash}`)
+  .replace(/\/js\/landing\.js(\?[^"]*)?/g,   `/js/landing.js?v=${_landingJsHash}`);
 
 const SCHEMA_VERSION = 1;
 const BYPASS_IPS = process.env.AUTH_BYPASS_IPS
@@ -59,30 +67,34 @@ const JWT_SECRET        = process.env.JWT_SECRET;
 
 const AUTH_EXCLUDED = [
   '/auth/strava', '/auth/strava/callback', '/webhook/strava',
-  '/api/login', '/login.html',
+  '/api/login', '/login.html', '/welkom', '/aanmelden',
 ];
+
+function hasValidSession(req) {
+  const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
+  if (BYPASS_IPS.length && BYPASS_IPS.includes(clientIp)) return true;
+  const token = req.cookies?.peakform_session;
+  if (!token) return false;
+  try {
+    jwt.verify(token, JWT_SECRET);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 app.use((req, res, next) => {
   // Alleen HTML-pagina's en API-aanroepen vereisen een sessie; statische
-  // assets (CSS, JS, afbeeldingen) mogen altijd door.
-  const needsAuth = req.path === '/' || req.path.endsWith('.html') || req.path.startsWith('/api/');
+  // assets (CSS, JS, afbeeldingen) mogen altijd door. De rootroute regelt
+  // haar eigen sessiecheck (zie app.get('/', ...)), want die redirect naar
+  // /welkom in plaats van /login.html.
+  const needsAuth = req.path.endsWith('.html') || req.path.startsWith('/api/');
   if (!needsAuth) return next();
   if (AUTH_EXCLUDED.includes(req.path)) return next();
-  const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
-  if (BYPASS_IPS.length && BYPASS_IPS.includes(clientIp)) return next();
-
-  const token = req.cookies?.peakform_session;
-  if (!token) {
-    if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/login.html');
-    return res.status(401).json({ error: 'Niet ingelogd' });
-  }
-  try {
-    jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    if (req.path === '/' || req.path.endsWith('.html')) return res.redirect('/login.html');
-    return res.status(401).json({ error: 'Sessie verlopen' });
-  }
+  if (hasValidSession(req)) return next();
+  if (req.path.endsWith('.html')) return res.redirect('/login.html');
+  const hadToken = !!req.cookies?.peakform_session;
+  return res.status(401).json({ error: hadToken ? 'Sessie verlopen' : 'Niet ingelogd' });
 });
 
 app.post('/api/login', async (req, res) => {
@@ -113,7 +125,14 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/', (req, res) => {
+  if (!hasValidSession(req)) return res.redirect(302, '/welkom');
   res.type('html').send(INDEX_HTML);
+});
+app.get('/welkom', (req, res) => {
+  res.type('html').send(LANDING_HTML);
+});
+app.get('/aanmelden', (req, res) => {
+  res.type('html').send(SIGNUP_HTML);
 });
 const TAB_ROUTES = ['week', 'activiteiten', 'voeding', 'coach', 'doelen', 'trends', 'instellingen'];
 TAB_ROUTES.forEach(slug => {

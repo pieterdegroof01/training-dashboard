@@ -136,6 +136,8 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] H11-7b Plateau-kaarten klikbaar en dismissbaar + skeletons Vandaag/Week (na: -)
 - [ ] H11-15 Consistentie-tile race + sync-timestamp fmtRelD (na: -)
 - [ ] O-fase Fase-waarden referentiekaart ATL/CTL/TSB per trainingsfase in de UI (Openstaand 23 juni) (na: -)
+- [~] L1 Publieke landingspagina op /welkom volgens design-reference/SPEC.md; / redirect 302 naar /welkom zonder sessie (na: -) (2026-08-11)
+- [ ] L2 Wachtlijst achter de CTA: /aanmelden wordt een echt opvangpunt in plaats van een mailto (na: L1, Laag 2 multi-tenant auth)
 
 ## Activity-detail subapp: activity-detail/src
 
@@ -190,6 +192,10 @@ afvinken zou suggereren dat er twee trajecten waren.
 
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
+
+- 2026-08-11 | L1 | de Doelen-tab en dashboard-CSS (style.css) zijn honderd kilobyte met eigen resets en tabspecifieke regels waar de landingspagina niets van gebruikt, en public/login.html liet eerder al zien dat een derde inline-tokenkopie zonder centrale bron tot bitrot leidt (U2) | landing.css is zelfstandig en dupliceert het kleurtokenblok letterlijk uit design-reference/tokens/colors.css in plaats van style.css te importeren; de duplicatie is bewust, want de landingspagina en het dashboard hebben losstaande releasepaden en style.css mag straks vrij wijzigen zonder de marketingpagina te raken
+- 2026-08-11 | L1 | een cookie-conditionele / (dezelfde route toont dashboard of landing afhankelijk van sessie) zou de no-store-cacheheader op / moeten vertrouwen om nooit een CDN of browser de verkeerde variant te laten cachen voor de verkeerde gebruiker | aparte publieke URL /welkom met 302-redirect vanaf / wanneer hasValidSession(req) false is; /welkom en /aanmelden zijn voor iedereen identiek en dragen daarom bewust geen no-store-header, wat cachevergiftiging op / vermijdt zonder de bestaande no-store-regel op / en *.html aan te raken
+- 2026-08-11 | L2 | de CTA "Begin vandaag" moet ergens naartoe wijzen, maar een echt aanmeldformulier veronderstelt multi-tenant accounts die er nog niet zijn | /aanmelden toont voorlopig een mailto-link in plaats van een formulier; L2 (een echt opvangpunt) staat genoteerd als (na: L1, Laag 2 multi-tenant auth) en wordt pas gebouwd zodra die laag er is, zodat er nu geen half werkend formulier zonder backend ontstaat
 
 - 2026-08-10 | PROGRESS.md | het bestand was geordend op herkomst (welke handoff), en herkomst is geschiedenis: identiek werk stond daardoor verspreid over secties die elkaar niet kenden, met toegankelijkheid in H11-6 én U4-U8, ankerhistorisering in R10, HC-3, HC-4 en HC-5, en browserverificatie als losse regel in vijf secties | herindeling op code-pad met herkomst als tag; ID's blijven ongewijzigd en samengevoegde items dragen (omvat: ...) zodat elke besluitlogverwijzing vindbaar blijft; samenvoegcriterium vastgelegd als gedeeld code-pad plus gedeelde meetkosten, of het vermijden van dezelfde UI twee keer bouwen
 - 2026-08-10 | PROGRESS.md | van de vijftig open items hadden er tweeëndertig geen (na: ...) omdat alleen H12 en H13 als actief traject golden, dus de Nu-afleiding zag maar achttien items en zou stilvallen zodra die twee trajecten leeglopen | het begrip actief traject vervangen door de eis dat elk open item (na: X) of (na: -) draagt; Verificatie en Beslispunten staan expliciet buiten de afleiding
