@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<script>(function(){try{var t=localStorage.getItem('pf-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
+<title>Beheer — PeakForm</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 0 0 8px 0;
+  z-index: 100;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+.pf-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pf-header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+main {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 960px;
+}
+
+.pf-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.pf-panel h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.pf-panel h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 16px 0 8px;
+}
+
+.pf-panel-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.pf-panel-actions button,
+.pf-panel-actions a {
+  background: var(--surface2);
+  border: 1px solid var(--subtle);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 12px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.pf-panel-actions button:hover,
+.pf-panel-actions a:hover {
+  border-color: var(--accent);
+}
+
+.pf-loading {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pf-error {
+  color: var(--red);
+  font-size: 13px;
+}
+
+.pf-error[hidden] {
+  display: none;
+}
+
+.pf-kpi-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pf-kpi {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 12px 16px;
+  min-width: 120px;
+}
+
+.pf-kpi-value {
+  font-size: 22px;
+  font-weight: 800;
+  font-family: 'Inter Tight', sans-serif;
+}
+
+.pf-kpi-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+.pf-sport-dist ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pf-sport-dist li {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.pf-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+th, td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--divider);
+}
+
+th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+}
+
+.pf-panel-stub {
+  color: var(--subtle);
+  font-size: 13px;
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Direct naar de inhoud</a>
+<header class="pf-header">
+  <h1>Beheer</h1>
+</header>
+<main id="main-content">
+  <section class="pf-panel" id="pf-panel-wachtlijst">
+    <h2>Wachtlijst</h2>
+    <div class="pf-panel-actions">
+      <button type="button" id="wachtlijst-refresh">Vernieuwen</button>
+      <a id="wachtlijst-csv" href="/api/admin/waitlist.csv">Download CSV</a>
+    </div>
+    <p class="pf-loading" data-loading>Laden…</p>
+    <p class="pf-error" data-error role="alert" hidden></p>
+    <div class="pf-panel-content" data-content></div>
+  </section>
+
+  <!-- L7b: integratiestatus (Strava-tokenvervaldatum, refreshbron, settings.lastSync, laatste Hevy-workout, webhookconfiguratie) -->
+  <section class="pf-panel" id="pf-panel-integraties"></section>
+
+  <!-- L7c: datahygiëne (ankerstatus, tss_source-verdeling, voorschriften zonder outcome, outcomes zonder sleutels, dubbele actieve voorschriften) -->
+  <section class="pf-panel" id="pf-panel-hygiene"></section>
+
+  <!-- L7d: systeem (commit-SHA, environment, DB-latentie, rijtellingen per tabel, streams-cachegrootte) -->
+  <section class="pf-panel" id="pf-panel-systeem"></section>
+</main>
+<script>
+(function () {
+  function clearContent(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+  }
+
+  function loadPanel(id, url, renderFn) {
+    var panel = document.getElementById(id);
+    var loadingEl = panel.querySelector('[data-loading]');
+    var errorEl = panel.querySelector('[data-error]');
+    var contentEl = panel.querySelector('[data-content]');
+    loadingEl.hidden = false;
+    errorEl.hidden = true;
+    errorEl.textContent = '';
+    fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        loadingEl.hidden = true;
+        renderFn(data, contentEl);
+      })
+      .catch(function (err) {
+        loadingEl.hidden = true;
+        errorEl.hidden = false;
+        errorEl.textContent = 'Kon niet laden: ' + err.message;
+      });
+  }
+
+  function renderWaitlist(data, contentEl) {
+    clearContent(contentEl);
+    var stats = data.stats || {};
+    var rows = data.rows || [];
+
+    var kpiWrap = document.createElement('div');
+    kpiWrap.className = 'pf-kpi-row';
+    var kpis = [
+      ['Totaal', stats.total],
+      ['Laatste 7 dagen', stats.last7],
+      ['Laatste 30 dagen', stats.last30]
+    ];
+    kpis.forEach(function (kpi) {
+      var cell = document.createElement('div');
+      cell.className = 'pf-kpi';
+      var valueEl = document.createElement('div');
+      valueEl.className = 'pf-kpi-value';
+      valueEl.textContent = (kpi[1] !== undefined && kpi[1] !== null) ? String(kpi[1]) : '—';
+      var labelEl = document.createElement('div');
+      labelEl.className = 'pf-kpi-label';
+      labelEl.textContent = kpi[0];
+      cell.appendChild(valueEl);
+      cell.appendChild(labelEl);
+      kpiWrap.appendChild(cell);
+    });
+    contentEl.appendChild(kpiWrap);
+
+    var sportWrap = document.createElement('div');
+    sportWrap.className = 'pf-sport-dist';
+    var sportTitle = document.createElement('h3');
+    sportTitle.textContent = 'Verdeling per sport';
+    sportWrap.appendChild(sportTitle);
+    var sportList = document.createElement('ul');
+    var perSport = stats.perSport || {};
+    var sportKeys = Object.keys(perSport);
+    if (sportKeys.length === 0) {
+      var noneLi = document.createElement('li');
+      noneLi.textContent = 'Geen data';
+      sportList.appendChild(noneLi);
+    } else {
+      sportKeys.forEach(function (key) {
+        var li = document.createElement('li');
+        li.textContent = key + ': ' + perSport[key];
+        sportList.appendChild(li);
+      });
+    }
+    sportWrap.appendChild(sportList);
+    contentEl.appendChild(sportWrap);
+
+    if (rows.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'pf-empty';
+      empty.textContent = 'Nog geen aanmeldingen op de wachtlijst.';
+      contentEl.appendChild(empty);
+      return;
+    }
+
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var headRow = document.createElement('tr');
+    ['Datum', 'E-mail', 'Sport', 'Notitie'].forEach(function (label) {
+      var th = document.createElement('th');
+      th.textContent = label;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    rows.forEach(function (row) {
+      var tr = document.createElement('tr');
+
+      var dateCell = document.createElement('td');
+      var d = row.created_at ? new Date(row.created_at) : null;
+      dateCell.textContent = d ? d.toLocaleString('nl-NL') : '';
+      tr.appendChild(dateCell);
+
+      var emailCell = document.createElement('td');
+      emailCell.textContent = row.email || '';
+      tr.appendChild(emailCell);
+
+      var sportCell = document.createElement('td');
+      sportCell.textContent = row.sport || '';
+      tr.appendChild(sportCell);
+
+      var noteCell = document.createElement('td');
+      noteCell.textContent = row.note || '';
+      tr.appendChild(noteCell);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    contentEl.appendChild(table);
+  }
+
+  function refreshWaitlist() {
+    loadPanel('pf-panel-wachtlijst', '/api/admin/waitlist', renderWaitlist);
+  }
+
+  document.getElementById('wachtlijst-refresh').addEventListener('click', refreshWaitlist);
+  refreshWaitlist();
+})();
+</script>
+</body>
+</html>

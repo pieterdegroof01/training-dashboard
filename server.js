@@ -13,7 +13,8 @@ const engine = require('./engine');
 const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession, recomputeSessionLoad } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
-const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate, addToWaitlist } = require('./db');
+const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate, addToWaitlist, listWaitlist, waitlistStats } = require('./db');
+const { toCsv } = require('./csv');
 const { legacyToSlots, slotsToLegacyDay, mergeAvailabilityView } = require('./availability');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
@@ -3900,6 +3901,43 @@ app.get('/activity/:id', (req, res) => {
 
 app.get('/workout/:id', (req, res) => {
   res.type('html').send(INDEX_HTML);
+});
+
+// ── Beheerscherm: leesendpoints ─────────────────────────────────────────────
+app.get('/api/admin/waitlist', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit);
+    const offset = Number(req.query.offset);
+    const [stats, rows] = await Promise.all([
+      waitlistStats(),
+      listWaitlist({
+        limit: Number.isNaN(limit) ? undefined : limit,
+        offset: Number.isNaN(offset) ? undefined : offset,
+      }),
+    ]);
+    res.json({ stats, rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/waitlist.csv', async (req, res) => {
+  try {
+    const rows = await listWaitlist({ limit: 2000 });
+    const csv = toCsv(rows, [
+      { key: 'created_at', label: 'created_at' },
+      { key: 'email', label: 'email' },
+      { key: 'sport', label: 'sport' },
+      { key: 'note', label: 'note' },
+      { key: 'source', label: 'source' },
+    ]);
+    const filename = `peakform-wachtlijst-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('﻿' + csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Eenmalige migratie: data.json → Postgres ──────────────────────────────────

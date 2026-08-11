@@ -1023,6 +1023,41 @@ async function countWaitlist() {
   return parseInt(rows[0].count, 10);
 }
 
+async function listWaitlist({ limit = 500, offset = 0 } = {}) {
+  const clampedLimit = Math.min(2000, Math.max(1, limit));
+  const { rows } = await query(
+    `SELECT id, email, sport, note, source, created_at FROM waitlist
+     ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+    [clampedLimit, offset]
+  );
+  return rows;
+}
+
+async function waitlistStats() {
+  const { rows: totals } = await query(
+    `SELECT COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE created_at > now() - interval '7 days') AS last7,
+            COUNT(*) FILTER (WHERE created_at > now() - interval '30 days') AS last30
+     FROM waitlist`,
+    []
+  );
+  const { rows: perSportRows } = await query(
+    `SELECT COALESCE(sport, 'onbekend') AS sport, COUNT(*) AS count
+     FROM waitlist GROUP BY COALESCE(sport, 'onbekend')`,
+    []
+  );
+  const perSport = {};
+  for (const row of perSportRows) {
+    perSport[row.sport] = parseInt(row.count, 10);
+  }
+  return {
+    total: parseInt(totals[0].total, 10),
+    last7: parseInt(totals[0].last7, 10),
+    last30: parseInt(totals[0].last30, 10),
+    perSport,
+  };
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
@@ -1040,5 +1075,5 @@ module.exports = {
   upsertMesocycle, getMesocycles, getMesocycleForWeek,
   insertReview, getReviews,
   replaceProjections, getProjections,
-  addToWaitlist, countWaitlist,
+  addToWaitlist, countWaitlist, listWaitlist, waitlistStats,
 };

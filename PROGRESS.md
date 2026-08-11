@@ -11,8 +11,8 @@ secties zijn statusinventaris.
 1. [vast] V1 Verificatiesessie: nul code, ruimt zes losse verificatiepunten op in
    één browsersessie en zet het drempeltempo op productie aan, waar R9 nu zonder
    anker op de platte fallback draait.
-2. C5h session_outcomes multimodaal (na: C5g, klaar). Ontgrendelt C5c en is een
-   klok-item: elke week zonder is een week krachtuitkomsten die niet dedupliceren.
+2. [vast] L7 Beheerscherm-traject (L7a-L7e). Pieter heeft dit op 2026-08-11
+   expliciet boven C5h gesteld.
 3. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9, dat aanlooptijd nodig heeft
    omdat het op voldoende session_outcomes wacht.
 
@@ -142,6 +142,11 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] L4 Portretfoto in de makersectie van /welkom; markup staat uitgecommentarieerd klaar, CSS bestaat (na: L1)
 - [ ] L5 Juridische pagina's privacybeleid, voorwaarden en gegevensverwerking; de footerkolom Juridisch is nu weggelaten en de noindex op /welkom kan er niet af zolang deze ontbreken bij publieke registratie (na: -)
 - [ ] L6 Changelogpagina achter de footerlink Wat er verandert; link nu weggelaten (na: -)
+- [x] L7a Beheerscherm-shell public/admin.html met paneelloader en wachtlijstpaneel; GET /api/admin/waitlist en /api/admin/waitlist.csv, plus generieke csv.js (na: L2) (2026-08-11)
+- [ ] L7b Beheerpaneel integratiestatus: Strava-tokenvervaldatum en refreshbron, settings.lastSync, laatste Hevy-workout, webhookconfiguratie (na: L7a)
+- [ ] L7c Beheerpaneel datahygiëne: ankerstatus thresholdPace/FTP/gewicht, verdeling tss_source, actieve voorschriften zonder outcome, outcomes zonder beide sleutels, dubbele actieve voorschriften (na: L7a)
+- [ ] L7d Beheerpaneel systeem: commit-SHA, environment, DB-latentie, rijtellingen per tabel, streams-cachegrootte (na: L7a)
+- [ ] L7e AI-verbruikspaneel; vergt eerst logging van Anthropic-aanroepen in het aanroeppad, dat is instrumentatie en geen scherm (na: L7d)
 
 ## Activity-detail subapp: activity-detail/src
 
@@ -200,6 +205,9 @@ afvinken zou suggereren dat er twee trajecten waren.
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-08-11 | L7 vs C5h | C5h draagt [klok] en zou normaal voorrang krijgen in de Nu-afleiding, maar Pieter heeft het beheerscherm er expliciet boven gesteld | C5h is bewust uitgesteld; krachtoutcomes blijven tot die tijd binnenkomen zonder dedupliceerbare sleutel (strava_id is BIGINT en kan geen Hevy-workout-id dragen) en moeten later met de hand opgeruimd worden
+- 2026-08-11 | L7a | needsAuth dekt alleen paden die op .html eindigen of met /api/ beginnen (zie P-tabgate); een kale route zoals app.get('/admin', ...) zou dus, net als de zeven SPA-tabroutes, buiten de sessiegate vallen | het beheerscherm is gebouwd als statisch public/admin.html in plaats van een kale route, zodat de bestaande .html-tak van needsAuth de gate vanzelf sluit zonder AUTH_EXCLUDED of needsAuth aan te raken
+- 2026-08-11 | L7a | AUTH_EXCLUDED is padgebaseerd, niet methodegebaseerd: het bestaande pad '/api/waitlist' in die lijst sluit alle methodes uit, dus een GET op datzelfde pad zou de sessiegate net zo goed omzeilen als de POST waarvoor het bedoeld is | de leesendpoints voor het beheerscherm kregen een eigen /api/admin/-prefix buiten AUTH_EXCLUDED, plus een regressietest die het AUTH_EXCLUDED-array-literal snijdt en asserteert dat daar geen /api/admin-pad in staat
 - 2026-08-11 | L2 | de wachtlijst achter de CTA was tot nu toe een mailto-link zonder opvang: die ving niets op, waardoor al het marketingverkeer dat op "Begin vandaag" klikte verloren ging in plaats van vastgelegd te worden; de annotatie (na: L1, Laag 2 multi-tenant auth) veronderstelde dat dit moest wachten op volwaardige multi-tenant accounts | /aanmelden en POST /api/waitlist gebouwd als losstaand opvangpunt met een eigen waitlist-tabel, zonder koppeling aan users/auth, dus de wachtlijst hoefde niet op multi-tenant auth te wachten; het endpoint antwoordt altijd met 200 { ok: true }, ook bij een duplicaat e-mailadres, zodat de respons nooit lekt of een adres al op de lijst staat
 - 2026-08-11 | U2b | er waren drie kopieën van het kleurtokenstelsel: style.css (het origineel), landing.css (letterlijk gedupliceerd, zie de L1-besluitlogregel hieronder) en activity-detail/src/theme.css (sinds U2); alle drie moesten bij elke tokenwijziging apart worden bijgewerkt, wat U2 zelf al noodzaakte om --z1 dark op theme.css na te dragen | de 48 gedeelde light+dark-tokens staan nu één keer in public/css/tokens.css; style.css bevat na deze commit geen enkele custom-property-definitie meer, landing.css alleen nog zijn eigen acht paginaspecifieke extra's (--bg-alt, --accent-border, --z1..--z5, --fill-opacity) die niet in style.css bestonden; theme.css blijft een vierde, aparte kopie (U2c), want die subapp wordt door Vite gebundeld en kan niet zomaar naar /css/tokens.css wijzen
 - 2026-08-11 | U2b | @import in tokens.css of in de bestaande stylesheets zou het laden sequentieel maken (de browser moet tokens.css volledig ophalen en parsen voordat de importerende stylesheet zelf verder mag), en is bovendien render-blocking totdat die keten rond is | een tweede, eigen `<link rel="stylesheet">` per HTML-bestand, altijd vóór de bestaande stylesheet zodat de cascade-volgorde tokens vóór gebruik garandeert; browsers kunnen beide links parallel ophalen
