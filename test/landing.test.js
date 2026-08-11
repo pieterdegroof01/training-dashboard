@@ -165,8 +165,8 @@ describe('views/aanmelden.html', () => {
     assert.ok(!SIGNUP_HTML.includes('<script src="http'));
   });
 
-  test('robots-meta noindex, nofollow aanwezig', () => {
-    assert.match(SIGNUP_HTML, /<meta name="robots" content="noindex, nofollow">/);
+  test('geen robots-meta noindex, nofollow (pagina moet vindbaar zijn)', () => {
+    assert.doesNotMatch(SIGNUP_HTML, /<meta name="robots" content="noindex, nofollow">/);
   });
 
   test('hallo@peakform.me komt niet voor', () => {

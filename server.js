@@ -13,7 +13,7 @@ const engine = require('./engine');
 const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession, recomputeSessionLoad } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
-const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate } = require('./db');
+const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate, addToWaitlist } = require('./db');
 const { legacyToSlots, slotsToLegacyDay, mergeAvailabilityView } = require('./availability');
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
@@ -72,7 +72,7 @@ const JWT_SECRET        = process.env.JWT_SECRET;
 
 const AUTH_EXCLUDED = [
   '/auth/strava', '/auth/strava/callback', '/webhook/strava',
-  '/api/login', '/login.html', '/welkom', '/aanmelden',
+  '/api/login', '/login.html', '/welkom', '/aanmelden', '/api/waitlist',
 ];
 
 function hasValidSession(req) {
@@ -138,6 +138,55 @@ app.get('/welkom', (req, res) => {
 });
 app.get('/aanmelden', (req, res) => {
   res.type('html').send(SIGNUP_HTML);
+});
+
+const WAITLIST_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WAITLIST_RATE_LIMIT = 5;
+const WAITLIST_RATE_WINDOW_MS = 60 * 60 * 1000;
+const _waitlistRequests = new Map();
+
+function isWaitlistRateLimited(ip) {
+  const now = Date.now();
+  for (const [key, timestamps] of _waitlistRequests) {
+    const fresh = timestamps.filter(t => now - t < WAITLIST_RATE_WINDOW_MS);
+    if (fresh.length === 0) _waitlistRequests.delete(key);
+    else _waitlistRequests.set(key, fresh);
+  }
+  const timestamps = _waitlistRequests.get(ip) || [];
+  if (timestamps.length >= WAITLIST_RATE_LIMIT) return true;
+  timestamps.push(now);
+  _waitlistRequests.set(ip, timestamps);
+  return false;
+}
+
+app.post('/api/waitlist', async (req, res) => {
+  try {
+    const { email, sport, note, hp } = req.body || {};
+    if (hp) return res.json({ ok: true }); // honeypot gevuld: doe alsof het gelukt is, verstuur niets
+
+    const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
+    if (isWaitlistRateLimited(clientIp)) return res.json({ ok: true });
+
+    if (typeof email !== 'string' || email.length > 254 || !WAITLIST_EMAIL_RE.test(email)) {
+      return res.json({ ok: true });
+    }
+
+    const secret = process.env.SESSION_SECRET || JWT_SECRET;
+    const ipHash = secret ? crypto.createHash('sha256').update(clientIp + secret).digest('hex') : null;
+
+    await addToWaitlist({
+      email: email.trim().toLowerCase(),
+      sport: typeof sport === 'string' && sport ? sport.slice(0, 100) : null,
+      note: typeof note === 'string' ? note.slice(0, 500) : null,
+      source: 'aanmelden',
+      ipHash,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Waitlist-opname mislukt:', err.message);
+    res.json({ ok: true });
+  }
 });
 const TAB_ROUTES = ['week', 'activiteiten', 'voeding', 'coach', 'doelen', 'trends', 'instellingen'];
 TAB_ROUTES.forEach(slug => {

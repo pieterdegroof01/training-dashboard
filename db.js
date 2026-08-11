@@ -260,6 +260,16 @@ async function initSchema() {
       created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS waitlist (
+      id           SERIAL PRIMARY KEY,
+      email        TEXT NOT NULL UNIQUE,
+      sport        TEXT,
+      note         TEXT,
+      source       TEXT,
+      ip_hash      TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     CREATE TABLE IF NOT EXISTS projections (
       id           BIGSERIAL PRIMARY KEY,
       user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -997,6 +1007,22 @@ async function getProjections(userId, planRunId) {
   return rows;
 }
 
+async function addToWaitlist({ email, sport, note, source, ipHash }) {
+  const { rows } = await query(
+    `INSERT INTO waitlist (email, sport, note, source, ip_hash)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (email) DO NOTHING
+     RETURNING id`,
+    [email, sport ?? null, note ?? null, source ?? null, ipHash ?? null]
+  );
+  return { created: rows.length > 0 };
+}
+
+async function countWaitlist() {
+  const { rows } = await query('SELECT COUNT(*) FROM waitlist', []);
+  return parseInt(rows[0].count, 10);
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
@@ -1014,4 +1040,5 @@ module.exports = {
   upsertMesocycle, getMesocycles, getMesocycleForWeek,
   insertReview, getReviews,
   replaceProjections, getProjections,
+  addToWaitlist, countWaitlist,
 };

@@ -5,13 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Aanmelden — PeakForm</title>
 <meta name="description" content="PeakForm is nog in besloten opbouw. Laat een bericht achter en je hoort van ons zodra er ruimte is.">
-<meta name="robots" content="noindex, nofollow">
 <link rel="canonical" href="https://peakform.me/aanmelden">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@700;800&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/landing.css">
+<style>
+.signup-form { display: flex; flex-direction: column; gap: 18px; margin-top: 4px; }
+.signup-field { display: flex; flex-direction: column; gap: 6px; }
+.signup-field label { font-family: var(--font-body); font-size: 14px; font-weight: 600; color: var(--text); }
+.signup-field input, .signup-field select, .signup-field textarea {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.signup-field textarea { resize: vertical; min-height: 80px; }
+.signup-field input:focus, .signup-field select:focus, .signup-field textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.signup-hp {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.signup-submit { height: 48px; border: none; font-size: 15px; margin-top: 4px; }
+.signup-status { font-family: var(--font-body); font-size: 14px; min-height: 20px; }
+.signup-status.is-error { color: var(--red); }
+.signup-status.is-success { color: var(--green); font-weight: 600; }
+</style>
 </head>
 <body>
 
@@ -25,12 +55,95 @@
 <main class="signup-main">
   <div class="signup-card">
     <h1 class="signup-title">PeakForm is nog in besloten opbouw.</h1>
-    <p class="signup-copy">Het systeem is nog in ontwikkeling en nog niet open voor nieuwe accounts. Zodra er ruimte is, hoor je van ons.</p>
+    <p class="signup-copy">Het systeem is af genoeg om te gebruiken en nog niet open voor iedereen. Laat je e-mailadres achter en je hoort het zodra er ruimte is.</p>
+
+    <form id="signup-form" class="signup-form" novalidate>
+      <div class="signup-field">
+        <label for="email">E-mailadres</label>
+        <input type="email" id="email" name="email" autocomplete="email" maxlength="254" required>
+      </div>
+
+      <div class="signup-field">
+        <label for="sport">Wat train je?</label>
+        <select id="sport" name="sport">
+          <option value="">Maak een keuze (optioneel)</option>
+          <option value="Fietsen en kracht">Fietsen en kracht</option>
+          <option value="Hardlopen en kracht">Hardlopen en kracht</option>
+          <option value="Alle drie">Alle drie</option>
+          <option value="Anders">Anders</option>
+        </select>
+      </div>
+
+      <div class="signup-field">
+        <label for="note">Waar loop je nu tegenaan?</label>
+        <textarea id="note" name="note" maxlength="500" rows="4"></textarea>
+      </div>
+
+      <div class="signup-hp" aria-hidden="true">
+        <label for="hp">Laat dit veld leeg</label>
+        <input type="text" id="hp" name="hp" tabindex="-1" autocomplete="off">
+      </div>
+
+      <button type="submit" class="btn btn-primary signup-submit">Zet me op de lijst</button>
+      <p id="signup-status" class="signup-status" role="status" aria-live="polite"></p>
+    </form>
+
     <a class="signup-back" href="/welkom">← Terug naar peakform.me</a>
   </div>
 </main>
 
 <footer></footer>
 
+<script>
+(function () {
+  var form = document.getElementById('signup-form');
+  var status = document.getElementById('signup-status');
+  var submitBtn = form.querySelector('button[type="submit"]');
+  var hp = document.getElementById('hp');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    if (hp.value) {
+      form.hidden = true;
+      status.textContent = 'Je staat op de lijst. Je hoort van ons zodra er ruimte is.';
+      status.className = 'signup-status is-success';
+      return;
+    }
+
+    status.textContent = '';
+    status.className = 'signup-status';
+    submitBtn.disabled = true;
+
+    var payload = {
+      email: document.getElementById('email').value.trim(),
+      sport: document.getElementById('sport').value,
+      note: document.getElementById('note').value,
+      hp: hp.value,
+    };
+
+    fetch('/api/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('Onverwachte serverfout');
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || !data.ok) throw new Error('Onverwachte respons');
+        form.hidden = true;
+        status.textContent = 'Je staat op de lijst. Je hoort van ons zodra er ruimte is.';
+        status.className = 'signup-status is-success';
+      })
+      .catch(function () {
+        status.textContent = 'Er ging iets mis bij het versturen. Probeer het straks nog eens.';
+        status.className = 'signup-status is-error';
+        submitBtn.disabled = false;
+      });
+  });
+})();
+</script>
 </body>
 </html>
