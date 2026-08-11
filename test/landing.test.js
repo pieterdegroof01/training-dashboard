@@ -73,6 +73,14 @@ describe('views/landing.html', () => {
     }
   });
 
+  test('precies één van de twee diagram-figures draagt statisch aria-hidden="true", en dat is de desktopvariant (viewBox 620×470)', () => {
+    const figures = [...LANDING_HTML.matchAll(/<figure class="science-diagram[^>]*>[\s\S]*?<\/figure>/g)].map(m => m[0]);
+    assert.strictEqual(figures.length, 2, 'verwacht precies twee diagram-figures');
+    const hiddenFigures = figures.filter(fig => /^<figure[^>]*\baria-hidden="true"/.test(fig));
+    assert.strictEqual(hiddenFigures.length, 1, 'precies één figure moet statisch aria-hidden="true" dragen');
+    assert.ok(hiddenFigures[0].includes('viewBox="0 0 620 470"'), 'het verborgen figure-element moet de desktopvariant (620×470) zijn');
+  });
+
   test('de zes metrieklabels komen elk exact één keer voor', () => {
     for (const label of ['Readiness', 'ATL CTL TSB', 'ACWR', 'Monotonie', 'Sessie van vandaag', 'Voeding en slaap']) {
       const matches = LANDING_HTML.match(new RegExp(`<div class="metric-label">${label}</div>`, 'g'));

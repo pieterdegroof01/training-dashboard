@@ -1,0 +1,55 @@
+/* ═══ TOKENS — LIGHT (default) ═══ */
+:root {
+  --bg: #efeadf;
+  --surface: #fdfbf5;
+  --surface2: #f4efe2;
+  --card: #fdfbf5;
+  --card2: #f4efe2;
+  --bg-secondary: #f4efe2;
+  --text: #06112e;
+  --text-inv: #fdfbf5;
+  --muted: #4a5375;
+  --subtle: #8a8371;
+  --text-subtle: #6b6455;
+  --border: #d8d1bf;
+  --border2: #d0c8b6;
+  --divider: #e3dccc;
+  --accent: #012296;
+  --accent2: #0838c2;
+  --accent-soft: rgba(1, 34, 150, 0.08);
+  --blue: #012296;
+  --green: #175a3b;
+  --red: #8a2615;
+  --yellow: #8a6315;
+  --purple: #6b4fa0;
+  --nav-bg: rgba(253, 251, 245, 0.92);
+  --nav-border: #d8d1bf;
+}
+
+/* ═══ TOKENS — DARK (klaar voor Fase B toggle) ═══ */
+[data-theme="dark"] {
+  --bg: #04081a;
+  --surface: #0d1530;
+  --surface2: #16204a;
+  --card: #0d1530;
+  --card2: #16204a;
+  --bg-secondary: #16204a;
+  --text: #f6f2e6;
+  --text-inv: #06112e;
+  --muted: #aab3d0;
+  --subtle: #6470a4;
+  --text-subtle: #8890b5;
+  --border: #1f2a52;
+  --border2: #243056;
+  --divider: #1a2548;
+  --accent: #5b80ff;
+  --accent2: #9cb1ff;
+  --accent-soft: rgba(91, 128, 255, 0.14);
+  --blue: #5b80ff;
+  --green: #7adba0;
+  --red: #ff8a8a;
+  --yellow: #f4c95d;
+  --purple: #c4b5fd;
+  --nav-bg: rgba(13, 21, 48, 0.92);
+  --nav-border: #1f2a52;
+}
