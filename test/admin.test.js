@@ -92,3 +92,12 @@ describe('server.js: AUTH_EXCLUDED regressiegard', () => {
     }
   });
 });
+
+describe('server.js: GET /api/admin/integraties roept getStravaToken niet aan', () => {
+  test('het handlerblok bevat de string getStravaToken( niet', () => {
+    const match = SERVER_JS.match(/^app\.get\('\/api\/admin\/integraties'[\s\S]*?\n\}\);/m);
+    assert.ok(match, "handlerblok voor GET /api/admin/integraties niet gevonden in server.js");
+    const handlerBlock = match[0];
+    assert.ok(!handlerBlock.includes('getStravaToken('), 'handlerblok roept getStravaToken( aan; een leesendpoint mag geen tokenrefresh uitlokken');
+  });
+});

@@ -190,6 +190,53 @@ th {
   color: var(--subtle);
   font-size: 13px;
 }
+
+.pf-status-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--divider);
+  font-size: 13px;
+}
+
+.pf-status-row:last-child {
+  border-bottom: none;
+}
+
+.pf-status-label {
+  flex: 0 0 260px;
+  color: var(--muted);
+}
+
+.pf-status-value {
+  flex: 1;
+}
+
+.pf-status-level {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.pf-status-goed .pf-status-level {
+  color: var(--green);
+  background: rgba(23, 90, 59, 0.12);
+}
+
+.pf-status-let-op .pf-status-level {
+  color: var(--yellow);
+  background: rgba(138, 99, 21, 0.12);
+}
+
+.pf-status-fout .pf-status-level {
+  color: var(--red);
+  background: rgba(138, 38, 21, 0.12);
+}
 </style>
 </head>
 <body>
@@ -209,8 +256,12 @@ th {
     <div class="pf-panel-content" data-content></div>
   </section>
 
-  <!-- L7b: integratiestatus (Strava-tokenvervaldatum, refreshbron, settings.lastSync, laatste Hevy-workout, webhookconfiguratie) -->
-  <section class="pf-panel" id="pf-panel-integraties"></section>
+  <section class="pf-panel" id="pf-panel-integraties">
+    <h2>Integraties</h2>
+    <p class="pf-loading" data-loading>Laden…</p>
+    <p class="pf-error" data-error role="alert" hidden></p>
+    <div class="pf-panel-content" data-content></div>
+  </section>
 
   <!-- L7c: datahygiëne (ankerstatus, tss_source-verdeling, voorschriften zonder outcome, outcomes zonder sleutels, dubbele actieve voorschriften) -->
   <section class="pf-panel" id="pf-panel-hygiene"></section>
@@ -349,6 +400,125 @@ th {
 
   document.getElementById('wachtlijst-refresh').addEventListener('click', refreshWaitlist);
   refreshWaitlist();
+
+  function buildStatusRow(label, value, level) {
+    var levelText = level === 'fout' ? 'Fout' : (level === 'let-op' ? 'Let op' : 'Goed');
+    var row = document.createElement('div');
+    row.className = 'pf-status-row pf-status-' + level;
+    var labelEl = document.createElement('span');
+    labelEl.className = 'pf-status-label';
+    labelEl.textContent = label;
+    var valueEl = document.createElement('span');
+    valueEl.className = 'pf-status-value';
+    valueEl.textContent = value;
+    var levelEl = document.createElement('span');
+    levelEl.className = 'pf-status-level';
+    levelEl.textContent = levelText;
+    row.appendChild(labelEl);
+    row.appendChild(valueEl);
+    row.appendChild(levelEl);
+    return row;
+  }
+
+  function renderIntegraties(data, contentEl) {
+    clearContent(contentEl);
+
+    var strava = data.strava || {};
+    var lastSync = data.lastSync || {};
+    var activiteiten = data.activiteiten || {};
+    var hevy = data.hevy || {};
+    var streams = data.streams || {};
+
+    var HOUR = 3600;
+    var DAY_MS = 86400 * 1000;
+
+    var rows = [];
+
+    rows.push({
+      label: 'Strava refresh token geconfigureerd',
+      value: strava.refreshTokenConfigured ? 'Ja' : 'Nee',
+      level: strava.refreshTokenConfigured ? 'goed' : 'fout'
+    });
+
+    rows.push({
+      label: 'Strava client ID geconfigureerd',
+      value: strava.clientIdConfigured ? 'Ja' : 'Nee',
+      level: strava.clientIdConfigured ? 'goed' : 'let-op'
+    });
+
+    rows.push({
+      label: 'Strava webhook verify token geconfigureerd',
+      value: strava.verifyTokenConfigured ? 'Ja' : 'Nee',
+      level: strava.verifyTokenConfigured ? 'goed' : 'let-op'
+    });
+
+    var tokenExpired = !strava.tokenInCache ||
+      (typeof strava.secondsRemaining === 'number' && strava.secondsRemaining <= 0);
+    var tokenValue;
+    if (!strava.tokenInCache) {
+      tokenValue = 'leeg';
+    } else if (tokenExpired) {
+      tokenValue = 'verlopen';
+    } else {
+      tokenValue = 'geldig tot ' + (strava.expiresAt ? new Date(strava.expiresAt).toLocaleString('nl-NL') : 'onbekend');
+    }
+    rows.push({
+      label: 'Strava-tokencache',
+      value: tokenValue,
+      level: tokenExpired ? 'fout' : 'goed'
+    });
+
+    var lastSyncAgeHours = typeof lastSync.secondsAgo === 'number' ? lastSync.secondsAgo / HOUR : null;
+    var lastSyncStale = !lastSync.value || (lastSyncAgeHours !== null && lastSyncAgeHours > 48);
+    rows.push({
+      label: 'Laatste sync',
+      value: lastSync.value ? new Date(lastSync.value).toLocaleString('nl-NL') : 'nooit',
+      level: lastSyncStale ? 'fout' : 'goed'
+    });
+
+    var lastActivityDate = activiteiten.laatsteStartDate ? new Date(activiteiten.laatsteStartDate) : null;
+    var lastActivityAgeDays = lastActivityDate ? (Date.now() - lastActivityDate.getTime()) / DAY_MS : null;
+    var activityStale = !lastActivityDate || lastActivityAgeDays > 14;
+    rows.push({
+      label: 'Laatste Strava-activiteit',
+      value: (activiteiten.totaal || 0) + ' activiteiten, laatste: ' +
+        (lastActivityDate ? lastActivityDate.toLocaleString('nl-NL') : 'geen'),
+      level: activityStale ? 'fout' : 'goed'
+    });
+
+    rows.push({
+      label: 'Hevy API-sleutel geconfigureerd',
+      value: hevy.apiKeyConfigured ? 'Ja' : 'Nee',
+      level: hevy.apiKeyConfigured ? 'goed' : 'fout'
+    });
+
+    var lastHevyDate = hevy.laatsteStartDate ? new Date(hevy.laatsteStartDate) : null;
+    rows.push({
+      label: 'Hevy workouts',
+      value: (hevy.totaal || 0) + ' workouts, laatste: ' +
+        (lastHevyDate ? lastHevyDate.toLocaleString('nl-NL') : 'geen') +
+        ' (paginagrootte ' + hevy.pageSize + ', de Hevy-API kapt daarboven stilzwijgend af)',
+      level: (hevy.totaal || 0) > 0 ? 'goed' : 'let-op'
+    });
+
+    var oudsteStream = streams.oudsteCachedAt ? new Date(streams.oudsteCachedAt) : null;
+    rows.push({
+      label: 'Streams-cache',
+      value: (streams.gecachet || 0) + ' gecachet' +
+        (oudsteStream ? ', oudste: ' + oudsteStream.toLocaleString('nl-NL') : ''),
+      level: (streams.gecachet || 0) > 0 ? 'goed' : 'let-op'
+    });
+
+    rows.forEach(function (r) {
+      contentEl.appendChild(buildStatusRow(r.label, r.value, r.level));
+    });
+  }
+
+  function refreshIntegraties() {
+    loadPanel('pf-panel-integraties', '/api/admin/integraties', renderIntegraties);
+  }
+
+  refreshIntegraties();
 })();
 </script>
 </body>

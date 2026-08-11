@@ -13,7 +13,7 @@ const engine = require('./engine');
 const { buildMacrocycle, goalsToGoalSet, solveWeek, summarizeWeek, sessionModality, getMondayOf, computePlanWindow, stravaModality, scoreEnduranceSession, scoreStrengthSession, matchSourceForSession, recomputeSessionLoad } = require('./planner');
 const { getAthleteParams } = require('./athleteParams');
 const { classifySession, classifySessionFromHR, computeWorkoutMuscleVolume, computeWorkoutStrengthSummary } = require('./engine');
-const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate, addToWaitlist, listWaitlist, waitlistStats } = require('./db');
+const { initSchema, pool, query, getDefaultUser, saveUserFields, getActivities, getActivitiesLite, getLatestActivityStartDate, upsertActivity, upsertActivityMMP, getHevyWorkouts, upsertHevyWorkout, getWeightMap, getNutrition, getSleep, upsertNutrition, deleteNutrition, upsertSleep, upsertWeight, deleteWeight, getActivityStream, upsertActivityStream, insertPrescription, replaceActivePrescriptions, getActivePrescriptions, upsertSessionOutcome, setPrescriptionStatus, getOutcomeHistory, upsertExerciseTemplate, getExerciseTemplates, getAvailabilitySlots, replaceAvailabilitySlotsForDate, addToWaitlist, listWaitlist, waitlistStats, integrationStats } = require('./db');
 const { toCsv } = require('./csv');
 const { legacyToSlots, slotsToLegacyDay, mergeAvailabilityView } = require('./availability');
 
@@ -3935,6 +3935,46 @@ app.get('/api/admin/waitlist.csv', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send('﻿' + csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/integraties', async (req, res) => {
+  try {
+    // Leest alleen de bestaande cache en env; lokt bewust geen tokenrefresh
+    // (externe call) uit zoals de Strava-tokenfunctie verderop in dit bestand.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tokenInCache = !!stravaCache.accessToken;
+    const strava = {
+      tokenInCache,
+      expiresAt: tokenInCache ? new Date(stravaCache.expiresAt * 1000).toISOString() : null,
+      secondsRemaining: tokenInCache ? stravaCache.expiresAt - nowSec : null,
+      refreshTokenConfigured: !!process.env.STRAVA_REFRESH_TOKEN,
+      clientIdConfigured: !!process.env.STRAVA_CLIENT_ID,
+      verifyTokenConfigured: !!process.env.STRAVA_VERIFY_TOKEN,
+    };
+
+    const user = await getDefaultUser();
+    const lastSyncValue = user.settings?.lastSync || null;
+    const lastSync = {
+      value: lastSyncValue,
+      secondsAgo: lastSyncValue ? Math.floor((Date.now() - new Date(lastSyncValue).getTime()) / 1000) : null,
+    };
+
+    const stats = await integrationStats(user.id);
+
+    res.json({
+      strava,
+      lastSync,
+      activiteiten: stats.activiteiten,
+      hevy: {
+        ...stats.hevy,
+        pageSize: 10, // De Hevy-API kapt boven pageSize 10 stilzwijgend af; dit veld maakt die invariant zichtbaar.
+        apiKeyConfigured: !!process.env.HEVY_API_KEY,
+      },
+      streams: stats.streams,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

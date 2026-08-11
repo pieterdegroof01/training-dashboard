@@ -1058,6 +1058,38 @@ async function waitlistStats() {
   };
 }
 
+async function integrationStats(userId) {
+  const { rows: actRows } = await query(
+    `SELECT COUNT(*) AS totaal, MAX(start_date) AS laatste_start_date
+     FROM activities WHERE user_id = $1`,
+    [userId]
+  );
+  const { rows: hevyRows } = await query(
+    `SELECT COUNT(*) AS totaal, MAX(start_date) AS laatste_start_date
+     FROM hevy_workouts WHERE user_id = $1`,
+    [userId]
+  );
+  const { rows: streamRows } = await query(
+    `SELECT COUNT(*) AS gecachet, MIN(cached_at) AS oudste_cached_at
+     FROM activity_streams WHERE user_id = $1`,
+    [userId]
+  );
+  return {
+    activiteiten: {
+      totaal: parseInt(actRows[0].totaal, 10),
+      laatsteStartDate: actRows[0].laatste_start_date,
+    },
+    hevy: {
+      totaal: parseInt(hevyRows[0].totaal, 10),
+      laatsteStartDate: hevyRows[0].laatste_start_date,
+    },
+    streams: {
+      gecachet: parseInt(streamRows[0].gecachet, 10),
+      oudsteCachedAt: streamRows[0].oudste_cached_at,
+    },
+  };
+}
+
 module.exports = {
   pool, query, initSchema,
   getUser, saveUserFields,
@@ -1075,5 +1107,5 @@ module.exports = {
   upsertMesocycle, getMesocycles, getMesocycleForWeek,
   insertReview, getReviews,
   replaceProjections, getProjections,
-  addToWaitlist, countWaitlist, listWaitlist, waitlistStats,
+  addToWaitlist, countWaitlist, listWaitlist, waitlistStats, integrationStats,
 };

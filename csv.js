@@ -3,6 +3,8 @@
 function escapeCell(value) {
   if (value === null || value === undefined) return '';
   let str = String(value);
+  // Excel en Google Sheets interpreteren een cel die begint met =, +, -, @, tab
+  // of carriage return als formule; een voorafgaande apostrof voorkomt dat.
   if (/^[=+\-@\t\r]/.test(str)) {
     str = "'" + str;
   }
