@@ -569,6 +569,276 @@ body {
   }
 }
 
+/* ── Probleem (SPEC § 5.4) ─────────────────────────────────────────────── */
+.problem {
+  background: var(--surface2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 96px var(--pad-x);
+}
+.problem-title {
+  font-family: var(--font-tight);
+  font-weight: 800;
+  font-size: 46px;
+  line-height: 1.04;
+  letter-spacing: -2px;
+  max-width: 820px;
+  color: var(--text);
+}
+.problem-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 52px;
+  margin-top: 56px;
+}
+.problem-item {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.problem-number {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent);
+}
+.problem-text {
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+@media (max-width: 899px) {
+  .problem { padding: 56px var(--pad-x); }
+  .problem-title { font-size: 32px; line-height: 1.06; letter-spacing: -1.4px; }
+  .problem-grid { grid-template-columns: 1fr; gap: 28px; margin-top: 32px; }
+  .problem-item { gap: 10px; }
+  .problem-number { font-size: 10px; }
+  .problem-text { font-size: 16px; }
+}
+
+/* ── Hoe het werkt (SPEC § 5.5) ────────────────────────────────────────── */
+.how {
+  padding: 104px var(--pad-x);
+}
+.how-title {
+  font-family: var(--font-tight);
+  font-weight: 800;
+  font-size: 46px;
+  line-height: 1.04;
+  letter-spacing: -2px;
+  max-width: 760px;
+  color: var(--text);
+}
+.timeline {
+  position: relative;
+  margin-top: 64px;
+}
+.timeline-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 23px;
+  height: 1px;
+  background: var(--border);
+  z-index: 0;
+}
+.timeline-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 56px;
+}
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.timeline-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+.timeline-heading {
+  font-family: var(--font-tight);
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: -0.8px;
+  color: var(--text);
+}
+.timeline-text {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+@media (max-width: 899px) {
+  .how { padding: 56px var(--pad-x); }
+  .how-title { font-size: 32px; line-height: 1.06; letter-spacing: -1.4px; max-width: none; }
+  .timeline { margin-top: 32px; padding-left: 64px; }
+  .timeline-line { left: 22px; right: auto; top: 12px; bottom: 12px; height: auto; }
+  .timeline-grid { grid-template-columns: 1fr; gap: 32px; }
+  .timeline-item { gap: 12px; }
+  .timeline-circle { width: 44px; height: 44px; margin-left: -64px; }
+  .timeline-heading { font-size: 21px; letter-spacing: -0.7px; }
+}
+
+/* ── De wetenschap (SPEC § 5.6) ────────────────────────────────────────── */
+.science {
+  padding: 8px var(--pad-x) 104px;
+}
+.science-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  padding: 72px;
+  box-shadow: 0 20px 46px -26px rgba(6, 17, 46, 0.22);
+}
+.science-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: start;
+}
+.science-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.science-title {
+  margin-top: 24px;
+  font-family: var(--font-tight);
+  font-weight: 800;
+  font-size: 52px;
+  line-height: 1.02;
+  letter-spacing: -2.4px;
+  color: var(--text);
+}
+.science-copy {
+  margin-top: 30px;
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.68;
+  color: var(--muted);
+}
+.science-diagram-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+}
+.science-diagram { margin: 0; }
+.science-diagram svg { width: 100%; display: block; }
+.science-diagram--desktop svg { max-width: 520px; }
+.science-diagram--mobile { display: none; }
+.science-link {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-border);
+  padding-bottom: 2px;
+}
+@media (max-width: 899px) {
+  .science { padding: 0 var(--pad-x) 56px; }
+  .science-card {
+    border-radius: 24px;
+    padding: 28px 22px;
+    box-shadow: 0 16px 36px -24px rgba(6, 17, 46, 0.24);
+  }
+  .science-grid { grid-template-columns: 1fr; gap: 0; }
+  .science-eyebrow { font-size: 10px; }
+  .science-title { margin-top: 16px; font-size: 34px; line-height: 1.03; letter-spacing: -1.6px; }
+  .science-copy { margin-top: 20px; font-size: 16px; line-height: 1.65; }
+  .science-diagram-col { display: block; margin-top: 28px; }
+  .science-diagram--desktop { display: none; }
+  .science-diagram--mobile { display: block; }
+  .science-link { display: inline-block; margin-top: 20px; }
+}
+
+/* ── Metrieken (SPEC § 5.7) ────────────────────────────────────────────── */
+.metrics {
+  padding: 0 var(--pad-x) 104px;
+}
+.metrics-title {
+  font-family: var(--font-tight);
+  font-weight: 800;
+  font-size: 46px;
+  line-height: 1.04;
+  letter-spacing: -2px;
+  color: var(--text);
+}
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 48px;
+}
+.metric-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 10px 26px -20px rgba(6, 17, 46, 0.28);
+}
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.metric-value {
+  font-family: var(--font-tight);
+  font-weight: 800;
+  font-size: 46px;
+  line-height: 1;
+  letter-spacing: -2px;
+  color: var(--text);
+}
+.metric-value--sweetspot { font-size: 40px; letter-spacing: -1.8px; }
+.metric-unit {
+  font-size: 22px;
+  letter-spacing: -0.5px;
+  color: var(--muted);
+}
+.metric-text {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+@media (max-width: 899px) {
+  .metrics { padding: 0 var(--pad-x) 56px; }
+  .metrics-title { font-size: 32px; line-height: 1.06; letter-spacing: -1.4px; }
+  .metrics-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 28px; }
+  .metric-card { border-radius: 20px; padding: 22px; box-shadow: none; }
+  .metric-value { font-size: 40px; letter-spacing: -1.8px; }
+  .metric-value--sweetspot { font-size: 36px; letter-spacing: -1.6px; }
+  .metric-unit { font-size: 20px; }
+}
+
 /* ── Ankerplekken voor secties die in een latere sessie gebouwd worden ──── */
 .section-stub { display: block; height: 0; }
 

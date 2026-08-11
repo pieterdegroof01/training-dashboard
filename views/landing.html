@@ -112,8 +112,153 @@
     </div>
   </section>
 
-  <span id="hoe-het-werkt" class="section-stub"></span>
-  <span id="de-wetenschap" class="section-stub"></span>
+  <section class="problem">
+    <h2 class="problem-title">Twee apps, twee halve waarheden.</h2>
+    <div class="problem-grid">
+      <div class="problem-item">
+        <div class="problem-number">01</div>
+        <p class="problem-text">Je duurplatform ziet je ritten en je runs, en negeert de deadlifts van gisteren.</p>
+      </div>
+      <div class="problem-item">
+        <div class="problem-number">02</div>
+        <p class="problem-text">Je krachtapp telt je sets, en weet niets van de vier uur in zone 2 van zaterdag.</p>
+      </div>
+      <div class="problem-item">
+        <div class="problem-number">03</div>
+        <p class="problem-text">Jij moet zelf raden of je vandaag hard kunt. Meestal raad je verkeerd.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="hoe-het-werkt" class="how">
+    <h2 class="how-title">Koppelen, doorrekenen, weten.</h2>
+    <div class="timeline">
+      <div class="timeline-line" aria-hidden="true"></div>
+      <div class="timeline-grid">
+        <div class="timeline-item">
+          <div class="timeline-circle">01</div>
+          <h3 class="timeline-heading">Koppel je bronnen</h3>
+          <p class="timeline-text">Strava voor fietsen en lopen, Hevy voor kracht. Eenmalig autoriseren, daarna komt alles automatisch binnen.</p>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-circle">02</div>
+          <h3 class="timeline-heading">De engine rekent</h3>
+          <p class="timeline-text">Geen schattingen. Vermogen, tempo, sets en herhalingen gaan door een deterministisch model dat je belasting per kanaal bijhoudt.</p>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-circle">03</div>
+          <h3 class="timeline-heading">Elke ochtend één advies</h3>
+          <p class="timeline-text">Je opent PeakForm en ziet wat vandaag telt. Niet veertien grafieken die je zelf moet interpreteren.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="de-wetenschap" class="science">
+    <div class="science-card">
+      <div class="science-grid">
+        <div class="science-copy-col">
+          <div class="science-eyebrow">Waarom het werkt</div>
+          <h2 class="science-title">Twee belastingen die je niet mag optellen.</h2>
+          <p class="science-copy">Trainingsstress uit vermogen is externe belasting. Trainingsstress uit krachttraining komt uit sessie-RPE en is interne belasting. Wie die twee optelt, krijgt een getal zonder eenheid. PeakForm houdt ze daarom gescheiden en laat ze alleen samenkomen waar het fysiologisch klopt: in je readiness van vandaag en in de regels die bepalen welke sessies elkaar in de weg zitten.</p>
+        </div>
+        <div class="science-diagram-col">
+          <figure class="science-diagram science-diagram--desktop" aria-hidden="false">
+            <svg viewBox="0 0 620 470" role="img" aria-label="Twee belastingskanalen die samenkomen in readiness">
+              <text x="200" y="30" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" font-weight="700" letter-spacing="3" fill="var(--accent)">EXTERN</text>
+              <text x="420" y="30" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" font-weight="700" letter-spacing="3" fill="var(--yellow)">INTERN</text>
+              <path d="M200 52 V300 C200 348 232 356 262 366" stroke="var(--accent)" stroke-width="2" fill="none" stroke-linecap="round"></path>
+              <path d="M420 52 V300 C420 348 388 356 358 366" stroke="var(--yellow)" stroke-width="2" fill="none" stroke-linecap="round"></path>
+              <circle cx="200" cy="118" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="200" cy="196" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="420" cy="118" r="4.5" fill="var(--yellow)"></circle>
+              <circle cx="420" cy="196" r="4.5" fill="var(--yellow)"></circle>
+              <text x="182" y="124" text-anchor="end" font-family="'Inter',sans-serif" font-size="18" font-weight="500" fill="var(--text)">Vermogen</text>
+              <text x="182" y="202" text-anchor="end" font-family="'Inter',sans-serif" font-size="18" font-weight="500" fill="var(--text)">Coggan TSS</text>
+              <text x="438" y="124" text-anchor="start" font-family="'Inter',sans-serif" font-size="18" font-weight="500" fill="var(--text)">Sets en RPE</text>
+              <text x="438" y="202" text-anchor="start" font-family="'Inter',sans-serif" font-size="18" font-weight="500" fill="var(--text)">Foster session-RPE</text>
+              <g stroke="var(--subtle)" stroke-width="2" stroke-linecap="round">
+                <path d="M296 158 H344"></path>
+                <path d="M320 134 V182"></path>
+              </g>
+              <path d="M292 186 L348 130" stroke="var(--red)" stroke-width="2.4" stroke-linecap="round"></path>
+              <text x="320" y="218" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" font-weight="700" letter-spacing="2.4" fill="var(--red)">NOOIT OPTELLEN</text>
+              <circle cx="310" cy="398" r="58" fill="var(--surface)" stroke="var(--text)" stroke-width="1.5"></circle>
+              <text x="310" y="392" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="13.5" font-weight="700" letter-spacing="2" fill="var(--text)">READINESS</text>
+              <text x="310" y="428" text-anchor="middle" font-family="'Inter Tight',sans-serif" font-size="32" font-weight="800" letter-spacing="-1" fill="var(--accent)">78</text>
+            </svg>
+          </figure>
+          <figure class="science-diagram science-diagram--mobile" aria-hidden="true">
+            <svg viewBox="0 0 300 440" role="img" aria-label="Twee belastingskanalen die samenkomen in readiness">
+              <text x="78" y="16" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" letter-spacing="2.5" fill="var(--accent)">EXTERN</text>
+              <text x="222" y="16" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" letter-spacing="2.5" fill="var(--yellow)">INTERN</text>
+              <path d="M78 34 V250 C78 300 105 310 128 322" stroke="var(--accent)" stroke-width="2.2" fill="none" stroke-linecap="round"></path>
+              <path d="M222 34 V250 C222 300 195 310 172 322" stroke="var(--yellow)" stroke-width="2.2" fill="none" stroke-linecap="round"></path>
+              <circle cx="78" cy="80" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="78" cy="140" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="222" cy="80" r="4.5" fill="var(--yellow)"></circle>
+              <circle cx="222" cy="140" r="4.5" fill="var(--yellow)"></circle>
+              <rect x="42" y="89" width="72" height="19" fill="var(--surface)"></rect>
+              <rect x="36" y="149" width="84" height="19" fill="var(--surface)"></rect>
+              <rect x="180" y="89" width="84" height="19" fill="var(--surface)"></rect>
+              <rect x="156" y="149" width="132" height="19" fill="var(--surface)"></rect>
+              <text x="78" y="103" text-anchor="middle" font-family="'Inter',sans-serif" font-size="13" font-weight="500" fill="var(--text)">Vermogen</text>
+              <text x="78" y="163" text-anchor="middle" font-family="'Inter',sans-serif" font-size="13" font-weight="500" fill="var(--text)">Coggan TSS</text>
+              <text x="222" y="103" text-anchor="middle" font-family="'Inter',sans-serif" font-size="13" font-weight="500" fill="var(--text)">Sets en RPE</text>
+              <text x="222" y="163" text-anchor="middle" font-family="'Inter',sans-serif" font-size="13" font-weight="500" fill="var(--text)">Foster session-RPE</text>
+              <g stroke="var(--subtle)" stroke-width="2" stroke-linecap="round">
+                <path d="M135 220 H165"></path>
+                <path d="M150 205 V235"></path>
+              </g>
+              <path d="M133 238 L167 202" stroke="var(--red)" stroke-width="2.2" stroke-linecap="round"></path>
+              <text x="150" y="262" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" letter-spacing="1.6" fill="var(--red)">NOOIT OPTELLEN</text>
+              <circle cx="150" cy="358" r="56" fill="var(--surface)" stroke="var(--text)" stroke-width="1.4"></circle>
+              <text x="150" y="352" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" letter-spacing="1.6" fill="var(--text)">READINESS</text>
+              <text x="150" y="386" text-anchor="middle" font-family="'Inter Tight',sans-serif" font-size="28" font-weight="800" letter-spacing="-1" fill="var(--accent)">78</text>
+            </svg>
+          </figure>
+          <a class="science-link" href="/wetenschap">Lees de volledige wetenschappelijke onderbouwing</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="metrics">
+    <h2 class="metrics-title">Alles wat telt, op één scherm.</h2>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Readiness</div>
+        <div class="metric-value">78</div>
+        <p class="metric-text">Slaap, belasting en herstel in één score.</p>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">ATL CTL TSB</div>
+        <div class="metric-value">−4</div>
+        <p class="metric-text">Je klassieke vormcurve, over alle sporten heen.</p>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">ACWR</div>
+        <div class="metric-value">1.12</div>
+        <p class="metric-text">Hoe hard je opbouwt ten opzichte van je basis.</p>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Monotonie</div>
+        <div class="metric-value">1.8</div>
+        <p class="metric-text">Of je week genoeg variatie heeft.</p>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Sessie van vandaag</div>
+        <div class="metric-value metric-value--sweetspot">Sweetspot</div>
+        <p class="metric-text">Concreet voorgeschreven, niet ‘doe iets rustigs’.</p>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Voeding en slaap</div>
+        <div class="metric-value">2.640 <span class="metric-unit">kcal</span></div>
+        <p class="metric-text">Wat je at en sliep, naast wat je verbrandde.</p>
+      </div>
+    </div>
+  </section>
+
   <span id="integraties" class="section-stub"></span>
   <span id="vragen" class="section-stub"></span>
 </main>

@@ -20,3 +20,17 @@
     });
   });
 })();
+
+(function () {
+  var mq = window.matchMedia('(max-width: 899px)');
+  var desktopFig = document.querySelector('.science-diagram--desktop');
+  var mobileFig = document.querySelector('.science-diagram--mobile');
+  if (!desktopFig || !mobileFig) return;
+  function syncDiagramVisibility(e) {
+    var isMobile = e.matches;
+    desktopFig.setAttribute('aria-hidden', isMobile ? 'true' : 'false');
+    mobileFig.setAttribute('aria-hidden', isMobile ? 'false' : 'true');
+  }
+  syncDiagramVisibility(mq);
+  mq.addEventListener('change', syncDiagramVisibility);
+})();

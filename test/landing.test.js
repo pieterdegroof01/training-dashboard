@@ -50,6 +50,41 @@ describe('views/landing.html', () => {
   test('geen <script src="http', () => {
     assert.ok(!LANDING_HTML.includes('<script src="http'));
   });
+
+  test('koppenvolgorde: precies één h1, elke h3 staat na een h2', () => {
+    const headings = [...LANDING_HTML.matchAll(/<h([1-6])[\s>]/g)].map(m => Number(m[1]));
+    assert.strictEqual(headings.filter(level => level === 1).length, 1);
+    let seenH2 = false;
+    for (const level of headings) {
+      if (level === 2) seenH2 = true;
+      if (level === 3) assert.ok(seenH2, 'h3 komt voor de eerste h2 in de documentvolgorde');
+    }
+  });
+
+  test('#hoe-het-werkt en #de-wetenschap zijn geen lege stubs meer', () => {
+    assert.ok(!LANDING_HTML.includes('<span id="hoe-het-werkt" class="section-stub"></span>'));
+    assert.ok(!LANDING_HTML.includes('<span id="de-wetenschap" class="section-stub"></span>'));
+  });
+
+  test('beide diagram-viewBoxen komen exact één keer voor', () => {
+    for (const viewBox of ['0 0 620 470', '0 0 300 440']) {
+      const matches = LANDING_HTML.match(new RegExp(`viewBox="${viewBox}"`, 'g'));
+      assert.strictEqual(matches ? matches.length : 0, 1, `viewBox="${viewBox}" niet exact één keer gevonden`);
+    }
+  });
+
+  test('de zes metrieklabels komen elk exact één keer voor', () => {
+    for (const label of ['Readiness', 'ATL CTL TSB', 'ACWR', 'Monotonie', 'Sessie van vandaag', 'Voeding en slaap']) {
+      const matches = LANDING_HTML.match(new RegExp(`<div class="metric-label">${label}</div>`, 'g'));
+      assert.strictEqual(matches ? matches.length : 0, 1, `metric-label "${label}" niet exact één keer gevonden`);
+    }
+  });
+
+  test('echt minteken U+2212 in de ATL CTL TSB-metriekkaart', () => {
+    const match = LANDING_HTML.match(/<div class="metric-label">ATL CTL TSB<\/div>\s*<div class="metric-value">([^<]+)<\/div>/);
+    assert.ok(match, 'ATL CTL TSB-metriekkaart niet gevonden');
+    assert.strictEqual(match[1], '−4');
+  });
 });
 
 describe('views/aanmelden.html', () => {
