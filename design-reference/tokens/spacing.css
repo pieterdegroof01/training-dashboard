@@ -1,0 +1,14 @@
+/* PeakForm spacing + gaps. Dense, data-first layouts. */
+:root {
+  --gap-cell: 8px;      /* between stat cells in a strip */
+  --gap-phone: 12px;    /* card stack on phone */
+  --gap-desktop: 14px;  /* card grid on desktop */
+  --gap-section: 16px;  /* between major blocks */
+
+  --pad-card: 16px;
+  --pad-hero: 26px;
+  --content-pad: 24px;
+
+  --sidebar-w: 198px;
+  --content-max: 1200px;
+}

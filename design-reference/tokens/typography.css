@@ -1,0 +1,42 @@
+/* PeakForm typography tokens.
+   Four families, each with a fixed job:
+   - body  : Inter — running text, form fields, buttons
+   - tight  : Inter Tight — display headings + big stat values (heavy, negative tracking)
+   - serif  : Instrument Serif — italic accent words inside headings ("Form", "vandaag")
+   - mono   : JetBrains Mono — uppercase eyebrows, labels, numeric captions */
+:root {
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-tight: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* Type scale (px) */
+  --fs-eyebrow: 10px;   /* mono uppercase eyebrow / card label */
+  --fs-label: 10.5px;   /* form label */
+  --fs-caption: 11px;   /* meta, sub */
+  --fs-body: 14px;      /* base body */
+  --fs-body-lg: 15px;
+  --fs-stat: 22px;      /* stat value */
+  --fs-title: 16px;     /* card / session title */
+  --fs-h2: 27px;        /* hero heading */
+  --fs-h1: 32px;        /* page / activity title */
+  --fs-display: 34px;   /* biggest ring / hero number */
+
+  /* Weights */
+  --fw-body: 400;      /* @kind font */
+  --fw-medium: 500;    /* @kind font */
+  --fw-semibold: 600;  /* @kind font */
+  --fw-bold: 700;      /* @kind font */
+  --fw-heavy: 800;     /* @kind font */
+
+  /* Tracking */
+  --tracking-eyebrow: 1.2px;  /* uppercase mono labels */
+  --tracking-tight: -0.6px;   /* Inter Tight stat values */
+  --tracking-display: -1px;   /* large Inter Tight headings */
+
+  /* Line heights */
+  --lh-tight: 1.1;      /* @kind font */
+  --lh-heading: 1.18;   /* @kind font */
+  --lh-body: 1.5;       /* @kind font */
+  --lh-relaxed: 1.65;   /* @kind font */
+}

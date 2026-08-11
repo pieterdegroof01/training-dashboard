@@ -1,0 +1,9 @@
+/* PeakForm corner radii. */
+:root {
+  --radius-card: 18px;   /* standard card */
+  --radius-hero: 22px;   /* hero panel */
+  --radius-cell: 14px;   /* stat cell / inner tile */
+  --radius-input: 10px;  /* inputs + buttons */
+  --radius-chip: 8px;    /* chips, small badges, mini bars */
+  --radius-pill: 999px;  /* pills, avatars, dots */
+}

@@ -1,0 +1,13 @@
+/* PeakForm elevation. The system is mostly FLAT — depth comes from 1px borders,
+   not shadows. Shadows appear only for floating chrome and the "today" accent. */
+:root {
+  --shadow-none: none;
+  --shadow-today: 0 4px 16px -6px rgba(1, 34, 150, 0.30);  /* accent-tinted, on today's card */
+  --shadow-float: 0 10px 30px -10px rgba(1, 34, 150, 0.28); /* floating bottom nav / popovers */
+  --shadow-tooltip: 0 4px 24px rgba(6, 17, 46, 0.35);
+
+  /* Blur used behind translucent nav chrome + modal overlays */
+  --blur-nav: 18px;
+  --blur-overlay: 8px;
+  --overlay-scrim: rgba(6, 17, 46, 0.45);
+}
