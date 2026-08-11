@@ -18,19 +18,24 @@ const { legacyToSlots, slotsToLegacyDay, mergeAvailabilityView } = require('./av
 
 // ── Cache-busted index HTML ───────────────────────────────────────────────────
 const _fss = require('fs');
+const _tokensHash = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'css', 'tokens.css'))).digest('hex').slice(0, 10);
 const _styleHash = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'css', 'style.css'))).digest('hex').slice(0, 10);
 const _appHash   = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'js', 'app.js'))).digest('hex').slice(0, 10);
 const INDEX_HTML = _fss.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+  .replace(/\/css\/tokens\.css(\?[^"]*)?/g, `/css/tokens.css?v=${_tokensHash}`)
   .replace(/\/css\/style\.css(\?[^"]*)?/g, `/css/style.css?v=${_styleHash}`)
   .replace(/\/js\/app\.js(\?[^"]*)?/g,     `/js/app.js?v=${_appHash}`);
 const NOT_FOUND_HTML = _fss.readFileSync(path.join(__dirname, 'public', '404.html'), 'utf8')
+  .replace(/\/css\/tokens\.css(\?[^"]*)?/g, `/css/tokens.css?v=${_tokensHash}`)
   .replace(/\/css\/style\.css(\?[^"]*)?/g, `/css/style.css?v=${_styleHash}`);
 const _landingCssHash = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'css', 'landing.css'))).digest('hex').slice(0, 10);
 const _landingJsHash  = crypto.createHash('sha1').update(_fss.readFileSync(path.join(__dirname, 'public', 'js', 'landing.js'))).digest('hex').slice(0, 10);
 const LANDING_HTML = _fss.readFileSync(path.join(__dirname, 'views', 'landing.html'), 'utf8')
+  .replace(/\/css\/tokens\.css(\?[^"]*)?/g, `/css/tokens.css?v=${_tokensHash}`)
   .replace(/\/css\/landing\.css(\?[^"]*)?/g, `/css/landing.css?v=${_landingCssHash}`)
   .replace(/\/js\/landing\.js(\?[^"]*)?/g,   `/js/landing.js?v=${_landingJsHash}`);
 const SIGNUP_HTML = _fss.readFileSync(path.join(__dirname, 'views', 'aanmelden.html'), 'utf8')
+  .replace(/\/css\/tokens\.css(\?[^"]*)?/g, `/css/tokens.css?v=${_tokensHash}`)
   .replace(/\/css\/landing\.css(\?[^"]*)?/g, `/css/landing.css?v=${_landingCssHash}`)
   .replace(/\/js\/landing\.js(\?[^"]*)?/g,   `/js/landing.js?v=${_landingJsHash}`);
 

@@ -22,6 +22,10 @@
 })();
 
 (function () {
+  // Statische HTML-uitgangspositie (zonder JS): desktop aria-hidden="true",
+  // mobiel zonder het attribuut. Zo blijft er zonder JavaScript op zijn minst
+  // één diagram (het mobiele) toegankelijk i.p.v. nul. Deze sync zet hem
+  // hierna op elke breedte correct, ongeacht de statische startwaarde.
   var mq = window.matchMedia('(max-width: 899px)');
   var desktopFig = document.querySelector('.science-diagram--desktop');
   var mobileFig = document.querySelector('.science-diagram--mobile');

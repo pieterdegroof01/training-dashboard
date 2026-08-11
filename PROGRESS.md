@@ -16,8 +16,8 @@ secties zijn statusinventaris.
 3. C7 Reviewcadans (na: C2b, klaar). Ontgrendelt C9, dat aanlooptijd nodig heeft
    omdat het op voldoende session_outcomes wacht.
 
-Eerstvolgende in de afleiding, beide met één ontgrendeling en zonder klok: D1 en
-R10, in die volgorde op cluster-ID.
+Eerstvolgende in de afleiding, alle drie met één ontgrendeling en zonder klok: D1,
+R10 en U2b, in die volgorde op cluster-ID.
 
 ## Legenda
 
@@ -153,6 +153,8 @@ Regels voor wie dit bestand bijwerkt:
 ## Frontend-breed: tokens, toegankelijkheid, documentshell
 
 - [x] U2 Tokensplitsing --subtle/--text-subtle, --z1 dark, --red op login (style.css, theme.css, login.html) (2026-08-10)
+- [~] U2b Tokenextractie naar public/css/tokens.css; style.css en landing.css laden hem als eigen link, activity-detail/src/theme.css blijft nog een aparte kopie (na: U2) (2026-08-11)
+- [ ] U2c Vierde tokenkopie opruimen: activity-detail/src/theme.css naar tokens.css laten wijzen, vergt een Vite-oplossing omdat de subapp gebundeld wordt (na: U2b)
 - [ ] U3 Grafiekseries uit tokens in plaats van vaste hex in _chartTheme en _baseChartOpts; geldt voor alle Chart.js-grafieken, niet alleen Trends (na: U2)
 - [ ] U4 Formulierbesturing in index.html: labelkoppeling for/id op 72 velden, verwijderknoppen op 24px met aria-label en bevestiging op removeSlot en removePattern (omvat: U6) (na: -)
 - [ ] U5 Globale :focus-visible en prefers-reduced-motion in style.css, theme.css en login.html (na: -)
@@ -198,6 +200,9 @@ afvinken zou suggereren dat er twee trajecten waren.
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-08-11 | U2b | er waren drie kopieën van het kleurtokenstelsel: style.css (het origineel), landing.css (letterlijk gedupliceerd, zie de L1-besluitlogregel hieronder) en activity-detail/src/theme.css (sinds U2); alle drie moesten bij elke tokenwijziging apart worden bijgewerkt, wat U2 zelf al noodzaakte om --z1 dark op theme.css na te dragen | de 48 gedeelde light+dark-tokens staan nu één keer in public/css/tokens.css; style.css bevat na deze commit geen enkele custom-property-definitie meer, landing.css alleen nog zijn eigen acht paginaspecifieke extra's (--bg-alt, --accent-border, --z1..--z5, --fill-opacity) die niet in style.css bestonden; theme.css blijft een vierde, aparte kopie (U2c), want die subapp wordt door Vite gebundeld en kan niet zomaar naar /css/tokens.css wijzen
+- 2026-08-11 | U2b | @import in tokens.css of in de bestaande stylesheets zou het laden sequentieel maken (de browser moet tokens.css volledig ophalen en parsen voordat de importerende stylesheet zelf verder mag), en is bovendien render-blocking totdat die keten rond is | een tweede, eigen `<link rel="stylesheet">` per HTML-bestand, altijd vóór de bestaande stylesheet zodat de cascade-volgorde tokens vóór gebruik garandeert; browsers kunnen beide links parallel ophalen
+- 2026-08-11 | L1 | het mobiele wetenschapsdiagram had statisch aria-hidden="true" als uitgangspositie, matchMedia corrigeerde dat pas na JavaScript; zonder JavaScript op mobiele breedte (het vaakst voorkomende geval zonder JS, want desktopgebruikers zonder JS zijn zeldzamer) stonden daardoor nul diagrammen in de toegankelijkheidsboom | uitgangspositie omgedraaid: het desktopdiagram (620×470) draagt nu statisch aria-hidden="true", het mobiele diagram draagt geen aria-hidden meer; zonder JavaScript is op mobiele breedte nu het mobiele diagram toegankelijk, op desktopbreedte blijft het nul omdat dat element daar display:none heeft — nul toegankelijke diagrammen zonder JavaScript is erger dan één onzichtbare, en dat is nu voor het minst waarschijnlijke geval (desktop zonder JS) in plaats van het meest waarschijnlijke
 - 2026-08-11 | L1 | van de links in de footer-SPEC missen op dit moment een echte bestemming: Trainingstheorie (wijst naar /wetenschap, dat pas met L3 bestaat), Wat er verandert (L6), de hele Juridische kolom Privacybeleid/Voorwaarden/Gegevensverwerking (L5) en de onderbalklinks Privacybeleid/Voorwaarden/Contact | alleen links met een echte bestemming gebouwd: kolom Product volledig (Hoe het werkt, De wetenschap, Integraties, Inloggen) en kolom Bronnen alleen Veelgestelde vragen; het grid ging van 1.4fr 1fr 1fr 1fr naar 1.4fr 1fr 1fr, mobiel blijven de twee resterende kolommen naast elkaar (gap:32px 20px); de onderbalk houdt alleen © 2026 PEAKFORM over, rechts uitgelijnd
 - 2026-08-11 | L1 | /welkom en /aanmelden zijn publiek bereikbaar maar het conversiepad is nog niet af: /aanmelden bevat na het verwijderen van het verzonnen mailadres voorlopig geen actie, en indexering zou verkeer naar een halfklare flow trekken | `<meta name="robots" content="noindex, nofollow">` toegevoegd op beide views; gaat er in één handeling weer af zodra L2 (een echt opvangpunt achter de CTA) bestaat
 - 2026-08-11 | L1 | de SPEC vraagt een FOTO-placeholdercirkel in de makersectie, maar een grijze cirkel met een monolabel leest op een verder afgewerkte pagina als een laadfout in plaats van een bewuste placeholder | placeholdercirkel niet gebouwd; alleen het tekstblok staat live, .maker-row en .maker-photo staan klaar in landing.css en een compleet `<img>`-element (alt="Pieter de Groof, maker van PeakForm") staat uitgecommentarieerd op de juiste plek in landing.html zodat het invoegen van de echte foto later één handeling is; genoteerd als L4 (na: L1)
