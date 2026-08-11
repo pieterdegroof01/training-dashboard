@@ -34,3 +34,88 @@
   syncDiagramVisibility(mq);
   mq.addEventListener('change', syncDiagramVisibility);
 })();
+
+(function () {
+  var buttons = document.querySelectorAll('.faq-question');
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var isOpen = btn.getAttribute('aria-expanded') === 'true';
+      buttons.forEach(function (other) {
+        var otherAnswer = document.getElementById(other.getAttribute('aria-controls'));
+        other.setAttribute('aria-expanded', 'false');
+        if (otherAnswer) otherAnswer.hidden = true;
+      });
+      if (!isOpen) {
+        var answer = document.getElementById(btn.getAttribute('aria-controls'));
+        btn.setAttribute('aria-expanded', 'true');
+        if (answer) answer.hidden = false;
+      }
+    });
+  });
+})();
+
+(function () {
+  var hamburger = document.querySelector('.hamburger');
+  var overlay = document.getElementById('mobile-overlay');
+  if (!hamburger || !overlay) return;
+  var panel = overlay.querySelector('.mobile-overlay-panel');
+
+  function focusableEls() {
+    return Array.prototype.slice.call(panel.querySelectorAll('a[href]'));
+  }
+
+  function onKeydown(e) {
+    if (e.key === 'Escape') {
+      closeMenu();
+      return;
+    }
+    if (e.key === 'Tab') {
+      var els = focusableEls();
+      if (!els.length) return;
+      var first = els[0];
+      var last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  function onOverlayClick(e) {
+    if (e.target === overlay) closeMenu();
+  }
+
+  function openMenu() {
+    overlay.hidden = false;
+    hamburger.setAttribute('aria-expanded', 'true');
+    document.body.classList.add('mobile-menu-open');
+    document.addEventListener('keydown', onKeydown);
+    overlay.addEventListener('click', onOverlayClick);
+    var els = focusableEls();
+    if (els.length) els[0].focus();
+  }
+
+  function closeMenu() {
+    overlay.hidden = true;
+    hamburger.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('mobile-menu-open');
+    document.removeEventListener('keydown', onKeydown);
+    overlay.removeEventListener('click', onOverlayClick);
+    hamburger.focus();
+  }
+
+  hamburger.addEventListener('click', function () {
+    if (overlay.hidden) {
+      openMenu();
+    } else {
+      closeMenu();
+    }
+  });
+
+  focusableEls().forEach(function (link) {
+    link.addEventListener('click', closeMenu);
+  });
+})();
