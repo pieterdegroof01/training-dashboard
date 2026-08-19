@@ -73,6 +73,7 @@ Regels voor wie dit bestand bijwerkt:
 - [x] R5 ACWR-loopband 0.8-1.3 + single-run-spike-guard t.o.v. langste run 30 dagen (H13) (na: R1) (2026-07-16)
 - [x] R9 computeETLForActivity looptak op computeRunningLoad: rTSS met average_speed als NGP-proxy (H13) (na: R0) (2026-07-16)
 - [x] H10-w4 Dode w^4 NP-proxy som in classifySession verwijderd (H10) (2026-07-10)
+- [ ] V4 classifyWeekModel classificeert weken met één sessie als volwaardig verdelingsmodel; 353 weken leveren 111 mixed/onbekend en 138 volume-only op, waaronder weken van één sessie; ondergrens op sessieaantal of minuten nodig (V1) (na: -)
 - [ ] R10 Ankerhistorisering in één commit, want alle vier verschuiven de historische reeks en delen daarmee één staging-meting van CTL/ATL/TSB: thresholdPaceForDate analoog aan ftpForDate; weightAt (server.js ~1415) promoveren naar weightForDate in engine.js; ftpInfo en settings-FTP harmoniseren; scoreEnduranceSession ankeren op ftpForDate in plaats van op platte settings.ftp. Loop-fallbackhygiëne hoort in dezelfde commit omdat het dezelfde functie is: de platte duurfallback staat op 90/uur (IF 0,95) tegen 50/uur (IF 0,71) bij de fiets (omvat: R11, HC-3, HC-5-ftpInfo) (H13, H-consistentie) (na: R9)
 
 ## Planlaag: planner.js en het planschrijfpad
@@ -94,6 +95,7 @@ Regels voor wie dit bestand bijwerkt:
 ## Sync en uitkomsten: Strava, Hevy, matching, session_outcomes
 
 - [x] C5g matchPlannedToActual multimodaal + scoreEnduranceSession/scoreStrengthSession naar planner.js + matchSourceForSession (H12) (na: R9) (2026-07-17)
+- [ ] V2 Reconciler schrijft type: "cycling" op ongeplande hardloopsessies in week_plan; zie de entry van 2026-07-26 met titel "Namiddagloop" (V1) (na: -)
 - [ ] C5h session_outcomes multimodaal: strava_id is BIGINT en kan geen Hevy-workout-id dragen, dus een krachtoutcome zonder voorschrift dedupliceert op geen enkele uniq-index [klok] (H12) (na: C5g)
 - [ ] C5c reconcilePrescriptions op modality: kracht tegen Hevy, loop tegen Strava Run/TrailRun (H12) (na: C5b, R9, C5g, C5h)
 
@@ -109,6 +111,7 @@ Regels voor wie dit bestand bijwerkt:
 - [x] Staging-omgeving (eerste stap van C2b) (2026-07-13)
 - [x] C2b Datamodel: vijf tabellen + CRUD-helpers, geverifieerd op staging voor main (H12) (na: C0, C2a) (2026-07-13)
 - [ ] D1 Goals-tabel krijgt een consument of vervalt: insertGoal, getActiveGoals en setGoalStatus hebben nul aanroepers terwijl goalsToGoalSet in server.js op het legacy users.goals-JSONB draait; zolang dat zo is schrijft een wizard naar een tabel die de planner niet leest (na: -)
+- [ ] V3 actualTSS wordt als snapshot in week_plan opgeslagen en herrekent niet mee als een anker wijzigt; de entry van 2026-07-26 staat op 48 terwijl runningDailyETL 54 geeft; de Week-tab leest die snapshot in plaats van de engine (V1) (na: -)
 - [ ] H10-F Serveropruiming, puur verwijderwerk zonder gedragswijziging: /api/admin/migrate-to-postgres, loadData/saveData en de startup-backfill weg; calcMetrics (server.js ~288) consolideren met computeLoadMetrics (engine.js); dode hrZones-config in app.js weg (omvat: HC-5-opruimdeel) (H10, H-consistentie) (na: C0)
 
 ## Frontend hoofd-app: public/
@@ -161,6 +164,7 @@ Regels voor wie dit bestand bijwerkt:
 - [~] U2b Tokenextractie naar public/css/tokens.css; style.css en landing.css laden hem als eigen link, activity-detail/src/theme.css blijft nog een aparte kopie (na: U2) (2026-08-11)
 - [ ] U2c Vierde tokenkopie opruimen: activity-detail/src/theme.css naar tokens.css laten wijzen, vergt een Vite-oplossing omdat de subapp gebundeld wordt (na: U2b)
 - [ ] U3 Grafiekseries uit tokens in plaats van vaste hex in _chartTheme en _baseChartOpts; geldt voor alle Chart.js-grafieken, niet alleen Trends (na: U2)
+- [ ] V5 Legendatekst onder "Trainingsmodel per week" noemt groen en oranje terwijl MODEL_META vier blauwtinten en één beige bevat; polarized #012296 en pyramidal #2633bd zijn visueel niet te onderscheiden; koppelen aan U3 (V1) (na: -)
 - [ ] U4 Formulierbesturing in index.html: labelkoppeling for/id op 72 velden, verwijderknoppen op 24px met aria-label en bevestiging op removeSlot en removePattern (omvat: U6) (na: -)
 - [ ] U5 Globale :focus-visible en prefers-reduced-motion in style.css, theme.css en login.html (na: -)
 - [ ] U8 Documentshell over index, login, 404 en de detailpagina: koppenstructuur, main-landmark, skiplink, aria-current, dynamische title en themascript, statusgebaseerde foutmeldingen met role=alert en een echt form-element op login (omvat: U9, U10) (na: -)
@@ -173,10 +177,11 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] Sentry-integratie (lage prioriteit) (na: -)
 - [ ] Laag 2 multi-tenant auth (uitgesteld; triggert KvK-beslissing) (na: -)
 - [ ] P-tabgate De SPA-tabroutes /week, /activiteiten, /voeding, /coach, /doelen, /trends en /instellingen vallen buiten de sessiegate (needsAuth dekt alleen *.html en /api/) en serveren INDEX_HTML aan iedereen; data lekt niet want de API's geven 401, maar de volledige dashboardshell is publiek opvraagbaar (na: -)
+- [ ] V6 /api/insights/integratie is van 4,2 s naar 16 tot 18 s gegaan sinds de nulmeting van 8 juli, terwijl alle andere endpoints twee tot drie keer sneller werden (V1) (na: -)
 
 ## Verificatie: nul code, buiten de Nu-afleiding
 
-- [ ] V1 Eén sessie op productie en staging: settings.thresholdPace zetten via het R0-veld, want R9 staat op main en draait daar zonder anker door naar hrTSS, TRIMP of de platte 90/uur; MODEL-tegel classificeert een pyramidale week correct na de z3=0,91-fix; rooktest van de delete-knoppen uit H9 cluster 1 en 2 met de testdata van 6 juni; sportverdeling naar tijd per discipline aanwezig in Trends; palet-herbrand T2-2 visueel vaststellen; latency-nameting tegen de nulmeting van 8 juli (18,1 / 6,5 / 6,2 / 4,3 / 4,2 s) (na: -)
+- [~] V1 MODEL-tegel op de Week-tab wacht op een gegenereerd fietsplan, de tegel toont nu "geen fietsplan"; rooktest van de delete-knoppen uit H9 cluster 1 en 2, de testdata van 6 juni bestaat niet meer op productie, er moet eerst een entry aangemaakt worden (na: -) (2026-08-19)
 - [x] Railway-backupverificatie (afgedekt door C0) (2026-07-10)
 
 ## Beslispunten: wachten op Pieter, buiten de Nu-afleiding
@@ -204,6 +209,21 @@ afvinken zou suggereren dat er twee trajecten waren.
 
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
+
+- 2026-08-19 | V1 | thresholdPace ontbrak op productie (undefined, niet null) en geen enkele
+  van de 67 hardloopactiviteiten heeft hartslag, dus computeRunningLoad sloeg zowel de rTSS-
+  als de hrTSS- als de TRIMP-tak over en boekte elke loop op de platte durH×75×1,2 | anker
+  gezet op 4:55 (295 s/km) op basis van een tempoloop van 32 minuten op 4:54/km die niet
+  maximaal was, dus dit is een schatting en geen meting; historie direct herrekend, de loop
+  van 8 juli 2026 ging van 92 naar 33 TSS, CTL 11,5 naar 10,9, TSB 11,1 naar 10,6; bij een
+  echte 30-minutentest wordt het veld overschreven en rekent de historie opnieuw
+- 2026-08-19 | V1 | latency-nameting tegen de nulmeting van 8 juli (18,1 / 6,5 / 6,2 / 4,3 /
+  4,2 s) | gemeten 8,7 / 2,2 / 1,8 / 3,3 / 16,1 s; insights/integratie hermeten als eerste
+  call gaf 17,8 s, dus de regressie is geen volgorde-effect en is als eigen item geregistreerd
+- 2026-08-19 | V1 | pyramidale classificatie werkt na de z3=0,91-fix maar levert 2 pyramidale
+  weken op 353 | geen fout in de fix: de threshold-heavy-tak vangt midFrac>=0,25 of
+  mid+high>=0,40 af vóór de pyramidale tak, waardoor een 65/25/10-week nooit pyramidaal kan
+  worden; vastgelegd als bevinding, niet als bug, want de takvolgorde spiegelt engine.js
 
 - 2026-08-11 | L7b | GET /api/admin/integraties zou de bestaande getStravaToken() kunnen hergebruiken om een geldig token en de echte vervaltijd te tonen, maar die functie ververst het token via een externe call naar Strava zodra de cache leeg of bijna verlopen is | het endpoint leest uitsluitend de bestaande stravaCache en process.env, roept getStravaToken() niet aan, en een regressietest snijdt het handlerblok uit server.js en asserteert dat de string getStravaToken( er niet in staat; gevolg is dat het scherm een lege of verlopen cache als zodanig toont in plaats van hem stilzwijgend te verversen
 - 2026-08-11 | L7 vs C5h | C5h draagt [klok] en zou normaal voorrang krijgen in de Nu-afleiding, maar Pieter heeft het beheerscherm er expliciet boven gesteld | C5h is bewust uitgesteld; krachtoutcomes blijven tot die tijd binnenkomen zonder dedupliceerbare sleutel (strava_id is BIGINT en kan geen Hevy-workout-id dragen) en moeten later met de hand opgeruimd worden
