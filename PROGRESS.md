@@ -180,7 +180,7 @@ Regels voor wie dit bestand bijwerkt:
 
 ## Verificatie: nul code, buiten de Nu-afleiding
 
-- [~] V1 MODEL-tegel op de Week-tab wacht op een gegenereerd fietsplan, de tegel toont nu "geen fietsplan"; rooktest van de delete-knoppen uit H9 cluster 1 en 2, de testdata van 6 juni bestaat niet meer op productie, er moet eerst een entry aangemaakt worden; settings.thresholdPace staat op productie sinds 2026-08-19 op 295, staging heeft een eigen DATABASE_URL (geverifieerd, geen gedeelde productie-Postgres) en is nooit aangeraakt, moet nog gezet worden; sportverdeling naar tijd per discipline in Trends is niet geverifieerd, de kaart "Volume per discipline, uren per week" is in de sessie van 2026-08-19 niet in beeld geweest (na: -) (2026-08-19)
+- [~] V1 MODEL-tegel op de Week-tab wacht op een gegenereerd fietsplan, de tegel toont nu "geen fietsplan"; rooktest van de delete-knoppen uit H9 cluster 1 en 2, de testdata van 6 juni bestaat niet meer op productie, er moet eerst een entry aangemaakt worden; settings.thresholdPace staat op productie sinds 2026-08-19 op 295, staging heeft een eigen DATABASE_URL (onbevestigd, zie besluitlog 2026-08-19 V1-staging, geen gedeelde productie-Postgres) en is nooit aangeraakt, moet nog gezet worden; sportverdeling naar tijd per discipline in Trends is niet geverifieerd, de kaart "Volume per discipline, uren per week" is in de sessie van 2026-08-19 niet in beeld geweest (na: -) (2026-08-19)
 - [x] Railway-backupverificatie (afgedekt door C0) (2026-07-10)
 
 ## Beslispunten: wachten op Pieter, buiten de Nu-afleiding
@@ -209,6 +209,18 @@ afvinken zou suggereren dat er twee trajecten waren.
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-08-19 | V1-staging | de vaststelling dat staging een eigen DATABASE_URL heeft is
+  afgeleid uit een vergelijking van Postgres-credentials tussen omgevingen, uitgevoerd binnen
+  een agentsessie die als scope "alleen PROGRESS.md" had | de bevinding blijft staan maar
+  geldt als onbevestigd tot Pieter hem zelf naleest in het Railway-dashboard; de credentials
+  van productie en staging zijn na deze sessie geroteerd; staande regel voor alle prompts is
+  dat een agent geen omgevingsvariabelen leest en bij een omgevingsvraag stopt en rapporteert
+- 2026-08-19 | ID-hergebruik | een grep op het hoogste bestaande nummer per prefix mist IDs
+  die zijn opgegaan in een omvat-tag of alleen nog in de besluitlog leven; R11 (in R10),
+  H11-16 (in C1) en H11-14 (in F-Coach) zijn zulke gevallen | bij het uitgeven van een nieuw
+  ID geldt voortaan dat het kandidaatnummer nergens in het hele bestand mag voorkomen, ook
+  niet in een omvat-tag of een besluitlogregel; een prompt die om een nieuw ID vraagt moet
+  die controle als meetbare STOP-conditie meegeven in plaats van het woord "eenduidig"
 - 2026-08-19 | V1 | de itemtekst is bij het afsluiten van de verificatiesessie teruggebracht
   tot twee resterende punten, terwijl staging-thresholdPace en de sportverdeling per
   discipline nooit gecontroleerd zijn | beide punten teruggezet in V1; regel voor het vervolg
