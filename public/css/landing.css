@@ -1149,3 +1149,8 @@ body.mobile-menu-open { overflow: hidden; }
   margin-top: 8px;
 }
 .signup-back:hover { color: var(--text); }
+
+/* ── Logo-intro headerlockup (BR1) ── */
+html.pf-intro .site-header .wordmark { opacity: 0; animation: pfIntroFailsafe 0s linear 3s forwards; }
+@keyframes pfIntroFailsafe { to { opacity: 1; } }
+.wordmark-text .pf-wm-peak, .wordmark-text em { display: inline-block; }

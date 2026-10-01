@@ -734,3 +734,20 @@ details.ap-accordion-section > summary { display:none; }
 .pf-legend-row{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);}
 .pf-legend-item{display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);}
 .pf-legend-swatch{width:9px;height:9px;border-radius:2px;flex:0 0 auto;}
+
+/* ── Splash (BR1): cold start, eenmaal per sessie; aangestuurd door pfRunSplash in app.js ── */
+.pf-splash { display: none; }
+html.pf-splash-on .pf-splash {
+  display: flex; position: fixed; inset: 0; z-index: 9999;
+  align-items: center; justify-content: center;
+  background: var(--bg);
+  animation: pfSplashFailsafe 0s linear 8s forwards;
+}
+.pf-splash-inner { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.pf-splash .pf-mark, .pf-splash .pf-splash-wm { opacity: 0; }
+.pf-splash.is-playing .pf-mark, .pf-splash.is-playing .pf-splash-wm { opacity: 1; }
+.pf-splash:not(.with-wm) .pf-splash-wm { display: none; }
+.pf-splash-wm { font-size: 30px; }
+.pf-splash-wm .pf-wm-peak, .pf-splash-wm em { display: inline-block; }
+html.pf-splash-on .pf-splash.is-leaving { opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+@keyframes pfSplashFailsafe { to { visibility: hidden; pointer-events: none; } }

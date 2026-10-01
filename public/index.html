@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <script>(function(){try{var t=localStorage.getItem('pf-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
+<script>(function(){try{if(/^\/(activity|workout)\//.test(location.pathname))return;if(!('animate' in Element.prototype))return;if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;if(sessionStorage.getItem('pf-splash'))return;document.documentElement.classList.add('pf-splash-on');}catch(e){}})();</script>
 <title>PeakForm</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="/css/tokens.css">
@@ -14,14 +15,32 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800;900&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 </head>
 <body>
+<div id="pfSplash" class="pf-splash" aria-hidden="true">
+  <div class="pf-splash-inner">
+    <svg class="pf-mark" width="88" height="88" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <rect class="pf-mark-tile" x="2" y="2" width="92" height="92" rx="22" fill="var(--accent)" style="transform-box:view-box;transform-origin:48px 48px"/>
+      <path class="pf-mark-base" d="M18 64 L 48 28 L 78 64" stroke="var(--surface)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <g class="pf-mark-trace" fill="none" stroke="var(--surface)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+        <path class="pf-mark-l" d="M18 64 L 48 28" stroke-dasharray="47.5 200" stroke-dashoffset="48"/>
+        <path class="pf-mark-r" d="M48 28 L 78 64" stroke-dasharray="47.5 200" stroke-dashoffset="48"/>
+      </g>
+      <circle class="pf-mark-dot" cx="48" cy="74" r="5" fill="var(--surface)" style="transform-box:view-box;transform-origin:48px 74px"/>
+    </svg>
+    <span class="pf-wordmark pf-splash-wm"><span class="pf-wm-peak">Peak</span><em>Form</em></span>
+  </div>
+</div>
 
 <div class="header">
   <div class="header-left">
     <a href="/" class="pf-brand" onclick="event.preventDefault();showTab('overview')" aria-label="PeakForm home">
-      <svg width="30" height="30" viewBox="0 0 96 96" fill="none" aria-hidden="true">
-        <rect x="2" y="2" width="92" height="92" rx="22" fill="var(--accent)"/>
-        <path d="M18 64 L 48 28 L 78 64" stroke="var(--surface)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        <circle cx="48" cy="74" r="5" fill="var(--surface)"/>
+      <svg class="pf-mark" width="30" height="30" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+        <rect class="pf-mark-tile" x="2" y="2" width="92" height="92" rx="22" fill="var(--accent)" style="transform-box:view-box;transform-origin:48px 48px"/>
+        <path class="pf-mark-base" d="M18 64 L 48 28 L 78 64" stroke="var(--surface)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <g class="pf-mark-trace" fill="none" stroke="var(--surface)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+          <path class="pf-mark-l" d="M18 64 L 48 28" stroke-dasharray="47.5 200" stroke-dashoffset="48"/>
+          <path class="pf-mark-r" d="M48 28 L 78 64" stroke-dasharray="47.5 200" stroke-dashoffset="48"/>
+        </g>
+        <circle class="pf-mark-dot" cx="48" cy="74" r="5" fill="var(--surface)" style="transform-box:view-box;transform-origin:48px 74px"/>
       </svg>
       <span class="pf-wordmark">Peak<em>Form</em></span>
     </a>
@@ -1018,6 +1037,7 @@
 </div>
 
 <script src="/js/bodymap-data.js"></script>
+<script src="/js/pf-mark.js"></script>
 <script src="/js/app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 

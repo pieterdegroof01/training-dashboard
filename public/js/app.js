@@ -32,6 +32,8 @@ async function api(path, opts={}) {
 async function syncAll() {
   const btns = document.querySelectorAll('[onclick="syncAll()"]');
   btns.forEach(b => { b.dataset.orig ??= b.innerHTML; b.textContent = '↻ Laden...'; b.disabled = true; });
+  const brandMark = document.querySelector('.pf-brand .pf-mark');
+  if (brandMark && window.PFMark) PFMark.loop(brandMark);
   try {
     await Promise.allSettled([loadAthlete(), loadRecentActs(), loadHevy(), loadUserData(), loadHistSummary(), loadLiterature(), loadAvailabilitySlots(), loadFullState()]);
     renderGreeting();
@@ -39,6 +41,7 @@ async function syncAll() {
     renderActivitiesTab();
   } finally {
     btns.forEach(b => { b.innerHTML = b.dataset.orig; b.disabled = false; });
+    if (brandMark && window.PFMark) PFMark.stop(brandMark);
   }
 }
 
@@ -5384,6 +5387,35 @@ function initInfoTooltips() {
   });
 }
 
+// ── Splash: cold start, eenmaal per sessie (BR1) ──────────────────────────────
+// Blijft staan tot zowel de logo-animatie als de eerste syncAll klaar is, met een
+// plafond; daarna neemt de headermark het als loader over. De klasse pf-splash-on
+// wordt in de head van index.html gezet, zodat er geen flits van de app voorafgaat.
+const PF_SPLASH_WORDMARK = false;
+const PF_SPLASH_MAX_MS = 6000;
+function pfRunSplash(syncPromise) {
+  const root = document.documentElement;
+  const el = document.getElementById('pfSplash');
+  if (!el) return;
+  if (!root.classList.contains('pf-splash-on') || !window.PFMark) {
+    root.classList.remove('pf-splash-on');
+    el.remove();
+    return;
+  }
+  try { sessionStorage.setItem('pf-splash', '1'); } catch {}
+  if (PF_SPLASH_WORDMARK) el.classList.add('with-wm');
+  const shown = PFMark.play(el.querySelector('.pf-mark'), {
+    wordmark: PF_SPLASH_WORDMARK ? el.querySelector('.pf-splash-wm') : null,
+  });
+  el.classList.add('is-playing');
+  const ready = Promise.all([shown, Promise.resolve(syncPromise).catch(() => {})]);
+  const cap = new Promise(r => setTimeout(r, PF_SPLASH_MAX_MS));
+  Promise.race([ready, cap]).then(() => {
+    el.classList.add('is-leaving');
+    setTimeout(() => { root.classList.remove('pf-splash-on'); el.remove(); }, 260);
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 const _activityPageMatch = window.location.pathname.match(/^\/activity\/(\d+)$/);
 const _workoutPageMatch  = window.location.pathname.match(/^\/workout\/([0-9a-zA-Z-]+)$/);
@@ -5394,7 +5426,7 @@ if (_activityPageMatch) {
   loadUserData(); // load S.fullState (e1RMTrends) en S.hevyWorkouts
   renderWorkoutPage(_workoutPageMatch[1]);
 } else {
-  syncAll();
+  pfRunSplash(syncAll());
   showTabFromUrl(tabFromPath(location.pathname) || 'overview');
 }
 initInfoTooltips();

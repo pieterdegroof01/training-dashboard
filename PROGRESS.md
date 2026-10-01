@@ -167,6 +167,7 @@ Regels voor wie dit bestand bijwerkt:
 - [ ] U4 Formulierbesturing in index.html: labelkoppeling for/id op 72 velden, verwijderknoppen op 24px met aria-label en bevestiging op removeSlot en removePattern (omvat: U6) (na: -)
 - [ ] U5 Globale :focus-visible en prefers-reduced-motion in style.css, theme.css en login.html (na: -)
 - [ ] U8 Documentshell over index, login, 404 en de detailpagina: koppenstructuur, main-landmark, skiplink, aria-current, dynamische title en themascript, statusgebaseerde foutmeldingen met role=alert en een echt form-element op login (omvat: U9, U10) (na: -)
+- [!] BR1 Logo-animatie "punt beklimt de piek": splash bij cold start, sync-loader in de headermark, intro van de headerlockup op /welkom; gedeelde public/js/pf-mark.js (na: -) (2026-10-01)
 
 ## Platform: security, observability, auth
 
@@ -209,6 +210,8 @@ afvinken zou suggereren dat er twee trajecten waren.
 Append-only. Nieuwste bovenaan. Eén regel per bevinding die de scope, de volgorde of
 een aanname raakt. Format: `YYYY-MM-DD | item | bevinding | gevolg`.
 
+- 2026-10-01 | BR1 | splash eenmaal per sessie (sessionStorage pf-splash), staat tot max(animatie, eerste syncAll) met plafond 6 s; op /welkom geen fullscreen intro maar een eenmalige animatie van de headerlockup | geen herhaalde wachttijd in de app, geen vertraging van eerste content en CTA op de landing
+- 2026-10-01 | BR1/U5 | globale CSS-regels voor prefers-reduced-motion raken Web Animations niet; pf-mark.js controleert matchMedia zelf | U5 hoeft pf-mark niet mee te nemen
 - 2026-08-19 | V1-staging | de vaststelling dat staging een eigen DATABASE_URL heeft is
   afgeleid uit een vergelijking van Postgres-credentials tussen omgevingen, uitgevoerd binnen
   een agentsessie die als scope "alleen PROGRESS.md" had | de bevinding blijft staan maar

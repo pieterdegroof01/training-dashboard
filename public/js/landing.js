@@ -123,3 +123,13 @@
     link.addEventListener('click', closeMenu);
   });
 })();
+
+(function () {
+  // Logo-intro (BR1): headerlockup klimt eenmalig. pf-intro wordt in de head gezet en
+  // pas na het aanmaken van de animaties verwijderd, zodat het statische logo niet eerst flitst.
+  var root = document.documentElement;
+  var mark = document.querySelector('.site-header .wordmark .pf-mark');
+  var text = document.querySelector('.site-header .wordmark-text');
+  if (mark && window.PFMark) window.PFMark.play(mark, { wordmark: text });
+  root.classList.remove('pf-intro');
+})();

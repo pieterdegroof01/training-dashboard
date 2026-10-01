@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){try{if('animate' in Element.prototype&&!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElement.classList.add('pf-intro');}catch(e){}})();</script>
 <title>PeakForm — je krachttraining telt mee in je vormcurve</title>
 <meta name="description" content="PeakForm leest je ritten uit Strava en je sets uit Hevy, en rekent beide door in één dagelijks beeld van wat je lichaam vandaag aankan.">
 <meta name="robots" content="noindex, nofollow">
@@ -17,8 +18,16 @@
 
 <header class="site-header">
   <a class="wordmark" href="/welkom" aria-label="PeakForm">
-    <img class="wordmark-mark" src="/assets/logo.svg" alt="" width="30" height="30">
-    <span class="wordmark-text">Peak<em>Form</em></span>
+    <svg class="pf-mark wordmark-mark" width="30" height="30" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <rect class="pf-mark-tile" x="2" y="2" width="92" height="92" rx="22" fill="#012296" style="transform-box:view-box;transform-origin:48px 48px"/>
+      <path class="pf-mark-base" d="M18 64 L 48 28 L 78 64" stroke="#fdfbf5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <g class="pf-mark-trace" fill="none" stroke="#fdfbf5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+        <path class="pf-mark-l" d="M18 64 L 48 28" stroke-dasharray="47.5 200" stroke-dashoffset="48"/>
+        <path class="pf-mark-r" d="M48 28 L 78 64" stroke-dasharray="47.5 200" stroke-dashoffset="48"/>
+      </g>
+      <circle class="pf-mark-dot" cx="48" cy="74" r="5" fill="#fdfbf5" style="transform-box:view-box;transform-origin:48px 74px"/>
+    </svg>
+    <span class="wordmark-text"><span class="pf-wm-peak">Peak</span><em>Form</em></span>
   </a>
   <nav class="site-nav" aria-label="Hoofdnavigatie">
     <a href="#hoe-het-werkt">Hoe het werkt</a>
@@ -405,6 +414,7 @@
   </div>
 </footer>
 
+<script src="/js/pf-mark.js"></script>
 <script src="/js/landing.js"></script>
 </body>
 </html>
