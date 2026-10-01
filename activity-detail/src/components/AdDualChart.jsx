@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import s from './AdDualChart.module.css'
+import { computeSelectionStats, buildSelectionLines } from './selectionStats.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,8 @@ const LANE_DEFS = [
 
 const GAP = 24
 const PAD = { top: 20, right: 42, bottom: 24, left: 44 }
+
+const SELECTION_COLORS = { speed: 'var(--green)', power: 'var(--accent)', hr: 'var(--red)', cadence: 'var(--yellow)', gradient: 'var(--purple)' }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -205,16 +208,41 @@ export function AdDualChart({ power, hr, distance, speed, cadence, altitude, gra
     }
   }
 
-  // ── Gemiddelden over de selectie (alle zichtbare metric-lanes, hoogte uitgezonderd) ──
-  const peakAverages = lanes.filter(L => !L.noAvgBar).map(L => {
-    const inPeak = (dataOf[L.key] || []).filter(p => p.t >= peakStart - 1 && p.t <= peakEnd + 1)
-    const mv = mean(inPeak, L.vKey)
-    if (mv == null) return null
-    const val = L.decimals ? mv.toFixed(L.decimals) : String(Math.round(mv))
-    return { key: L.key, color: L.color, text: `${val} ${L.unit}` }
-  }).filter(Boolean)
+  paramsRef.current = { tMin, tMax, tRange, drawW, pad: PAD, w, power, hr, distance, speed, cadence, gradient, showPower, showHr, showSpeed, showCadence, showGradient, onHover, onSelect, useDistance, axisMin, axisRange, tAt }
 
-  paramsRef.current = { tMin, tMax, tRange, drawW, pad: PAD, w, power, hr, speed, cadence, gradient, showPower, showHr, showSpeed, showCadence, showGradient, onHover, onSelect, useDistance, axisMin, axisRange, tAt }
+  // ── Statistiek over een selectie (gedeelde berekening, zie selectionStats.js) ──
+  // Leest props en toggles uit paramsRef, zodat ook de eenmalig gebonden touch-handlers actuele waarden zien.
+  function selectionLinesFor(tStart, tEnd) {
+    const { distance, speed, hr, power, cadence, gradient, showSpeed, showPower, showHr, showCadence, showGradient } = paramsRef.current
+    const stats = computeSelectionStats({ tStart, tEnd, distance, speed, hr, power, cadence, gradient })
+    return buildSelectionLines(stats, {
+      kind: 'ride',
+      show: { speed: showSpeed, power: showPower, hr: showHr, cadence: showCadence, gradient: showGradient },
+      colors: SELECTION_COLORS,
+    })
+  }
+
+  // Live tooltip tijdens het slepen: zelfde venster als de selectie die bij loslaten ontstaat.
+  function showSelectionTip(x1, x2, clientX, clientY, offsetY) {
+    const tip = tooltipRef.current
+    if (!tip) return
+    const { drawW, pad, axisMin, axisRange, tAt } = paramsRef.current
+    const tStart = tAt(axisMin + Math.max(0, (x1 - pad.left) / drawW) * axisRange)
+    const tEnd = tAt(axisMin + Math.min(1, (x2 - pad.left) / drawW) * axisRange)
+    const marker = c => `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;${c ? `background:${c};` : ''}margin-right:5px"></span>`
+    let html = `<div style="font-weight:700;font-size:10px;color:#aab3d0;margin-bottom:3px">Selectie</div>`
+    for (const line of selectionLinesFor(tStart, tEnd)) {
+      const plain = line.key === 'time' || line.key === 'distance'
+      html += `<div style="white-space:nowrap">${marker(plain ? null : line.color)}${line.label}: <strong>${line.value}</strong></div>`
+    }
+    tip.innerHTML = html
+    tip.style.display = 'block'
+    const tipW = Math.max(160, tip.offsetWidth)
+    let tipX = clientX + 14
+    if (tipX + tipW > window.innerWidth) tipX = clientX - tipW - 14
+    tip.style.left = tipX + 'px'
+    tip.style.top = (clientY - offsetY) + 'px'
+  }
 
   // ── Tooltip (body-level portal) ─────────────────────────────────────────────
   useEffect(() => {
@@ -268,6 +296,8 @@ export function AdDualChart({ power, hr, distance, speed, cadence, altitude, gra
           selRect.setAttribute('width', x2 - x1)
           selRect.style.display = ''
         }
+        if (crosshairRef.current) crosshairRef.current.style.display = 'none'
+        showSelectionTip(Math.min(drag.startX, mouseX), Math.max(drag.startX, mouseX), touch.clientX, touch.clientY, 90)
         return
       }
 
@@ -336,15 +366,15 @@ export function AdDualChart({ power, hr, distance, speed, cadence, altitude, gra
       if (dx > 4) {
         drag.isDragging = true
         if (crosshairRef.current) crosshairRef.current.style.display = 'none'
-        if (tooltipRef.current) tooltipRef.current.style.display = 'none'
+        const x1 = Math.min(drag.startX, mouseX)
+        const x2 = Math.max(drag.startX, mouseX)
         const selRect = selRectRef.current
         if (selRect) {
-          const x1 = Math.min(drag.startX, mouseX)
-          const x2 = Math.max(drag.startX, mouseX)
           selRect.setAttribute('x', x1)
           selRect.setAttribute('width', x2 - x1)
           selRect.style.display = ''
         }
+        showSelectionTip(x1, x2, e.clientX, e.clientY, 60)
       }
       return
     }
@@ -404,6 +434,7 @@ export function AdDualChart({ power, hr, distance, speed, cadence, altitude, gra
   function handleMouseUp(e) {
     if (selRectRef.current) selRectRef.current.style.display = 'none'
     const drag = dragRef.current
+    if (drag.isDragging && tooltipRef.current) tooltipRef.current.style.display = 'none'
     if (!drag.isDragging || drag.startX === null) { drag.startX = null; drag.isDragging = false; return }
     const { tMin, tRange, drawW, pad, w, onSelect, axisMin, axisRange, tAt } = paramsRef.current
     const svg = svgRef.current
@@ -464,10 +495,11 @@ export function AdDualChart({ power, hr, distance, speed, cadence, altitude, gra
 
       {selection && (
         <div className={s.selectionInfo}>
-          <strong>{fmtDur(peakRange)}</strong>
-          {peakAverages.map(a => (
-            <span key={a.key}> · <span style={{ color: a.color }}>{a.text} gem.</span></span>
-          ))}
+          {selectionLinesFor(peakStart, peakEnd).map(line => {
+            if (line.key === 'time') return <strong key={line.key}>{line.value}</strong>
+            if (line.key === 'distance') return <span key={line.key}> · <span className={s.selectionDistance}>{line.value}</span></span>
+            return <span key={line.key}> · <span style={{ color: line.color }}>{line.value} gem.</span></span>
+          })}
           <span className={s.resetHint}> · dubbelklik om te resetten</span>
         </div>
       )}

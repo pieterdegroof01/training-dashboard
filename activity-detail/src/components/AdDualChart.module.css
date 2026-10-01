@@ -38,6 +38,10 @@
   line-height: 1.5;
 }
 
+.selectionDistance {
+  color: var(--text);
+}
+
 .resetHint {
   opacity: 0.55;
   font-size: 10px;
