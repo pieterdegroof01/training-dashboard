@@ -107,7 +107,7 @@ function transformRunResponse(api) {
     activity: a,
     ngp, gapTimeline, runLoad, runningEF, runningDecoupling,
     runHrZones, eccentric, runCadence,
-    velocityTimeline, hrTimeline, gpsTrack,
+    velocityTimeline, hrTimeline, distanceTimeline, gpsTrack,
     hrSummary, sessionClassification,
   } = api
 
@@ -217,6 +217,8 @@ function transformRunResponse(api) {
     speedRaw:    velocityTimeline ?? null,
     gapRaw:      gapTimeline      ?? null,
     hrRaw:       hrTimeline       ?? null,
+    distanceRaw: distanceTimeline ?? null,
+    cadenceRaw:  runCadence?.timelineSpm ?? null,
     gpsTrackRaw: gpsTrack         ?? null,
     powerRaw:    null,
     mmpCurveFull: null,

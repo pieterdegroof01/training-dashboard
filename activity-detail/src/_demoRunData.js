@@ -4,6 +4,12 @@ const N = 900
 const vel = Array.from({ length: N }, (_, i) => ({ t: i * 4, v: 11 + Math.sin(i / 40) * 1.5 + Math.sin(i / 15) * 0.5 }))
 const hr  = Array.from({ length: N }, (_, i) => ({ t: i * 4, hr: 145 + Math.round((i / N) * 20 + Math.sin(i / 25) * 5) }))
 const cad = Array.from({ length: N }, (_, i) => ({ t: i * 4, c: 175 + Math.round(Math.sin(i / 20) * 5) }))
+// Afstand in km als cumulatieve som van de snelheid (v / 3600 × Δt), zodat de afstand-as in de demo actief is.
+let cumKm = 0
+const dist = vel.map((p, i) => {
+  if (i > 0) cumKm += (p.v / 3600) * (p.t - vel[i - 1].t)
+  return { t: p.t, d: cumKm }
+})
 const gap = Array.from({ length: N }, (_, i) => ({ t: i * 4, pace: 320 - Math.round(Math.sin(i / 40) * 20) }))
 const gps = Array.from({ length: N }, (_, i) => {
   const a = (i / N) * Math.PI * 2
@@ -24,6 +30,7 @@ export const demoRunApi = {
   eccentric: { descentM: 182, eccentricFlag: false, reason: 'Beperkt dalend profiel' },
   runCadence: { avgSpm: 175, max: 185, timelineSpm: cad },
   velocityTimeline: vel,
+  distanceTimeline: dist,
   hrTimeline: hr,
   gpsTrack: gps,
   hrSummary: { avgHR: 152, maxHR: 181 },
