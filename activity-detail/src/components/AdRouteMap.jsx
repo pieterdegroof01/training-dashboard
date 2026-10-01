@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import s from './AdRouteMap.module.css'
 
+const CARTO_KEY = (import.meta.env.VITE_CARTO_API_KEY || '').trim()
+if (!CARTO_KEY && import.meta.env.DEV) console.warn('[AdRouteMap] VITE_CARTO_API_KEY ontbreekt: CARTO-tiles tonen een watermerk. Zie activity-detail/.env.example.')
+
 function nearestGpsPoint(gpsTrack, tCurrent) {
   if (!gpsTrack?.length) return null
   let best = gpsTrack[0], bestDiff = Math.abs(gpsTrack[0].t - tCurrent)
@@ -14,9 +17,10 @@ function nearestGpsPoint(gpsTrack, tCurrent) {
 }
 
 function tileUrl(theme) {
-  return theme === 'dark'
+  const url = theme === 'dark'
     ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
     : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+  return CARTO_KEY ? url + '?key=' + encodeURIComponent(CARTO_KEY) : url
 }
 
 const TILE_ATTR = '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors © <a href="https://carto.com">CARTO</a>'
