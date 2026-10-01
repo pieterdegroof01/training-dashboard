@@ -30,3 +30,15 @@
   display: block;
   overflow: visible;
 }
+
+.selectionInfo {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 2px;
+  line-height: 1.5;
+}
+
+.resetHint {
+  opacity: 0.55;
+  font-size: 10px;
+}

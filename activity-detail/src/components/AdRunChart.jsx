@@ -29,6 +29,13 @@ function fmtTime(sec, range) {
   return `${m}m${String(ss).padStart(2, '0')}s`
 }
 
+function fmtDur(sec) {
+  if (sec < 60) return `${Math.round(sec)}s`
+  if (sec < 3600) return `${Math.round(sec / 60)}m`
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60)
+  return m ? `${h}u${String(m).padStart(2, '0')}` : `${h}u`
+}
+
 function secToPace(sec) {
   if (sec == null || !isFinite(sec) || sec <= 0) return '–'
   const m = Math.floor(sec / 60)
@@ -41,6 +48,13 @@ function avg(pts, key) {
   return Math.round(pts.reduce((a, p) => a + p[key], 0) / pts.length)
 }
 
+// Mean speed (km/u) over moving points; pace is derived from this, never averaged directly
+function meanSpeed(pts) {
+  const moving = pts.filter(p => p.v > 0)
+  if (!moving.length) return null
+  return moving.reduce((a, p) => a + p.v, 0) / moving.length
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AdRunChart({
@@ -51,7 +65,9 @@ export function AdRunChart({
   const svgRef      = useRef(null)
   const overlayRef  = useRef(null)
   const crosshairRef = useRef(null)
+  const selRectRef  = useRef(null)
   const tooltipRef  = useRef(null)
+  const dragRef     = useRef({ startX: null, isDragging: false })
   const paramsRef   = useRef({})
 
   const tMin   = selection ? selection.tStart : 0
@@ -99,6 +115,16 @@ export function AdRunChart({
   const avgSpd = avg(speedIn, 'v')
   const avgHrV = avg(hrIn,    'hr')
 
+  // Averages over the selected window (speedIn / gapAsSpeed / hrIn are already windowed)
+  const selAverages = []
+  if (selection) {
+    const selSpd = meanSpeed(speedIn)
+    const selGap = gapAsSpeed.length >= 2 ? meanSpeed(gapAsSpeed) : null
+    if (selSpd != null) selAverages.push({ key: 'speed', color: 'var(--accent)',  text: `${secToPace(3600 / selSpd)} /km` })
+    if (selGap != null) selAverages.push({ key: 'gap',   color: 'var(--accent2)', text: `GAP ${secToPace(3600 / selGap)} /km` })
+    if (avgHrV != null) selAverages.push({ key: 'hr',    color: 'var(--red)',     text: `${avgHrV} bpm` })
+  }
+
   // Time grid
   const interval = tRange > 7200 ? 1800 : tRange > 3600 ? 900 : tRange > 1800 ? 600 : tRange > 600 ? 300 : tRange > 300 ? 60 : 30
   const timeTicks = []
@@ -131,6 +157,17 @@ export function AdRunChart({
     const overlay = overlayRef.current
     if (!overlay) return
 
+    function onTouchStart(e) {
+      e.preventDefault()
+      const touch = e.touches[0]
+      const svg = svgRef.current
+      if (!svg) return
+      const { w } = paramsRef.current
+      const svgRect = svg.getBoundingClientRect()
+      dragRef.current.startX = (touch.clientX - svgRect.left) * (w / svgRect.width)
+      dragRef.current.isDragging = false
+    }
+
     function onTouchMove(e) {
       e.preventDefault()
       const touch = e.touches[0]
@@ -139,22 +176,59 @@ export function AdRunChart({
       const { tMin, tRange, drawW, pad, w, onHover } = paramsRef.current
       const svgRect = svg.getBoundingClientRect()
       const mouseX = (touch.clientX - svgRect.left) * (w / svgRect.width)
+      const drag = dragRef.current
+
+      if (drag.startX !== null && Math.abs(mouseX - drag.startX) > 4) {
+        drag.isDragging = true
+        const selRect = selRectRef.current
+        if (selRect) {
+          const x1 = Math.min(drag.startX, mouseX)
+          const x2 = Math.max(drag.startX, mouseX)
+          selRect.setAttribute('x', x1)
+          selRect.setAttribute('width', x2 - x1)
+          selRect.style.display = ''
+        }
+        return
+      }
+
       if (mouseX < pad.left || mouseX > pad.left + drawW) return
       onHover?.(tMin + ((mouseX - pad.left) / drawW) * tRange)
       const ch = crosshairRef.current
       if (ch) { ch.setAttribute('x1', mouseX); ch.setAttribute('x2', mouseX); ch.style.display = '' }
     }
 
-    function onTouchEnd() {
+    function onTouchEnd(e) {
+      if (selRectRef.current) selRectRef.current.style.display = 'none'
+      const drag = dragRef.current
+      if (drag.isDragging && drag.startX !== null) {
+        const touch = e.changedTouches[0]
+        const svg = svgRef.current
+        if (svg) {
+          const { tMin, tRange, drawW, pad, w, onSelect } = paramsRef.current
+          const svgRect = svg.getBoundingClientRect()
+          const mouseX = (touch.clientX - svgRect.left) * (w / svgRect.width)
+          const x1 = Math.min(drag.startX, mouseX)
+          const x2 = Math.max(drag.startX, mouseX)
+          if (x2 - x1 >= 8) {
+            const tStart = tMin + Math.max(0, (x1 - pad.left) / drawW) * tRange
+            const tEnd   = tMin + Math.min(1, (x2 - pad.left) / drawW) * tRange
+            onSelect?.({ tStart, tEnd })
+          }
+        }
+      }
+      drag.startX = null
+      drag.isDragging = false
       if (crosshairRef.current) crosshairRef.current.style.display = 'none'
       if (tooltipRef.current)  tooltipRef.current.style.display  = 'none'
       paramsRef.current.onHover?.(null)
     }
 
+    overlay.addEventListener('touchstart', onTouchStart, { passive: false })
     overlay.addEventListener('touchmove',  onTouchMove, { passive: false })
     overlay.addEventListener('touchend',   onTouchEnd)
     overlay.addEventListener('touchcancel', onTouchEnd)
     return () => {
+      overlay.removeEventListener('touchstart', onTouchStart)
       overlay.removeEventListener('touchmove',  onTouchMove)
       overlay.removeEventListener('touchend',   onTouchEnd)
       overlay.removeEventListener('touchcancel', onTouchEnd)
@@ -169,6 +243,25 @@ export function AdRunChart({
     if (!svg) return
     const svgRect = svg.getBoundingClientRect()
     const mouseX  = (e.clientX - svgRect.left) * (w / svgRect.width)
+    const drag = dragRef.current
+
+    if (drag.startX !== null) {
+      if (Math.abs(mouseX - drag.startX) > 4) {
+        drag.isDragging = true
+        if (crosshairRef.current) crosshairRef.current.style.display = 'none'
+        if (tooltipRef.current)  tooltipRef.current.style.display  = 'none'
+        const selRect = selRectRef.current
+        if (selRect) {
+          const x1 = Math.min(drag.startX, mouseX)
+          const x2 = Math.max(drag.startX, mouseX)
+          selRect.setAttribute('x', x1)
+          selRect.setAttribute('width', x2 - x1)
+          selRect.style.display = ''
+        }
+      }
+      return
+    }
+
     if (mouseX < pad.left || mouseX > pad.left + drawW) {
       if (crosshairRef.current) crosshairRef.current.style.display = 'none'
       if (tooltipRef.current)  tooltipRef.current.style.display  = 'none'
@@ -198,10 +291,44 @@ export function AdRunChart({
     }
   }
 
+  function handleMouseDown(e) {
+    const svg = svgRef.current
+    if (!svg) return
+    const { w } = paramsRef.current
+    const svgRect = svg.getBoundingClientRect()
+    dragRef.current.startX = (e.clientX - svgRect.left) * (w / svgRect.width)
+    dragRef.current.isDragging = false
+    e.preventDefault()
+  }
+
+  function handleMouseUp(e) {
+    if (selRectRef.current) selRectRef.current.style.display = 'none'
+    const drag = dragRef.current
+    if (!drag.isDragging || drag.startX === null) { drag.startX = null; drag.isDragging = false; return }
+    const { tMin, tRange, drawW, pad, w, onSelect } = paramsRef.current
+    const svg = svgRef.current
+    if (!svg) return
+    const svgRect = svg.getBoundingClientRect()
+    const mouseX  = (e.clientX - svgRect.left) * (w / svgRect.width)
+    const x1 = Math.min(drag.startX, mouseX)
+    const x2 = Math.max(drag.startX, mouseX)
+    drag.startX = null; drag.isDragging = false
+    if (x2 - x1 < 8) return
+    const tStart = tMin + Math.max(0, (x1 - pad.left) / drawW) * tRange
+    const tEnd   = tMin + Math.min(1, (x2 - pad.left) / drawW) * tRange
+    onSelect?.({ tStart, tEnd })
+  }
+
   function handleMouseLeave() {
-    if (crosshairRef.current) crosshairRef.current.style.display = 'none'
-    if (tooltipRef.current)  tooltipRef.current.style.display  = 'none'
-    paramsRef.current.onHover?.(null)
+    if (!dragRef.current.isDragging) {
+      if (crosshairRef.current) crosshairRef.current.style.display = 'none'
+      if (tooltipRef.current)  tooltipRef.current.style.display  = 'none'
+      paramsRef.current.onHover?.(null)
+    }
+  }
+
+  function handleDblClick() {
+    paramsRef.current.onSelect?.(null)
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -213,6 +340,16 @@ export function AdRunChart({
         {gapPath          && <LegendPill color="var(--accent2)" label="GAP (grade-adj.)" thin />}
         {avgHrV != null  && <LegendPill color="var(--red)"    label={`Hartslag · gem ${avgHrV} bpm`} dashed />}
       </div>
+
+      {selection && (
+        <div className={s.selectionInfo}>
+          <strong>{fmtDur(selection.tEnd - selection.tStart)}</strong>
+          {selAverages.map(a => (
+            <span key={a.key}> · <span style={{ color: a.color }}>{a.text} gem.</span></span>
+          ))}
+          <span className={s.resetHint}> · dubbelklik om te resetten</span>
+        </div>
+      )}
 
       <svg ref={svgRef} width="100%" viewBox={`0 0 ${w} ${h}`} className={s.svg}>
         {/* Time grid */}
@@ -253,6 +390,14 @@ export function AdRunChart({
           style={{ display: 'none', pointerEvents: 'none' }}
         />
 
+        {/* Drag selection rectangle */}
+        <rect
+          ref={selRectRef}
+          y={pad.top} height={drawH}
+          fill="var(--accent-soft)" stroke="var(--accent)" strokeWidth="1"
+          style={{ display: 'none', pointerEvents: 'none' }}
+        />
+
         {/* Interactive overlay */}
         <rect
           ref={overlayRef}
@@ -260,7 +405,10 @@ export function AdRunChart({
           fill="transparent"
           style={{ cursor: 'crosshair' }}
           onMouseMove={handleMouseMove}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
+          onDoubleClick={handleDblClick}
         />
       </svg>
     </div>
